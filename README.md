@@ -26,7 +26,7 @@
 6. [Diagnostic Tables](#diagnostic-tables)
     - [`temporal_long_request_failure`](#temporal_long_request_failure-diagnostic-table)
     - [`temporal_request_failure`](#temporal_request_failure-diagnostic-table)
-7. [Common `status_code` Values](#common-status_code-values)
+10. [From SDK Metric to Server Dashboard](#from-sdk-metric-to-server-dashboard)
 8. [Metric Tag Format](#metric-tag-format)
 9. [Sources](#sources)
 
@@ -587,6 +587,101 @@ An important distinction: the rate limit buckets and priority section above cove
 | `ResetStickyTaskQueue` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 4. |
 | `ResetStickyTaskQueue` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `ResetStickyTaskQueue` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
+
+---
+
+## From SDK Metric to Server Dashboard
+
+When an SDK metric spike points to a server-side issue, the next step is always to correlate it against your server dashboard. The table below maps the most important SDK failure patterns to the specific panels in the Temporal Server Dashboard and what to look for in each one.
+
+The dashboard referenced here is the [Temporal Server Dashboard](https://github.com/tsurdilo/my-temporal-dockercompose/blob/main/deployment/grafana/dashboards/temporal-server.json), which covers the key server-side signal areas. All panels are namespace-scoped.
+
+---
+
+### `ResourceExhausted` on any operation
+
+| Dashboard Section | Panel | What to look for |
+|-------------------|-------|-----------------|
+| Server Overview — Throttling | **Resource Exhausted with Cause** (`service_errors_resource_exhausted` by `operation` and `resource_exhausted_cause`) | This is your first stop. Look for `RpsLimit` (namespace RPS quota hit), `ConcurrentLimit` (too many simultaneous long-running requests), or `SystemOverload` (DB under pressure). The `operation` label will confirm which API is being throttled server-side, correlating directly to the `operation` tag on your SDK metric. |
+
+---
+
+### `Internal` or `Unavailable` on any operation
+
+| Dashboard Section | Panel | What to look for |
+|-------------------|-------|-----------------|
+| Server Overview — Service Requests and Errors | **Service Errors** (`service_errors` on frontend) | A spike here confirms the server is returning errors. Look for a rate increase that correlates in time with your SDK metric spike. |
+| Server Overview — Service Requests and Errors | **Server Errors by Type** (`service_error_with_type` by `error_type`) | Breaks down what kind of errors the frontend is returning — e.g. `persistence`, `resource_exhausted`, `deadline_exceeded`. Helps narrow down whether it is a DB issue, an overload condition, or something else. |
+| Server Overview — Persistence Requests, Latencies and Errors | **Persistence Errors** (`persistence_error_with_type` by `operation` and `error_type`) | If `Internal` or `Unavailable` correlates with persistence errors, this confirms a DB-level issue. Look for elevated error rates on operations like `GetWorkflowExecution`, `UpdateWorkflowExecution`, or `CreateTasks`. |
+| Server Overview — Persistence Requests, Latencies and Errors | **Persistence Availability** (gauge) | If this drops below 99%, your DB is struggling and will be causing cascading errors across all SDK operations. |
+| Server Overview — Shard Movement | **Service Restarts** (`restarts{}` by `service_name`) | A spike here means a Temporal service restarted, which causes transient `Unavailable` and `Internal` errors across all operations. Correlate the restart time with your SDK metric spike. |
+
+---
+
+### `DeadlineExceeded` on any operation
+
+| Dashboard Section | Panel | What to look for |
+|-------------------|-------|-----------------|
+| Server Overview — Persistence Requests, Latencies and Errors | **Persistence Latencies** (`persistence_latency_bucket` by `operation`) | High persistence latency is the most common server-side cause of `DeadlineExceeded`. Look for p99 latency spikes, especially on `GetWorkflowExecution` or history-related operations. |
+| Server Overview — Cluster Throughput | **Shard Lock Latency** (`semaphore_latency_bucket` for `ShardInfo`) | Elevated shard lock latency means history service shards are contended, which introduces latency to all operations and can cause timeouts. Orange threshold at 200ms, red at 400ms. |
+| Server Overview — Cluster Throughput | **Workflow Lock Latency** (`cache_latency_bucket` for `HistoryCacheGetOrCreate`) | High workflow lock latency means per-execution updates are queueing up. Common in high fan-out workflows. Orange at 200ms, red at 500ms. |
+| Server Overview — Shard Movement | **Shards Created / Removed / Closed** | Shard movement during cluster scaling or restarts introduces transient latency spikes that can cause `DeadlineExceeded`. Correlate shard movement timing with your SDK metric spike. |
+| Server Overview — Shard Movement | **Service Restarts** | Worker or service pod restarts will cancel in-flight requests and cause `DeadlineExceeded` on the client side. |
+
+---
+
+### `DeadlineExceeded` on `QueryWorkflow`, `UpdateWorkflowExecution`, or `PollWorkflowExecutionUpdate` specifically
+
+These three operations block until a Workflow Task completes, so their `DeadlineExceeded` is often a worker health signal rather than a pure server issue.
+
+| Dashboard Section | Panel | What to look for |
+|-------------------|-------|-----------------|
+| Server Overview — SDK Workers | **Schedule to Start Latencies** (`task_schedule_to_start_latency_bucket` by `task_type` and `operation`) | This is your primary signal. High schedule-to-start latency for `workflow` tasks means workers are not picking up WFTs fast enough. Orange threshold at 500ms, red at 2s. |
+| Server Overview — SDK Workers | **Tasks Persisted to DB** (`persistence_requests` for `CreateTasks`) | A sustained increase here means the matching service cannot dispatch tasks to a waiting poller and is writing them to the database instead — a sign of worker under-provisioning or a growing backlog. |
+| Server Overview — SDK Workers | **Sync Match Rate** (`syncmatch_latency_bucket` on matching) | Low or degrading sync match rate means tasks are not being picked up by waiting pollers within the sync match window (~500ms), indicating insufficient pollers or worker capacity. |
+| Server Overview — Task Timeouts and Backlog | **Approximate Task Backlog** (`approximate_backlog_count` by `task_type`) | A growing backlog confirms workers are falling behind. If this is rising alongside `DeadlineExceeded` on query/update operations, workers need to be scaled up. |
+
+---
+
+### `NotFound` on `RespondActivityTaskCompleted`, `RespondActivityTaskFailed`, or `RecordActivityTaskHeartbeat`
+
+These `NotFound` responses mean the activity's task token was stale — the activity timed out on the server before the worker could respond.
+
+| Dashboard Section | Panel | What to look for |
+|-------------------|-------|-----------------|
+| Server Overview — Task Timeouts and Backlog | **Activity StartToClose Timeout** (`start_to_close_timeout` for `TimerActiveTaskActivityTimeout`) | A spike here directly confirms activities are timing out before completion. Correlate timing with your SDK `NotFound` spike. |
+| Server Overview — Task Timeouts and Backlog | **Activity Heartbeat Timeout** (`heartbeat_timeout` for `TimerActiveTaskActivityTimeout`) | For `RecordActivityTaskHeartbeat` `NotFound` specifically — this confirms heartbeat timeouts are firing. Check your `HeartbeatTimeout` configuration and heartbeat frequency. |
+| Server Overview — Task Timeouts and Backlog | **Approximate Task Backlog** | A growing backlog means activities are waiting too long to be picked up in the first place, contributing to `ScheduleToStart` timeouts upstream of the `StartToClose`. |
+
+---
+
+### `NotFound` on `RespondWorkflowTaskCompleted` or `RespondWorkflowTaskFailed`
+
+Means the WFT timed out and was rescheduled before the worker could respond.
+
+| Dashboard Section | Panel | What to look for |
+|-------------------|-------|-----------------|
+| Server Overview — Task Timeouts and Backlog | **Workflow Task StartToClose Timeouts** (`start_to_close_timeout` for `TimerActiveTaskWorkflowTaskTimeout`) | A spike here confirms WFTs are timing out. This usually means WFT processing on the worker is slower than the `WorkflowTaskTimeout`. |
+| Server Overview — SDK Workers | **Schedule to Start Latencies** | If WFTs are timing out, schedule-to-start latency will also be elevated — check whether the issue is the worker not picking up tasks fast enough, or processing them too slowly once picked up. |
+
+---
+
+### `ResourceExhausted` on visibility operations (`ListWorkflowExecutions`, `CountWorkflowExecutions`, `DescribeTaskQueue`, etc.)
+
+| Dashboard Section | Panel | What to look for |
+|-------------------|-------|-----------------|
+| Server Overview — Throttling | **Resource Exhausted with Cause** | Filter by the visibility operation name. Look for `RpsLimit` with a cause tied to the visibility bucket. |
+| Server Overview — Visibility | **Visibility Availability** (gauge) | If visibility availability drops below 99%, the visibility store itself is struggling, which will amplify throttling as the server protects it with rate limits. |
+| Server Overview — Visibility | **Visibility Latencies per Operation** (`task_latency_bucket` for `VisibilityTask.*`) | High visibility task latency means the underlying store (Elasticsearch/SQL) is slow, which can cause cascading errors on visibility API calls. |
+
+---
+
+### `Canceled` or `DeadlineExceeded` on poll operations correlating with service restarts
+
+| Dashboard Section | Panel | What to look for |
+|-------------------|-------|-----------------|
+| Server Overview — Shard Movement | **Service Restarts** (`restarts{}` by `service_name`) | Confirm whether a service restart happened at the same time as your SDK metric spike. Restarts cause in-flight polls to be canceled or timed out. |
+| Server Overview — Shard Movement | **Shards Created / Removed / Closed** | Shard movement during a restart or scaling event introduces transient disruption to poll operations. A burst of shard closures followed by creations is a normal restart pattern but will cause transient SDK errors. |
 
 ---
 
