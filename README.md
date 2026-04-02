@@ -7,28 +7,23 @@
 
 1. [Why These Two Metrics](#why-these-two-metrics)
 2. [How the SDK Distinguishes the Two Metrics](#how-the-sdk-distinguishes-the-two-metrics)
-3. [Server-Side Throttling: Rate Limit Buckets and Priority](#server-side-throttling-rate-limit-buckets-and-priority)
+3. [Alert Severity and Business Impact](#alert-severity-and-business-impact)
+4. [Diagnostic Tables](#diagnostic-tables)
+    - [`temporal_long_request_failure`](#temporal_long_request_failure-diagnostic-table)
+    - [`temporal_request_failure`](#temporal_request_failure-diagnostic-table)
+5. [From SDK Metric to Server Dashboard](#from-sdk-metric-to-server-dashboard)
+6. [Common `status_code` Values](#common-status_code-values)
+7. [Metric Tag Format](#metric-tag-format)
+8. [Server-Side Throttling: Rate Limit Buckets and Priority](#server-side-throttling-rate-limit-buckets-and-priority)
     - [Execution Bucket](#execution-bucket)
     - [Visibility Bucket](#visibility-bucket)
     - [NamespaceReplicationInducing Bucket](#namespacereplicationinducing-bucket)
     - [Priority Within Each Bucket](#priority-within-each-bucket)
-4. [`temporal_long_request_failure` — Long-Poll Operations](#temporal_long_request_failure--long-poll-operations)
-5. [`temporal_request_failure` — Standard Operations](#temporal_request_failure--standard-operations)
-    - [Execution Bucket](#execution-bucket-1)
-        - [Priority 0 — System / Informational](#priority-0--system--informational-operator-equivalent)
-        - [Priority 1 — External Event APIs + Task Progress](#priority-1--external-event-apis--task-progress-completions--heartbeats)
-        - [Priority 2 — State Change APIs](#priority-2--state-change-apis)
-        - [Priority 3 — Status Querying + Failure/Cancel Reporting](#priority-3--status-querying--failurecancel-reporting)
-        - [Priority 4 — Poll APIs and Other Low Priority](#priority-4--poll-apis-and-other-low-priority)
-        - [Priority 5 — Lowest Priority](#priority-5--lowest-priority)
-    - [Visibility Bucket](#visibility-bucket-1)
-    - [NamespaceReplicationInducing Bucket](#namespacereplicationinducing-bucket-1)
-6. [Diagnostic Tables](#diagnostic-tables)
-    - [`temporal_long_request_failure`](#temporal_long_request_failure-diagnostic-table)
-    - [`temporal_request_failure`](#temporal_request_failure-diagnostic-table)
-10. [From SDK Metric to Server Dashboard](#from-sdk-metric-to-server-dashboard)
-8. [Metric Tag Format](#metric-tag-format)
-9. [Sources](#sources)
+9. [Operation Reference Tables](#operation-reference-tables)
+    - [Execution Bucket Operations](#execution-bucket-operations)
+    - [Visibility Bucket Operations](#visibility-bucket-operations)
+    - [NamespaceReplicationInducing Bucket Operations](#namespacereplicationinducing-bucket-operations)
+10. [Sources](#sources)
 
 ---
 
@@ -61,252 +56,66 @@ The `operation` tag is extracted directly from the gRPC method path (everything 
 
 ---
 
-## Server-Side Throttling: Rate Limit Buckets and Priority
+## Alert Severity and Business Impact
 
-When a `ResourceExhausted` error surfaces in `temporal_request_failure` or `temporal_long_request_failure`, it means the server's rate limiter rejected the call. Understanding *which* rate limiter, *at what priority*, and *which dynamic config knob controls it* is essential for diagnosis and tuning.
+Not all failures surfaced by these metrics are equal. Two operations can both return `ResourceExhausted` but one is a minor performance degradation while the other is actively blocking your business. This section gives guidance on which failures warrant immediate alerting, which to monitor passively, and which are largely expected and informational.
 
-The Temporal frontend uses **three independent rate limit buckets**, each with its own RPS quota and internal priority queue. They are configured independently and do not share capacity.
-
----
-
-### Execution Bucket
-
-Covers most workflow, worker, and admin APIs.
-
-| Scope | Dynamic Config Key | Default | Notes |
-|-------|--------------------|---------|-------|
-| Per-instance, per-namespace | `frontend.namespaceRPS` | `0` (unlimited) | Primary per-host throttle. Set this to cap a single frontend instance's RPS for a namespace |
-| Global, per-namespace | `frontend.globalNamespaceRPS` | `0` (disabled) | Cluster-wide cap distributed evenly across frontend instances. Takes precedence over per-instance when set |
-| Burst ratio (per-instance) | `frontend.namespaceBurstRatio` | `2.0` | Burst capacity as a multiplier of the effective RPS. Must be ≥ 1 |
-| Concurrent long-running (per-instance) | `frontend.namespaceCount` | `0` (unlimited) | Max concurrent long-running requests (polls, queries, updates) per namespace per API per instance |
-| Concurrent long-running (global) | `frontend.globalNamespaceCount` | `0` (disabled) | Same as above but cluster-wide |
-
-> **How per-instance and global interact:** The effective per-instance limit is `min(perInstanceRPS, globalRPS / numFrontendInstances)`. If `globalNamespaceRPS` is 0, only `namespaceRPS` applies. If both are 0, the bucket is unlimited.
+These tiers are general guidance — your specific alerting thresholds should be tuned to your workload and business requirements.
 
 ---
 
-### Visibility Bucket
+### 🔴 High Impact — Alert Immediately
 
-Covers all APIs backed by the visibility store (Elasticsearch / SQL). Completely separate quota from the Execution bucket — exhausting visibility RPS does **not** affect workflow start/signal RPS and vice versa.
+Failures here directly block new work from being created, prevent running workflows from making progress, or have immediate user-facing or business consequences. Sustained occurrences warrant immediate investigation.
 
-| Scope | Dynamic Config Key | Default | Notes |
-|-------|--------------------|---------|-------|
-| Per-instance, per-namespace | `frontend.namespaceRPS.visibility` | `10` | **Very low default** — easy to hit in production with frequent list/count calls |
-| Global, per-namespace | `frontend.globalNamespaceRPS.visibility` | `0` (disabled) | Cluster-wide visibility cap distributed across instances |
-| Burst ratio (per-instance) | `frontend.namespaceBurstRatio.visibility` | `1.0` | Burst ratio for visibility. Defaults to 1 (no burst headroom). Must be ≥ 1 |
-
-> ⚠️ The `frontend.namespaceRPS.visibility` default of **10 RPS** is intentionally conservative. In production workloads with dashboards, monitoring, or frequent `ListWorkflowExecutions` calls, this is frequently the first limit hit. It is also why `DescribeTaskQueue` (which queries visibility for reachability data) can trigger `ResourceExhausted` even when execution RPS looks healthy.
-
----
-
-### NamespaceReplicationInducing Bucket
-
-Covers APIs that write to the namespace replication queue — a critical, unpartitioned resource also used for failover messages between clusters. Isolated to prevent flooding that queue.
-
-| Scope | Dynamic Config Key | Default | Notes |
-|-------|--------------------|---------|-------|
-| Global (cluster-wide) | `frontend.rps.namespaceReplicationInducingAPIs` | `20` | Hard cluster-wide cap; applies regardless of namespace |
-| Per-instance, per-namespace | `frontend.namespaceRPS.namespaceReplicationInducingAPIs` | `0` (unlimited) | Per-host per-namespace cap; experimental |
-| Global, per-namespace | `frontend.globalNamespaceRPS.namespaceReplicationInducingAPIs` | `0` (disabled) | Cluster-wide per-namespace cap; experimental |
-| Burst ratio (per-instance) | `frontend.namespaceBurstRatio.namespaceReplicationInducingAPIs` | `10.0` | Burst multiplier for replication-inducing APIs |
-
-> The global `frontend.rps.namespaceReplicationInducingAPIs` at **20 RPS** is a cluster-wide ceiling shared across all namespaces. Automation that bulk-registers namespaces or rapidly updates versioning rules can hit this. This was introduced in v1.21.0 when `UpdateWorkerBuildIdCompatibility`, `UpdateNamespace`, and `RegisterNamespace` were moved to their own queue.
+| Metric | Operation | Status Code | Why it matters |
+|--------|-----------|-------------|----------------|
+| `temporal_request_failure` | `StartWorkflowExecution` | `ResourceExhausted` | Directly blocks new workflows from being created. If your application relies on Temporal to handle incoming requests or jobs, this means work is being dropped or failing at the entry point. High business impact. |
+| `temporal_request_failure` | `StartWorkflowExecution` | `Unavailable` / `Internal` | Same — new workflow creation is failing. Persistent occurrences mean your system is not processing new work. |
+| `temporal_request_failure` | `SignalWorkflowExecution` | `ResourceExhausted` | If signals drive critical state transitions in your workflows (payments, approvals, notifications), throttling here means those transitions are not happening. |
+| `temporal_request_failure` | `RespondWorkflowTaskCompleted` | `ResourceExhausted` | Workers cannot complete WFTs. Sustained throttling here causes WFTs to time out and retry, amplifying load — a feedback loop that can spiral. |
+| `temporal_request_failure` | `RespondWorkflowTaskCompleted` | `NotFound` (sustained, high rate) | WFTs are timing out consistently before workers can respond. Indicates workers are severely overloaded or processing is far too slow relative to `WorkflowTaskTimeout`. |
+| `temporal_request_failure` | `RecordActivityTaskHeartbeat` | `ResourceExhausted` | Heartbeats are high priority (P1) — if these are being throttled, heartbeat timeouts will fire, causing activities to be marked as timed out even though the worker is still running them. |
+| `temporal_request_failure` | `RespondActivityTaskCompleted` | `ResourceExhausted` | Activity completions are being throttled. Work is being done but results cannot be reported back, causing activities to time out and retry unnecessarily. |
+| `temporal_long_request_failure` | `PollWorkflowExecutionUpdate` | `DeadlineExceeded` (sustained) | Workflow updates are timing out consistently — workers are not making progress on WFTs. Direct user-facing impact if updates are used in synchronous request/response patterns. |
+| `temporal_request_failure` | `UpdateWorkflowExecution` | `DeadlineExceeded` (sustained) | Same as above — synchronous update calls are timing out. |
+| `temporal_request_failure` | `QueryWorkflow` | `DeadlineExceeded` (sustained) | Query calls are timing out — workers are not keeping up with WFTs. Direct user-facing impact if queries power read APIs. |
 
 ---
 
-### Priority Within Each Bucket
+### 🟡 Medium Impact — Monitor Closely
 
-Within each bucket, every API has a **priority**. When the bucket is under load, **lower-priority calls are dropped first**. Requests from Web UI or `tctl` (`CallerType = Operator`) are always elevated to **Priority 0** regardless of the API, giving them precedence over all SDK traffic.
+Failures here degrade performance, increase latency, or indicate developing problems that will become high impact if left unaddressed. Worth alerting on at a lower threshold or after sustained duration.
 
-Priority scale: **0 = highest, 5 = lowest**
-
----
-
-## `temporal_long_request_failure` — Long-Poll Operations
-
-These are the **only** operations where the SDK sets `LongPollContextKey = true`. The server holds the connection open until a task is available or the poll timeout (~60s) is reached.
-
-| Operation | Bucket | Priority | Notes |
-|-----------|--------|----------|-------|
-| `PollWorkflowTaskQueue` | Execution | **4** | Regular + sticky task queue polls |
-| `PollActivityTaskQueue` | Execution | **4** | Activity task polls |
-| `PollNexusTaskQueue` | Execution | **4** | Nexus task polls |
-| `GetWorkflowExecutionHistory` (long-poll) | Execution | **5** | Only when `wait_new_event=true`. Tracked server-side as `PollWorkflowExecutionHistory`. Priority 5 so spikes don't starve Poll* APIs |
-
-> **Note on `GetWorkflowExecutionHistory`:** The same RPC covers two cases. When `wait_new_event=false` (plain fetch), it falls under `temporal_request_failure` at **Priority 2**. When `wait_new_event=true` (long-poll), it falls under `temporal_long_request_failure` at **Priority 5**. The server internally routes these to different quota slots.
-
-> **Note on Poll* blocking:** `PollWorkflowTaskQueue`, `PollActivityTaskQueue`, and `PollNexusTaskQueue` are in `PollTaskAPISet` — when `FrontendPollWaitForNamespaceRateLimitToken` is enabled, these will *block and wait* for a token rather than reject immediately, avoiding spurious `ResourceExhausted` errors on poll calls.
+| Metric | Operation | Status Code | Why it matters |
+|--------|-----------|-------------|----------------|
+| `temporal_long_request_failure` | `PollWorkflowTaskQueue` | `ResourceExhausted` | Workers are being throttled on polls. Workflows will still make progress but schedule-to-start latency for workflow tasks will increase. Not immediately business-critical but signals a capacity problem that will worsen. |
+| `temporal_long_request_failure` | `PollActivityTaskQueue` | `ResourceExhausted` | Same as workflow poll — activity schedule-to-start latency increases. Activities will still complete but with higher latency. |
+| `temporal_request_failure` | `RespondActivityTaskCompleted` | `NotFound` (elevated rate) | Activities are timing out before workers can respond. May indicate `StartToCloseTimeout` is too tight for the actual activity duration, or workers are struggling under load. |
+| `temporal_request_failure` | `RecordActivityTaskHeartbeat` | `NotFound` | Heartbeat timeouts are firing. Activities are being considered timed out by the server while still running. Check `HeartbeatTimeout` configuration and heartbeat frequency. |
+| `temporal_request_failure` | `ListWorkflowExecutions` | `ResourceExhausted` | Visibility quota exhausted. User-facing workflow list or search features will be degraded. Impact depends on how critical visibility APIs are to your application. |
+| `temporal_request_failure` | `RespondWorkflowTaskCompleted` | `InvalidArgument` | Non-determinism or pending limit violations. This is a code or configuration issue that needs investigation — workflows will be stuck in a failed WFT retry loop. |
+| `temporal_long_request_failure` | `PollWorkflowTaskQueue` | `Unavailable` (sustained) | Frontend unreachable or server health issue. Workers cannot poll — workflows stop making progress. |
+| `temporal_long_request_failure` | `PollActivityTaskQueue` | `Unavailable` (sustained) | Same — activity workers cannot poll. |
 
 ---
 
-## `temporal_request_failure` — Standard Operations
+### 🟢 Low Impact — Informational / Expected
 
-### Execution Bucket
+Failures here are largely expected in normal operation, have built-in retry paths, or are inherently transient. Monitor for anomalous spikes but do not alert on isolated occurrences.
 
-Most workflow and worker operations share the Execution RPS quota.
-
-#### Priority 0 — System / Informational (Operator-equivalent)
-
-These are exempt from most shedding. They are the APIs needed to bootstrap any client connection.
-
-| Operation | Caller | Description |
-|-----------|--------|-------------|
-| `GetClusterInfo` | Client / Worker | Cluster metadata |
-| `GetSystemInfo` | Client / Worker | Server capability/feature flags |
-| `GetSearchAttributes` | Client | List search attribute keys (deprecated; prefer OperatorService) |
-| `DescribeNamespace` | Client / Worker | Namespace info and config |
-| `ListNamespaces` | Client | List all namespaces |
-| `DeprecateNamespace` | Client | Deprecate a namespace |
-
-#### Priority 1 — External Event APIs + Task Progress (Completions & Heartbeats)
-
-High-priority because rejecting these would force retries, amplifying load.
-
-| Operation | Caller | Description |
-|-----------|--------|-------------|
-| `StartWorkflowExecution` | Client | Start a new workflow |
-| `SignalWorkflowExecution` | Client | Send a signal to a running workflow |
-| `SignalWithStartWorkflowExecution` | Client | Signal-or-start a workflow |
-| `UpdateWorkflowExecution` | Client | Send an update to a workflow (blocks until WFT completes) |
-| `ExecuteMultiOperation` | Client | Atomically execute multiple operations |
-| `CreateSchedule` | Client | Create a new schedule |
-| `StartBatchOperation` | Client | Start a bulk workflow operation |
-| `StartActivityExecution` | Client | Start a standalone activity |
-| `RecordActivityTaskHeartbeat` | Worker | Heartbeat a running activity by task token |
-| `RecordActivityTaskHeartbeatById` | Worker / App | Heartbeat a running activity by ID |
-| `RespondActivityTaskCompleted` | Worker | Complete an activity by task token |
-| `RespondActivityTaskCompletedById` | Worker / App | Complete an activity by ID (async completion) |
-| `RespondWorkflowTaskCompleted` | Worker | Complete a workflow task, returning commands |
-| `RespondQueryTaskCompleted` | Worker | Complete a query task |
-| `RespondNexusTaskCompleted` | Worker | Complete a Nexus task |
-| `DispatchNexusTaskByNamespaceAndTaskQueue` | Nexus | Dispatch a Nexus task via task queue |
-| `DispatchNexusTaskByEndpoint` | Nexus | Dispatch a Nexus task via endpoint |
-| `CompleteNexusOperation` | Nexus | Complete an async Nexus operation |
-
-#### Priority 2 — State Change APIs
-
-Mutations that change execution state. Also includes history fetch (high relative priority because it is required for replay).
-
-| Operation | Caller | Description |
-|-----------|--------|-------------|
-| `RequestCancelWorkflowExecution` | Client | Graceful cancellation request |
-| `TerminateWorkflowExecution` | Client | Forceful termination |
-| `ResetWorkflowExecution` | Client | Reset to prior history event |
-| `DeleteWorkflowExecution` | Client | Delete a closed workflow |
-| `PauseWorkflowExecution` | Client | Pause a running workflow |
-| `UnpauseWorkflowExecution` | Client | Unpause a workflow |
-| `GetWorkflowExecutionHistory` | Client / Worker | Fetch history (non-long-poll). Higher priority because required for replay |
-| `UpdateSchedule` | Client | Modify a schedule |
-| `PatchSchedule` | Client | Trigger/pause/backfill a schedule |
-| `DeleteSchedule` | Client | Delete a schedule |
-| `StopBatchOperation` | Client | Stop a running batch operation |
-| `PauseActivity` | Client | Pause a running activity |
-| `UnpauseActivity` | Client | Unpause an activity |
-| `ResetActivity` | Client | Reset an activity execution |
-| `UpdateActivityOptions` | Client | Update options on a running activity |
-| `RequestCancelActivityExecution` | Client | Request activity cancellation |
-| `TerminateActivityExecution` | Client | Forcefully terminate an activity |
-| `DeleteActivityExecution` | Client | Delete an activity execution record |
-| `UpdateWorkflowExecutionOptions` | Client | Update workflow-level options |
-| `SetWorkerDeploymentCurrentVersion` | Client | Promote a deployment version to current |
-| `SetWorkerDeploymentRampingVersion` | Client | Configure a canary/ramping version |
-| `SetWorkerDeploymentManager` | Client | Set deployment manager |
-| `DeleteWorkerDeployment` | Client | Delete a deployment record |
-| `DeleteWorkerDeploymentVersion` | Client | Delete a specific version record |
-| `UpdateWorkerDeploymentVersionMetadata` | Client | Update deployment version metadata |
-| `UpdateTaskQueueConfig` | Worker | Update task queue config |
-| `CreateWorkflowRule` | Client | Create a workflow rule (experimental) |
-| `DescribeWorkflowRule` | Client | Get a workflow rule (experimental) |
-| `DeleteWorkflowRule` | Client | Delete a workflow rule (experimental) |
-| `ListWorkflowRules` | Client | List workflow rules (experimental) |
-| `TriggerWorkflowRule` | Client | Manually trigger a rule (experimental) |
-
-#### Priority 3 — Status Querying + Failure/Cancel Reporting
-
-Read-only describe APIs, plus task failure/cancel responses (lower priority because the task will be retried anyway).
-
-| Operation | Caller | Description |
-|-----------|--------|-------------|
-| `DescribeWorkflowExecution` | Client | Current workflow state and metadata |
-| `DescribeActivityExecution` | Client | Activity execution info (non-long-poll) |
-| `DescribeTaskQueue` | Client / Worker | Task queue info — **counts against Visibility RPS** |
-| `QueryWorkflow` | Client | Synchronously query a workflow (blocks until WFT completes) |
-| `GetWorkerBuildIdCompatibility` | Worker / Client | Build ID compatibility info (deprecated versioning) |
-| `GetWorkerVersioningRules` | Worker / Client | Versioning rules for a task queue |
-| `ListTaskQueuePartitions` | Worker | Task queue partition list |
-| `DescribeSchedule` | Client | Current schedule state |
-| `ListScheduleMatchingTimes` | Client | Preview schedule fire times |
-| `DescribeBatchOperation` | Client | Batch operation status |
-| `DescribeWorkerDeployment` | Client | Worker deployment info |
-| `DescribeWorkerDeploymentVersion` | Client | Deployment version info |
-| `RespondActivityTaskCanceled` | Worker | Confirm activity cancellation by task token |
-| `RespondActivityTaskCanceledById` | Worker / App | Confirm activity cancellation by ID |
-| `RespondActivityTaskFailed` | Worker | Fail an activity by task token |
-| `RespondActivityTaskFailedById` | Worker / App | Fail an activity by ID |
-| `RespondWorkflowTaskFailed` | Worker | Report workflow task panic/non-determinism |
-| `RespondNexusTaskFailed` | Worker | Fail a Nexus task |
-
-#### Priority 4 — Poll APIs and Other Low Priority
-
-| Operation | Caller | Description |
-|-----------|--------|-------------|
-| `PollWorkflowTaskQueue` | Worker | **(Also long-poll)** Workflow task poll |
-| `PollActivityTaskQueue` | Worker | **(Also long-poll)** Activity task poll |
-| `PollNexusTaskQueue` | Worker | **(Also long-poll)** Nexus task poll |
-| `PollWorkflowExecutionUpdate` | Client | Poll for an in-progress workflow update result |
-| `PollActivityExecution` | Client | Poll for activity execution state changes |
-| `ResetStickyTaskQueue` | Worker | Clear sticky task queue for a workflow |
-| `GetWorkflowExecutionHistoryReverse` | Client | Fetch history in reverse order |
-| `RecordWorkerHeartbeat` | Worker | Worker process heartbeat |
-| `FetchWorkerConfig` | Worker | Fetch worker configuration |
-| `UpdateWorkerConfig` | Worker | Update worker configuration |
-| `ShutdownWorker` | Worker | Signal a worker to shut down gracefully |
-
-#### Priority 5 — Lowest Priority
-
-| Operation | Caller | Description |
-|-----------|--------|-------------|
-| `GetWorkflowExecutionHistory` (long-poll variant) | Worker / Client | `wait_new_event=true` — server-side alias `PollWorkflowExecutionHistory`. Downprioritized vs Poll* |
-| `DescribeActivityExecution` (long-poll variant) | Client | `long_poll_token` set — server-side alias `PollActivityExecutionDescription` |
-| OpenAPI v2/v3 docs endpoints | — | Informational, not required for Temporal to function |
-
----
-
-### Visibility Bucket
-
-These APIs hit the visibility store (Elasticsearch / SQL) and share a **separate** Visibility RPS quota. All currently sit at **Priority 1** within that bucket.
-
-| Operation | Caller | Description |
-|-----------|--------|-------------|
-| `ListWorkflowExecutions` | Client | Advanced visibility query |
-| `ListOpenWorkflowExecutions` | Client | Basic visibility — open workflows |
-| `ListClosedWorkflowExecutions` | Client | Basic visibility — closed workflows |
-| `ListArchivedWorkflowExecutions` | Client | Archived workflow list |
-| `ScanWorkflowExecutions` | Client | Large unordered scan |
-| `CountWorkflowExecutions` | Client | Count workflows matching a query |
-| `ListActivityExecutions` | Client | List activity executions |
-| `CountActivityExecutions` | Client | Count activity executions |
-| `DescribeTaskQueue` | Client / Worker | Task queue info — despite its name, hits visibility for reachability data |
-| `GetWorkerTaskReachability` | Worker / Client | Determine build ID reachability via visibility |
-| `ListSchedules` | Client | List schedules (backed by visibility) |
-| `CountSchedules` | Client | Count schedules |
-| `ListBatchOperations` | Client | List batch operations |
-| `ListWorkerDeployments` | Client | List worker deployments |
-| `ListWorkers` | Client | List registered workers |
-| `DescribeWorker` | Client | Describe a registered worker |
-
----
-
-### NamespaceReplicationInducing Bucket
-
-These APIs write to the **namespace replication queue**, which is also used for critical failover messages. They have their own isolated RPS quota to prevent flooding that queue.
-
-| Operation | Caller | Priority | Description |
-|-----------|--------|----------|-------------|
-| `RegisterNamespace` | Admin | **1** | Create a new namespace |
-| `UpdateNamespace` | Admin | **1** | Modify namespace configuration |
-| `UpdateWorkerBuildIdCompatibility` | Worker / Admin | **2** | Register build ID compatibility rules (deprecated versioning) |
-| `UpdateWorkerVersioningRules` | Worker / Admin | **2** | Modify task queue versioning rules |
+| Metric | Operation | Status Code | Why it matters |
+|--------|-----------|-------------|----------------|
+| `temporal_long_request_failure` | `PollWorkflowTaskQueue` | `Canceled` | Expected during worker graceful shutdown or proxy connection resets. Normal during deployments. |
+| `temporal_long_request_failure` | `PollActivityTaskQueue` | `Canceled` | Same as above. |
+| `temporal_long_request_failure` | `PollWorkflowTaskQueue` | `DeadlineExceeded` | Often caused by proxies cutting long-poll connections. Normal in many network configurations. Worth investigating only if rate is unusually high or correlates with other issues. |
+| `temporal_long_request_failure` | `PollActivityTaskQueue` | `DeadlineExceeded` | Same as above. |
+| `temporal_request_failure` | `RequestCancelWorkflowExecution` | `NotFound` | Expected in fire-and-forget cancel patterns where the workflow may have already completed. |
+| `temporal_request_failure` | `TerminateWorkflowExecution` | `NotFound` | Same — workflow already completed before the terminate arrived. |
+| `temporal_request_failure` | `SignalWorkflowExecution` | `NotFound` | Common when signaling workflows that may have already completed. Depending on your application design this may be fully expected. |
+| `temporal_request_failure` | `StartWorkflowExecution` | `AlreadyExists` | Expected if your application uses workflow ID deduplication intentionally. Only worth alerting on if unexpected. |
+| `temporal_request_failure` | `RespondWorkflowTaskFailed` | `NotFound` | WFT token stale — already rescheduled. Expected occasionally under load. |
+| `temporal_request_failure` | Any | `Unavailable` / `Internal` (intermittent, low rate) | Transient server issues during restarts or scaling. Expected to self-resolve. Alert only if sustained or high rate. |
 
 ---
 
@@ -314,7 +123,7 @@ These APIs write to the **namespace replication queue**, which is also used for 
 
 These tables are the core troubleshooting reference. Each row maps an operation and a gRPC status code to what it means operationally — what triggered it, what to look for, and whether it warrants an alert.
 
-An important distinction: the rate limit buckets and priority section above covers **one specific failure class** — `ResourceExhausted` from server-side throttling. But `temporal_request_failure` and `temporal_long_request_failure` capture **every non-OK gRPC response** an operation can return. That includes throttling, yes, but also application-level errors (`NotFound`, `AlreadyExists`, `FailedPrecondition`), bad requests (`InvalidArgument`), auth failures (`PermissionDenied`, `Unauthenticated`), infrastructure problems (`Unavailable`), timeouts (`DeadlineExceeded` — which can be a client-side context timeout, a server-side processing timeout, or a proxy cutting a long-lived connection), and unexpected server faults (`Internal`). Each of these tells a different story depending on which operation it came from — a `DeadlineExceeded` on `QueryWorkflow` points to workers not making progress, whereas a `DeadlineExceeded` on `PollWorkflowTaskQueue` is often just a proxy cutting the long-poll connection and can be completely normal. The tables below capture that full picture per operation.
+An important distinction: the rate limit buckets and priority section covers **one specific failure class** — `ResourceExhausted` from server-side throttling. But `temporal_request_failure` and `temporal_long_request_failure` capture **every non-OK gRPC response** an operation can return. That includes throttling, yes, but also application-level errors (`NotFound`, `AlreadyExists`, `FailedPrecondition`), bad requests (`InvalidArgument`), auth failures (`PermissionDenied`, `Unauthenticated`), infrastructure problems (`Unavailable`), timeouts (`DeadlineExceeded` — which can be a client-side context timeout, a server-side processing timeout, or a proxy cutting a long-lived connection), and unexpected server faults (`Internal`). Each of these tells a different story depending on which operation it came from — a `DeadlineExceeded` on `QueryWorkflow` points to workers not making progress, whereas a `DeadlineExceeded` on `PollWorkflowTaskQueue` is often just a proxy cutting the long-poll connection and can be completely normal. The tables below capture that full picture per operation.
 
 ---
 
@@ -730,6 +539,225 @@ temporal_long_request_failure{
 
 ---
 
+## Server-Side Throttling: Rate Limit Buckets and Priority
+
+When a `ResourceExhausted` error surfaces in `temporal_request_failure` or `temporal_long_request_failure`, it means the server's rate limiter rejected the call. Understanding *which* rate limiter, *at what priority*, and *which dynamic config knob controls it* is essential for diagnosis and tuning.
+
+The Temporal frontend uses **three independent rate limit buckets**, each with its own RPS quota and internal priority queue. They are configured independently and do not share capacity.
+
+---
+
+### Execution Bucket
+
+Covers most workflow, worker, and admin APIs.
+
+| Scope | Dynamic Config Key | Default | Notes |
+|-------|--------------------|---------|-------|
+| Per-instance, per-namespace | `frontend.namespaceRPS` | `0` (unlimited) | Primary per-host throttle. Set this to cap a single frontend instance's RPS for a namespace |
+| Global, per-namespace | `frontend.globalNamespaceRPS` | `0` (disabled) | Cluster-wide cap distributed evenly across frontend instances. Takes precedence over per-instance when set |
+| Burst ratio (per-instance) | `frontend.namespaceBurstRatio` | `2.0` | Burst capacity as a multiplier of the effective RPS. Must be ≥ 1 |
+| Concurrent long-running (per-instance) | `frontend.namespaceCount` | `0` (unlimited) | Max concurrent long-running requests (polls, queries, updates) per namespace per API per instance |
+| Concurrent long-running (global) | `frontend.globalNamespaceCount` | `0` (disabled) | Same as above but cluster-wide |
+
+> **How per-instance and global interact:** The effective per-instance limit is `min(perInstanceRPS, globalRPS / numFrontendInstances)`. If `globalNamespaceRPS` is 0, only `namespaceRPS` applies. If both are 0, the bucket is unlimited.
+
+---
+
+### Visibility Bucket
+
+Covers all APIs backed by the visibility store (Elasticsearch / SQL). Completely separate quota from the Execution bucket — exhausting visibility RPS does **not** affect workflow start/signal RPS and vice versa.
+
+| Scope | Dynamic Config Key | Default | Notes |
+|-------|--------------------|---------|-------|
+| Per-instance, per-namespace | `frontend.namespaceRPS.visibility` | `10` | **Very low default** — easy to hit in production with frequent list/count calls |
+| Global, per-namespace | `frontend.globalNamespaceRPS.visibility` | `0` (disabled) | Cluster-wide visibility cap distributed across instances |
+| Burst ratio (per-instance) | `frontend.namespaceBurstRatio.visibility` | `1.0` | Burst ratio for visibility. Defaults to 1 (no burst headroom). Must be ≥ 1 |
+
+> ⚠️ The `frontend.namespaceRPS.visibility` default of **10 RPS** is intentionally conservative. In production workloads with dashboards, monitoring, or frequent `ListWorkflowExecutions` calls, this is frequently the first limit hit. It is also why `DescribeTaskQueue` (which queries visibility for reachability data) can trigger `ResourceExhausted` even when execution RPS looks healthy.
+
+---
+
+### NamespaceReplicationInducing Bucket
+
+Covers APIs that write to the namespace replication queue — a critical, unpartitioned resource also used for failover messages between clusters. Isolated to prevent flooding that queue.
+
+| Scope | Dynamic Config Key | Default | Notes |
+|-------|--------------------|---------|-------|
+| Global (cluster-wide) | `frontend.rps.namespaceReplicationInducingAPIs` | `20` | Hard cluster-wide cap; applies regardless of namespace |
+| Per-instance, per-namespace | `frontend.namespaceRPS.namespaceReplicationInducingAPIs` | `0` (unlimited) | Per-host per-namespace cap; experimental |
+| Global, per-namespace | `frontend.globalNamespaceRPS.namespaceReplicationInducingAPIs` | `0` (disabled) | Cluster-wide per-namespace cap; experimental |
+| Burst ratio (per-instance) | `frontend.namespaceBurstRatio.namespaceReplicationInducingAPIs` | `10.0` | Burst multiplier for replication-inducing APIs |
+
+> The global `frontend.rps.namespaceReplicationInducingAPIs` at **20 RPS** is a cluster-wide ceiling shared across all namespaces. Automation that bulk-registers namespaces or rapidly updates versioning rules can hit this. This was introduced in v1.21.0 when `UpdateWorkerBuildIdCompatibility`, `UpdateNamespace`, and `RegisterNamespace` were moved to their own queue.
+
+---
+
+### Priority Within Each Bucket
+
+Within each bucket, every API has a **priority**. When the bucket is under load, **lower-priority calls are dropped first**. Requests from Web UI or `tctl` (`CallerType = Operator`) are always elevated to **Priority 0** regardless of the API, giving them precedence over all SDK traffic.
+
+Priority scale: **0 = highest, 5 = lowest**
+
+---
+
+## Operation Reference Tables
+
+These tables list all operations by rate limit bucket and priority. Refer here when you need to understand which bucket an operation belongs to or what priority it has under load.
+
+### Execution Bucket Operations
+
+#### Priority 0 — System / Informational
+
+| Operation | Caller |
+|-----------|--------|
+| `GetClusterInfo` | Client / Worker |
+| `GetSystemInfo` | Client / Worker |
+| `GetSearchAttributes` | Client |
+| `DescribeNamespace` | Client / Worker |
+| `ListNamespaces` | Client |
+| `DeprecateNamespace` | Client |
+
+#### Priority 1 — External Event APIs + Task Progress
+
+| Operation | Caller |
+|-----------|--------|
+| `StartWorkflowExecution` | Client |
+| `SignalWorkflowExecution` | Client |
+| `SignalWithStartWorkflowExecution` | Client |
+| `UpdateWorkflowExecution` | Client |
+| `ExecuteMultiOperation` | Client |
+| `CreateSchedule` | Client |
+| `StartBatchOperation` | Client |
+| `StartActivityExecution` | Client |
+| `RecordActivityTaskHeartbeat` | Worker |
+| `RecordActivityTaskHeartbeatById` | Worker / App |
+| `RespondActivityTaskCompleted` | Worker |
+| `RespondActivityTaskCompletedById` | Worker / App |
+| `RespondWorkflowTaskCompleted` | Worker |
+| `RespondQueryTaskCompleted` | Worker |
+| `DispatchNexusTaskByNamespaceAndTaskQueue` | Nexus |
+| `DispatchNexusTaskByEndpoint` | Nexus |
+| `CompleteNexusOperation` | Nexus |
+
+#### Priority 2 — State Change APIs
+
+| Operation | Caller |
+|-----------|--------|
+| `RequestCancelWorkflowExecution` | Client |
+| `TerminateWorkflowExecution` | Client |
+| `ResetWorkflowExecution` | Client |
+| `DeleteWorkflowExecution` | Client |
+| `PauseWorkflowExecution` | Client |
+| `UnpauseWorkflowExecution` | Client |
+| `GetWorkflowExecutionHistory` (non-long-poll) | Client / Worker |
+| `UpdateSchedule` | Client |
+| `PatchSchedule` | Client |
+| `DeleteSchedule` | Client |
+| `StopBatchOperation` | Client |
+| `PauseActivity` | Client |
+| `UnpauseActivity` | Client |
+| `ResetActivity` | Client |
+| `UpdateActivityOptions` | Client |
+| `RequestCancelActivityExecution` | Client |
+| `TerminateActivityExecution` | Client |
+| `DeleteActivityExecution` | Client |
+| `UpdateWorkflowExecutionOptions` | Client |
+| `SetWorkerDeploymentCurrentVersion` | Client |
+| `SetWorkerDeploymentRampingVersion` | Client |
+| `SetWorkerDeploymentManager` | Client |
+| `DeleteWorkerDeployment` | Client |
+| `DeleteWorkerDeploymentVersion` | Client |
+| `UpdateWorkerDeploymentVersionMetadata` | Client |
+| `UpdateTaskQueueConfig` | Worker |
+| `CreateWorkflowRule` | Client |
+| `DescribeWorkflowRule` | Client |
+| `DeleteWorkflowRule` | Client |
+| `ListWorkflowRules` | Client |
+| `TriggerWorkflowRule` | Client |
+
+#### Priority 3 — Status Querying + Failure/Cancel Reporting
+
+| Operation | Caller |
+|-----------|--------|
+| `DescribeWorkflowExecution` | Client |
+| `DescribeActivityExecution` | Client |
+| `QueryWorkflow` | Client |
+| `GetWorkerBuildIdCompatibility` | Worker / Client |
+| `GetWorkerVersioningRules` | Worker / Client |
+| `ListTaskQueuePartitions` | Worker |
+| `DescribeSchedule` | Client |
+| `ListScheduleMatchingTimes` | Client |
+| `DescribeBatchOperation` | Client |
+| `DescribeWorkerDeployment` | Client |
+| `DescribeWorkerDeploymentVersion` | Client |
+| `RespondActivityTaskCanceled` | Worker |
+| `RespondActivityTaskCanceledById` | Worker / App |
+| `RespondActivityTaskFailed` | Worker |
+| `RespondActivityTaskFailedById` | Worker / App |
+| `RespondWorkflowTaskFailed` | Worker |
+
+#### Priority 4 — Poll APIs and Other Low Priority
+
+| Operation | Caller |
+|-----------|--------|
+| `PollWorkflowTaskQueue` | Worker |
+| `PollActivityTaskQueue` | Worker |
+| `PollNexusTaskQueue` | Worker |
+| `PollWorkflowExecutionUpdate` | Client |
+| `PollActivityExecution` | Client |
+| `ResetStickyTaskQueue` | Worker |
+| `GetWorkflowExecutionHistoryReverse` | Client |
+| `RecordWorkerHeartbeat` | Worker |
+| `FetchWorkerConfig` | Worker |
+| `UpdateWorkerConfig` | Worker |
+| `ShutdownWorker` | Worker |
+
+#### Priority 5 — Lowest Priority
+
+| Operation | Caller |
+|-----------|--------|
+| `GetWorkflowExecutionHistory` (long-poll / `wait_new_event=true`) | Worker / Client |
+| `DescribeActivityExecution` (long-poll / `long_poll_token` set) | Client |
+| OpenAPI v2/v3 endpoints | — |
+
+---
+
+### Visibility Bucket Operations
+
+All at Priority 1 within the visibility bucket.
+
+| Operation | Caller |
+|-----------|--------|
+| `ListWorkflowExecutions` | Client |
+| `ListOpenWorkflowExecutions` | Client |
+| `ListClosedWorkflowExecutions` | Client |
+| `ListArchivedWorkflowExecutions` | Client |
+| `ScanWorkflowExecutions` | Client |
+| `CountWorkflowExecutions` | Client |
+| `ListActivityExecutions` | Client |
+| `CountActivityExecutions` | Client |
+| `DescribeTaskQueue` | Client / Worker |
+| `GetWorkerTaskReachability` | Worker / Client |
+| `ListSchedules` | Client |
+| `CountSchedules` | Client |
+| `ListBatchOperations` | Client |
+| `ListWorkerDeployments` | Client |
+| `ListWorkers` | Client |
+| `DescribeWorker` | Client |
+
+---
+
+### NamespaceReplicationInducing Bucket Operations
+
+| Operation | Caller | Priority |
+|-----------|--------|----------|
+| `RegisterNamespace` | Admin | 1 |
+| `UpdateNamespace` | Admin | 1 |
+| `UpdateWorkerBuildIdCompatibility` | Worker / Admin | 2 |
+| `UpdateWorkerVersioningRules` | Worker / Admin | 2 |
+
+---
+
 ## Sources
 
 - [`temporalio/temporal` — `service/frontend/configs/quotas.go`](https://github.com/temporalio/temporal/blob/main/service/frontend/configs/quotas.go)
@@ -740,3 +768,4 @@ temporal_long_request_failure{
 - [Temporal TypeScript SDK API Reference — WorkflowService](https://typescript.temporal.io/api/classes/proto.temporal.api.workflowservice.v1.WorkflowService-1)
 - [Temporal SDK Metrics Reference](https://docs.temporal.io/references/sdk-metrics)
 - [Temporal Performance Bottlenecks Guide](https://docs.temporal.io/troubleshooting/performance-bottlenecks)
+- [Temporal Server Dashboard](https://github.com/tsurdilo/my-temporal-dockercompose/blob/main/deployment/grafana/dashboards/temporal-server.json)
