@@ -1,6 +1,6 @@
 # Temporal Metrics Troubleshooting Knowledge Base
 
-Everything in this repository comes from 5+ years of hands-on experience with Temporal — across hundreds of implementations, from small services to large-scale, mission-critical systems. This is not documentation. It's not a summary of what's already written somewhere else. It's the knowledge I've built up personally, through real production incidents, load tests, and hard-won debugging sessions.
+Everything in this repository comes from my own experience — 5+ years working with Temporal across hundreds of implementations, from small services to large-scale, mission-critical systems. This is not official documentation. It's not a summary of what's written somewhere else. It's knowledge built through real production incidents, load tests, and hard-won debugging sessions.
 
 If you're here to understand what a metric actually means when things are going sideways, you're in the right place.
 
