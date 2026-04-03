@@ -7,7 +7,8 @@
 
 1. [Why These Two Metrics](#why-these-two-metrics)
 2. [How the SDK Distinguishes the Two Metrics](#how-the-sdk-distinguishes-the-two-metrics)
-3. [Alert Severity and Business Impact](#alert-severity-and-business-impact)
+3. [SDK gRPC Retry Behavior](#sdk-grpc-retry-behavior)
+4. [Alert Severity and Business Impact](#alert-severity-and-business-impact)
 4. [Diagnostic Tables](#diagnostic-tables)
     - [`temporal_long_request_failure`](#temporal_long_request_failure-diagnostic-table)
     - [`temporal_request_failure`](#temporal_request_failure-diagnostic-table)
@@ -56,6 +57,56 @@ The `operation` tag is extracted directly from the gRPC method path (everything 
 
 ---
 
+## SDK gRPC Retry Behavior
+
+Understanding which gRPC status codes the SDK retries automatically is critical for correctly interpreting `temporal_request_failure` and `temporal_long_request_failure`. A failure that appears in these metrics does not necessarily mean business impact — if the SDK retries the call successfully within its retry window, the application may never see the error.
+
+---
+
+### Non-Retryable Status Codes
+
+The SDK will **not** retry these. If you see them in your metrics, the call failed and was returned to the caller immediately. These always represent either a configuration issue, a code issue, or a genuine state conflict.
+
+| Status Code | Reason |
+|-------------|--------|
+| `InvalidArgument` | Bad request — retrying with the same payload will not help |
+| `NotFound` | Resource does not exist |
+| `AlreadyExists` | Conflict — already created |
+| `FailedPrecondition` | System not in the correct state for this operation |
+| `PermissionDenied` | Authorization failure |
+| `Unauthenticated` | No valid credentials |
+| `Unimplemented` | Server does not support this RPC |
+
+---
+
+### Retryable Status Codes
+
+The SDK **will** retry these with backoff. Seeing them in your metrics does not necessarily mean the call ultimately failed — the SDK may have retried successfully. Sustained high rates or durations approaching the SDK's retry window (~60 seconds by default) are the signal to watch for.
+
+| Status Code | Reason |
+|-------------|--------|
+| `Unavailable` | Transient server or network issue — the most common retry case |
+| `ResourceExhausted` | Rate limited or quota exceeded — SDK retries with backoff |
+| `Unknown` | Unclassified error |
+| `Internal` | Server-side error, may be transient |
+| `DeadlineExceeded` | **Conditional** — only retried if the root gRPC context deadline has not yet expired. If the overall deadline is already past, the SDK stops retrying. |
+
+---
+
+### Important: gRPC Message Size Too Large
+
+One notable behavioral change in recent SDK releases: the SDK will **no longer retry** "gRPC message size too large" errors. These occur when a request payload exceeds the Temporal service limit (typically 4 MB) and come back as `ResourceExhausted` with a specific message indicating the size violation. Previously these were retried pointlessly since resubmitting the same oversized payload will never succeed. If you see `ResourceExhausted` on operations like `StartWorkflowExecution` but your RPS metrics look healthy, check whether the payload size is the cause rather than throttling.
+
+---
+
+### What This Means for Your Metrics
+
+Because retryable errors are automatically retried by the SDK, a spike in `temporal_request_failure` for a retryable status code like `ResourceExhausted` or `Unavailable` does not immediately mean your application is broken. The key question is always: **is the SDK successfully retrying within its window, or are retries being exhausted?**
+
+For operations where exhausted retries have direct business consequences — like `StartWorkflowExecution` dropping a workflow that will never be recreated — your application code should handle the final error after SDK retries are exhausted, log the relevant context (workflow ID, input payload), and have a remediation path such as a dead-letter queue or manual backfill process.
+
+---
+
 ## Alert Severity and Business Impact
 
 Not all failures surfaced by these metrics are equal. Two operations can both return `ResourceExhausted` but one is a minor performance degradation while the other is actively blocking your business. This section gives guidance on which failures warrant immediate alerting, which to monitor passively, and which are largely expected and informational.
@@ -70,11 +121,12 @@ Failures here directly block new work from being created, prevent running workfl
 
 | Metric | Operation | Status Code | Why it matters |
 |--------|-----------|-------------|----------------|
-| `temporal_request_failure` | `StartWorkflowExecution` | `ResourceExhausted` | Directly blocks new workflows from being created. If your application relies on Temporal to handle incoming requests or jobs, this means work is being dropped or failing at the entry point. High business impact. |
-| `temporal_request_failure` | `StartWorkflowExecution` | `Unavailable` / `Internal` | Same — new workflow creation is failing. Persistent occurrences mean your system is not processing new work. |
-| `temporal_request_failure` | `SignalWorkflowExecution` | `ResourceExhausted` | If signals drive critical state transitions in your workflows (payments, approvals, notifications), throttling here means those transitions are not happening. |
-| `temporal_request_failure` | `RespondWorkflowTaskCompleted` | `ResourceExhausted` | Workers cannot complete WFTs. Sustained throttling here causes WFTs to time out and retry, amplifying load — a feedback loop that can spiral. |
-| `temporal_request_failure` | `RespondWorkflowTaskCompleted` | `NotFound` (sustained, high rate) | WFTs are timing out consistently before workers can respond. Indicates workers are severely overloaded or processing is far too slow relative to `WorkflowTaskTimeout`. |
+| `temporal_request_failure` | `StartWorkflowExecution` | `ResourceExhausted` | High impact but not necessarily alert-immediately on first occurrence. The Temporal SDK automatically retries `ResourceExhausted` responses with backoff — each SDK has default gRPC retry options, so intermittent throttling lasting less than ~60 seconds may not result in any actual business impact as the SDK will keep retrying. If seen at a high rate, monitor whether workflow executions are actually failing to be created (look for errors on the client side if you control the client code). If throttling is sustained close to or beyond the SDK's retry window (~60s), alert immediately as executions will start being dropped. **Critically: your client code should always handle `StartWorkflowExecution` failures after SDK retries are exhausted by logging the workflow ID and input payload. If the call ultimately fails, those logs are your only way to identify and backfill the "lost" executions.** |
+| `temporal_request_failure` | `StartWorkflowExecution` | `Unavailable` / `Internal` | Both are retried automatically by the SDK. A single occurrence or intermittent low-rate occurrences can be transient server issues — no immediate alert needed if the SDK retries succeed. If seen continuously or at a high rate approaching the SDK retry window (~60s), alert immediately as executions will start being dropped. Same as with `ResourceExhausted`: ensure your client code handles the final failure after SDK retries are exhausted by logging the workflow ID and input payload so lost executions can be backfilled. |
+| `temporal_request_failure` | `SignalWorkflowExecution` | `ResourceExhausted` | High impact but not necessarily alert-immediately on first occurrence. SDK retries automatically — intermittent throttling lasting less than ~60s may not result in signal loss. If signals drive critical state transitions (payments, approvals, notifications), monitor closely. If seen continuously or approaching the retry window, alert. Ensure client code logs workflow ID and signal payload on final failure to enable backfill. |
+| `temporal_request_failure` | `ExecuteMultiOperation` / `UpdateWorkflowExecution` / `SignalWithStartWorkflowExecution` | `ResourceExhausted` | Same pattern as `StartWorkflowExecution` — SDK retries automatically with backoff. Intermittent occurrences may not result in actual loss. If seen continuously or at high rate approaching the ~60s retry window, alert. Log workflow ID and relevant payload on final failure to enable backfill. |
+| `temporal_request_failure` | `RespondWorkflowTaskCompleted` | `ResourceExhausted` | High impact but not necessarily alert-immediately on first occurrence. Can be caused by RPS throttling (`RpsLimit`) or server overload (`SystemOverload`) — check the Resource Exhausted with Cause panel on your server dashboard. Can also be caused by the WFT completion response payload exceeding the 4 MB gRPC message size limit — check payload sizes if RPS metrics look healthy. Sustained throttling here will cause WFTs to time out (default `WorkflowTaskTimeout` is 10s), which creates a dangerous feedback loop: timed-out WFTs get retried, generating more load. Critically, if your workflows use **local activities**, WFT timeouts caused by this throttling will lead to re-execution of those local activities — which can cause side effects if they are not idempotent. Do not alert on isolated intermittent occurrences, but if seen for longer than ~5-6 seconds or at a high rate, alert immediately given the 10s default timeout window. |
+| `temporal_request_failure` | `RespondWorkflowTaskCompleted` | `NotFound` (sustained, high rate) | Alert immediately unless you can account for it with one of the known expected causes below. Has several distinct causes: (1) **WFT timeout** — the worker responded after the `WorkflowTaskTimeout` (default 10s) expired and the server already rescheduled the task; this means workers are severely overloaded or WFT processing is far too slow; (2) **Workflow execution completed** — the worker responded after the execution was already terminated, timed out, or otherwise completed; (3) **WorkflowRunTimeout or WorkflowExecutionTimeout** — if these timeouts are configured and firing at a high rate, the server will complete those executions before workers can respond, producing `NotFound`. Before alerting, check whether the rate correlates with a known batch of terminations or a known pattern of execution/run timeouts expiring. If none of those explain it, treat as a worker health emergency and check `workflow_task_schedule_to_start_latency`, WFT processing time, and worker resource utilization. |
 | `temporal_request_failure` | `RecordActivityTaskHeartbeat` | `ResourceExhausted` | Heartbeats are high priority (P1) — if these are being throttled, heartbeat timeouts will fire, causing activities to be marked as timed out even though the worker is still running them. |
 | `temporal_request_failure` | `RespondActivityTaskCompleted` | `ResourceExhausted` | Activity completions are being throttled. Work is being done but results cannot be reported back, causing activities to time out and retry unnecessarily. |
 | `temporal_long_request_failure` | `PollWorkflowExecutionUpdate` | `DeadlineExceeded` (sustained) | Workflow updates are timing out consistently — workers are not making progress on WFTs. Direct user-facing impact if updates are used in synchronous request/response patterns. |
@@ -164,7 +216,7 @@ An important distinction: the rate limit buckets and priority section covers **o
 | Operation | Status Code | What it means / What to look for |
 |-----------|-------------|-----------------------------------|
 | `StartWorkflowExecution` | `AlreadyExists` | A workflow with this ID is already running. Expected if your application uses workflow ID deduplication intentionally. If unexpected, check for duplicate start calls or ID generation logic. |
-| `StartWorkflowExecution` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. High start rate is overwhelming the namespace quota. Check `frontend.namespaceRPS` and `frontend.globalNamespaceRPS`. |
+| `StartWorkflowExecution` | `ResourceExhausted` | Retried automatically by the SDK. High start rate is overwhelming the namespace quota — check `frontend.namespaceRPS` and `frontend.globalNamespaceRPS`. Can also be returned if the workflow input payload exceeds the 4 MB gRPC message size limit — in that case this is not a throttling issue but a payload size issue, check payload sizes if RPS metrics look healthy. Additionally, if `history.enableWorkflowIdReuseStartTimeValidation` is set to `true`, `ResourceExhausted` can be returned specifically for this throttle when the same workflow ID is being started very rapidly. In this case check your server-side Resource Exhausted with Cause panel and look for `BusyWorkflow` as the cause — this indicates the server is throttling rapid re-starts of the same workflow ID, which is expected behavior when this config is enabled. Intermittent occurrences may not result in actual loss if SDK retries succeed within ~60s. If seen continuously or approaching the retry window, alert. Always log workflow ID and input payload on final failure to enable backfill. |
 | `StartWorkflowExecution` | `InvalidArgument` | Malformed request — bad workflow type, missing task queue, invalid timeout values, or oversized input payload (check `BlobSizeLimitError`). |
 | `StartWorkflowExecution` | `NotFound` | Namespace not found. |
 | `StartWorkflowExecution` | `PermissionDenied` | Auth failure. |
@@ -178,84 +230,78 @@ An important distinction: the rate limit buckets and priority section covers **o
 | `SignalWorkflowExecution` | `Unauthenticated` | Invalid credentials. |
 | `SignalWorkflowExecution` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `SignalWorkflowExecution` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `SignalWithStartWorkflowExecution` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. |
-| `SignalWithStartWorkflowExecution` | `InvalidArgument` | Malformed request — bad workflow type, bad signal name, oversized payload, or invalid options. |
-| `SignalWithStartWorkflowExecution` | `NotFound` | Namespace not found. |
-| `SignalWithStartWorkflowExecution` | `PermissionDenied` | Auth failure. |
-| `SignalWithStartWorkflowExecution` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
-| `SignalWithStartWorkflowExecution` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `ExecuteMultiOperation` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. |
+| `SignalWithStartWorkflowExecution` | `ResourceExhausted` | Retried automatically by the SDK. Intermittent occurrences may not result in actual loss if retries succeed within the retry window (~60s). If seen continuously or at high rate, alert. Log workflow ID and signal payload on final failure to enable backfill. |
+| `SignalWithStartWorkflowExecution` | `Unavailable` / `Internal` | Both retried automatically by the SDK. Intermittent occurrences can be transient server issues — no immediate alert needed if retries succeed. If seen continuously or approaching the SDK retry window (~60s), alert. Log workflow ID and payload on final failure. |
+| `ExecuteMultiOperation` | `ResourceExhausted` | Retried automatically by the SDK. Intermittent occurrences may not result in actual loss if retries succeed within ~60s. If seen continuously or at high rate, alert. Additionally, if `history.enableWorkflowIdReuseStartTimeValidation` is set to `true`, `ResourceExhausted` can be returned when the same workflow ID is being used very rapidly — check the Resource Exhausted with Cause panel on your server dashboard for `BusyWorkflow` as the cause. Log workflow ID and payload on final failure to enable backfill. |
 | `ExecuteMultiOperation` | `InvalidArgument` | One or more of the contained operations has a malformed request. |
 | `ExecuteMultiOperation` | `AlreadyExists` | A `StartWorkflow` within the multi-operation found a conflicting running workflow. |
 | `ExecuteMultiOperation` | `NotFound` | Namespace or workflow not found for one of the contained operations. |
-| `ExecuteMultiOperation` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
-| `ExecuteMultiOperation` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
+| `ExecuteMultiOperation` | `Unavailable` / `Internal` | Both retried automatically by the SDK. Intermittent occurrences can be transient server issues — no immediate alert needed if retries succeed. If seen continuously or approaching the SDK retry window (~60s), alert. Log workflow ID and payload on final failure. |
 | `UpdateWorkflowExecution` | `NotFound` | Workflow not found — completed, terminated, or exceeded retention. |
-| `UpdateWorkflowExecution` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. Also subject to concurrent long-running request limit (`frontend.namespaceCount`) since this blocks until a WFT completes. |
+| `UpdateWorkflowExecution` | `ResourceExhausted` | Retried automatically by the SDK. Also subject to concurrent long-running request limit (`frontend.namespaceCount`) since this blocks until a WFT completes. Intermittent occurrences may not result in actual loss if retries succeed within the retry window (~60s). If seen continuously or at high rate, alert. Log workflow ID and update details on final failure. |
 | `UpdateWorkflowExecution` | `DeadlineExceeded` | A timeout occurred while waiting for the WFT to complete. Causes include: (1) server-side DB timeouts, check persistence metrics; (2) worker or client pod restart, look for `ShutdownWorker`, `DescribeNamespace`, or `GetSystemInfo` around the same time; (3) workers struggling — non-determinism issues or generic task failures preventing WFT completion; (4) gRPC proxy timeout. Check `workflow_task_schedule_to_start_latency` and worker health. |
 | `UpdateWorkflowExecution` | `InvalidArgument` | Bad update name, oversized payload, or too many pending updates. |
 | `UpdateWorkflowExecution` | `FailedPrecondition` | Workflow is not in a state that can accept updates (e.g. already completed or paused). |
-| `UpdateWorkflowExecution` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
-| `UpdateWorkflowExecution` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
+| `UpdateWorkflowExecution` | `Unavailable` / `Internal` | Both retried automatically by the SDK. Intermittent occurrences can be transient server issues — no immediate alert needed if retries succeed. If seen continuously or approaching the SDK retry window (~60s), alert. Log workflow ID and update details on final failure. |
 | `RequestCancelWorkflowExecution` | `NotFound` | Workflow not found — already completed, terminated, or exceeded retention. Often benign in fire-and-forget cancel patterns. |
-| `RequestCancelWorkflowExecution` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 2. |
+| `RequestCancelWorkflowExecution` | `ResourceExhausted` | Retried automatically by the SDK. Intermittent occurrences may not result in actual cancellation loss if retries succeed within ~60s. If seen continuously or at high rate, alert. |
 | `RequestCancelWorkflowExecution` | `FailedPrecondition` | Workflow already in a terminal state. |
 | `RequestCancelWorkflowExecution` | `PermissionDenied` | Auth failure. |
 | `RequestCancelWorkflowExecution` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `RequestCancelWorkflowExecution` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `TerminateWorkflowExecution` | `NotFound` | Workflow not found. Already completed or exceeded retention. |
-| `TerminateWorkflowExecution` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 2. |
+| `TerminateWorkflowExecution` | `ResourceExhausted` | Retried automatically by the SDK. Intermittent occurrences may not result in actual termination loss if retries succeed within ~60s. If seen continuously or at high rate, alert. |
 | `TerminateWorkflowExecution` | `FailedPrecondition` | Workflow already in terminal state. |
 | `TerminateWorkflowExecution` | `PermissionDenied` | Auth failure. |
 | `TerminateWorkflowExecution` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `TerminateWorkflowExecution` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `ResetWorkflowExecution` | `NotFound` | Workflow or the specified reset point event not found. |
-| `ResetWorkflowExecution` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 2. |
+| `ResetWorkflowExecution` | `ResourceExhausted` | Retried automatically by the SDK. Intermittent occurrences may not result in actual loss if retries succeed within ~60s. If seen continuously or at high rate, alert. |
 | `ResetWorkflowExecution` | `InvalidArgument` | Bad reset point — event ID out of range, or reset to a non-resettable event type. |
 | `ResetWorkflowExecution` | `FailedPrecondition` | Workflow in a state that cannot be reset (e.g. still running with pending activities). |
 | `ResetWorkflowExecution` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `ResetWorkflowExecution` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `DeleteWorkflowExecution` | `NotFound` | Workflow not found. |
-| `DeleteWorkflowExecution` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 2. |
+| `DeleteWorkflowExecution` | `ResourceExhausted` | Retried automatically by the SDK. Intermittent occurrences may not result in actual loss if retries succeed within ~60s. If seen continuously or at high rate, alert. |
 | `DeleteWorkflowExecution` | `FailedPrecondition` | Workflow is still running. Must cancel or terminate before deleting. |
 | `DeleteWorkflowExecution` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `DeleteWorkflowExecution` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `QueryWorkflow` | `NotFound` | Workflow not found. |
-| `QueryWorkflow` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 3. Also subject to concurrent long-running request limit since query blocks until a WFT completes. |
+| `QueryWorkflow` | `ResourceExhausted` | Retried automatically by the SDK. Also subject to concurrent long-running request limit since query blocks until a WFT completes. Intermittent occurrences may not result in query loss if retries succeed within ~60s. If seen continuously or at high rate, alert. |
 | `QueryWorkflow` | `DeadlineExceeded` | A timeout occurred while waiting for the query WFT to complete. Causes include: (1) server-side DB timeouts, check persistence metrics; (2) worker or client pod restart, look for `ShutdownWorker`, `DescribeNamespace`, or `GetSystemInfo` around the same time; (3) workers struggling — non-determinism issues, generic task failures, or workers simply not keeping up with the WFT backlog; (4) gRPC proxy timeout. Check `workflow_task_schedule_to_start_latency` and worker health. |
 | `QueryWorkflow` | `InvalidArgument` | Unknown query type or bad query arguments. |
 | `QueryWorkflow` | `FailedPrecondition` | Workflow is in a state where queries are not supported (e.g. workflow completed and query handler state is unavailable). |
 | `QueryWorkflow` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `QueryWorkflow` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `DescribeWorkflowExecution` | `NotFound` | Workflow not found — completed and exceeded retention, wrong ID, or wrong namespace. Very common when polling for workflow status after retention period. |
-| `DescribeWorkflowExecution` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 3. Frequent polling of `DescribeWorkflowExecution` in tight loops is a common cause. Consider using `GetWorkflowExecutionHistory` with `wait_new_event=true` instead. |
+| `DescribeWorkflowExecution` | `ResourceExhausted` | Retried automatically by the SDK. Frequent polling of `DescribeWorkflowExecution` in tight loops is a common cause. Intermittent occurrences are non-critical if retries succeed. If seen continuously, consider switching to `GetWorkflowExecutionHistory` with `wait_new_event=true` as a more efficient pattern, and increase `frontend.namespaceRPS` if needed. |
 | `DescribeWorkflowExecution` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `DescribeWorkflowExecution` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `GetWorkflowExecutionHistory` (non-long-poll) | `NotFound` | Workflow not found — exceeded retention or wrong ID. |
-| `GetWorkflowExecutionHistory` (non-long-poll) | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 2. History fetch has relatively high priority because it is required for replay. Sustained exhaustion may indicate too many concurrent replays or SDK retries. |
+| `GetWorkflowExecutionHistory` (non-long-poll) | `ResourceExhausted` | Retried automatically by the SDK. History fetch has relatively high priority (P2) because it is required for replay. Intermittent occurrences are non-critical if retries succeed. Sustained exhaustion may indicate too many concurrent replays or SDK retries amplifying load. |
 | `GetWorkflowExecutionHistory` (non-long-poll) | `DeadlineExceeded` | A timeout occurred fetching history. Causes include: (1) server-side DB timeouts — history can be large and slow to read, check persistence metrics; (2) worker or client pod restart, look for `ShutdownWorker`, `DescribeNamespace`, or `GetSystemInfo` around the same time; (3) gRPC proxy timeout. |
 | `GetWorkflowExecutionHistory` (non-long-poll) | `InvalidArgument` | Bad page token or invalid history fetch parameters. |
 | `GetWorkflowExecutionHistory` (non-long-poll) | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `GetWorkflowExecutionHistory` (non-long-poll) | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `GetWorkflowExecutionHistoryReverse` | `NotFound` | Workflow not found. |
-| `GetWorkflowExecutionHistoryReverse` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 4. |
+| `GetWorkflowExecutionHistoryReverse` | `ResourceExhausted` | Retried automatically by the SDK. Intermittent occurrences are non-critical if retries succeed. |
 | `GetWorkflowExecutionHistoryReverse` | `InvalidArgument` | Bad page token or parameters. |
 | `GetWorkflowExecutionHistoryReverse` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `GetWorkflowExecutionHistoryReverse` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `RespondWorkflowTaskCompleted` | `NotFound` | Task token is invalid or stale — the WFT timed out and was rescheduled on another worker before this worker could respond. Common when WFT processing is slow relative to `WorkflowTaskTimeout`. |
-| `RespondWorkflowTaskCompleted` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. Sustained failures here will cause WFTs to time out and be retried, amplifying load. |
+| `RespondWorkflowTaskCompleted` | `NotFound` | Alert immediately unless explainable by one of the known expected causes. Has several distinct causes: (1) **WFT timeout** — the worker responded after the `WorkflowTaskTimeout` (default 10s) expired and the server already rescheduled the task; indicates workers are severely overloaded or WFT processing is far too slow relative to the timeout; (2) **Workflow execution completed** — the worker responded after the execution was already terminated externally or otherwise completed; (3) **WorkflowRunTimeout or WorkflowExecutionTimeout firing** — if these are configured and expiring at a high rate, executions complete before workers can respond. Before treating as an emergency, check whether the rate correlates with known terminations or expiring run/execution timeouts. If neither explains it, check `workflow_task_schedule_to_start_latency`, WFT processing times, and worker resource utilization. |
+| `RespondWorkflowTaskCompleted` | `ResourceExhausted` | Retried automatically by the SDK, but the retry window is very tight — default `WorkflowTaskTimeout` is 10s. Can be caused by RPS throttling (`RpsLimit`) or server overload (`SystemOverload`) — check the Resource Exhausted with Cause panel on your server dashboard. Can also be caused by the WFT completion response exceeding the 4 MB gRPC message size limit. Sustained throttling causes WFTs to time out and retry, amplifying load in a feedback loop. If your workflows use **local activities**, WFT timeouts from this throttling will trigger re-execution of those local activities — a serious concern if they are not idempotent. Do not alert on isolated intermittent occurrences, but alert if seen for longer than ~5-6 seconds or at a high rate given the 10s timeout window. |
 | `RespondWorkflowTaskCompleted` | `InvalidArgument` | Commands are invalid — non-determinism detected, unsupported command type, malformed payloads, or too many pending activities/timers/child workflows/signals (server enforces limits). |
 | `RespondWorkflowTaskCompleted` | `FailedPrecondition` | Workflow state has changed in a way that invalidates the commands (e.g. workflow was reset). |
 | `RespondWorkflowTaskCompleted` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `RespondWorkflowTaskCompleted` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `RespondWorkflowTaskFailed` | `NotFound` | Task token stale — WFT already timed out and rescheduled. |
+| `RespondWorkflowTaskFailed` | `NotFound` | Task token stale — WFT already timed out and rescheduled. Same underlying causes as `RespondWorkflowTaskCompleted` `NotFound`: WFT timeout, execution completed/terminated, run/execution timeout fired, high worker resource utilization, or high server-side persistence latencies. Check the same signals. |
 | `RespondWorkflowTaskFailed` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 3. Lower priority than completion — under extreme load, failure reports may be dropped, causing WFT to time out instead. |
 | `RespondWorkflowTaskFailed` | `InvalidArgument` | Malformed failure details. |
 | `RespondWorkflowTaskFailed` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `RespondWorkflowTaskFailed` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `RespondActivityTaskCompleted` | `NotFound` | Task token stale — activity timed out and was rescheduled, or was canceled/terminated externally before the worker responded. Very common in systems with tight `StartToCloseTimeout`. |
-| `RespondActivityTaskCompleted` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. |
-| `RespondActivityTaskCompleted` | `InvalidArgument` | Malformed result payload (oversized) or invalid task token. |
+| `RespondActivityTaskCompleted` | `NotFound` | Activity task token is stale — has several distinct causes: (1) **StartToClose or ScheduleToClose timeout expired** — the activity took longer than its configured timeout and the server already marked it as timed out before the worker could respond; (2) **Workflow execution terminated** — the execution was terminated externally while the activity was running; (3) **Workflow execution timed out** — a `WorkflowRunTimeout` or `WorkflowExecutionTimeout` fired and completed the execution; (4) **Workflow canceled without waiting for activity cancellation** — if the workflow cancellation logic does not wait for the activity to fully cancel before completing, the worker may try to respond to an activity whose execution context is already gone. Check which cause applies by correlating with activity timeout metrics, termination patterns, or workflow cancellation logic. |
+| `RespondActivityTaskCompleted` | `ResourceExhausted` | Retried automatically by the SDK. Can be caused by RPS throttling — check `frontend.namespaceRPS` and server-side Resource Exhausted with Cause panel. Can also be caused by the activity result payload exceeding the 4 MB gRPC message size limit — in this case retrying will never succeed and the SDK will eventually stop retrying. If RPS metrics look healthy, check whether the activity result payload is oversized. |
+| `RespondActivityTaskCompleted` | `InvalidArgument` | Activity result payload exceeds the Temporal payload size limit (between 2 MB and 4 MB). Note the distinction: payloads between 2-4 MB return `InvalidArgument`, while payloads over 4 MB return `ResourceExhausted`. In both cases retrying will not help — the payload needs to be reduced. Consider using Temporal's blob storage pattern to store large results externally and pass a reference instead. |
 | `RespondActivityTaskCompleted` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `RespondActivityTaskCompleted` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `RespondActivityTaskCompletedById` | `NotFound` | Activity with this workflow/activity ID not found — already completed, timed out, or canceled. |
@@ -268,28 +314,11 @@ An important distinction: the rate limit buckets and priority section covers **o
 | `RespondActivityTaskFailed` | `InvalidArgument` | Malformed failure payload or oversized error details. |
 | `RespondActivityTaskFailed` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `RespondActivityTaskFailed` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `RespondActivityTaskFailedById` | `NotFound` | Activity not found — timed out, canceled, or already completed. |
-| `RespondActivityTaskFailedById` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 3. |
-| `RespondActivityTaskFailedById` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
-| `RespondActivityTaskFailedById` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `RespondActivityTaskCanceled` | `NotFound` | Task token stale. |
-| `RespondActivityTaskCanceled` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 3. |
-| `RespondActivityTaskCanceled` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
-| `RespondActivityTaskCanceled` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `RespondActivityTaskCanceledById` | `NotFound` | Activity not found. |
-| `RespondActivityTaskCanceledById` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 3. |
-| `RespondActivityTaskCanceledById` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
-| `RespondActivityTaskCanceledById` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `RecordActivityTaskHeartbeat` | `NotFound` | Task token stale — activity timed out (heartbeat timeout exceeded) or was canceled/terminated. A heartbeat `NotFound` is the canonical signal that an activity's heartbeat timeout was missed. Check `HeartbeatTimeout` configuration and whether the activity loop calls heartbeat frequently enough. |
-| `RecordActivityTaskHeartbeat` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. Heartbeats are high priority — sustained exhaustion here is serious as it causes heartbeat timeouts. |
-| `RecordActivityTaskHeartbeat` | `InvalidArgument` | Oversized heartbeat details payload. |
+| `RecordActivityTaskHeartbeat` | `NotFound` | Activity task token is stale — has two distinct causes with very different severity: (1) **Expected** — execution was terminated, timed out, or canceled; in this case the worker should detect the `NotFound` and stop the activity gracefully; (2) **Concerning** — high worker CPU or memory utilization slowing down processing to the point where the heartbeat call itself is delayed long enough for the heartbeat timeout to fire; in this case the activity will be retried or fail. Correlate with worker resource metrics to distinguish between the two. |
+| `RecordActivityTaskHeartbeat` | `ResourceExhausted` | Alert on this. Can be caused by RPS throttling — check `frontend.namespaceRPS` and the Resource Exhausted with Cause panel on your server dashboard. Can also be caused by the heartbeat details payload exceeding the 4 MB gRPC message size limit. In either case this is serious — a failed heartbeat call means the server does not receive the expected heartbeat, which will trigger the heartbeat timeout and cause the activity to be retried or fail even though the worker is still running it. Reduce heartbeat payload size or increase RPS limits as appropriate. |
+| `RecordActivityTaskHeartbeat` | `InvalidArgument` | Heartbeat details payload exceeds the Temporal payload size limit (between 2 MB and 4 MB). Same size distinction as activity completions — 2-4 MB returns `InvalidArgument`, over 4 MB returns `ResourceExhausted`. Both are serious for the same reason as `ResourceExhausted` — a failed heartbeat will trigger the heartbeat timeout. Reduce the amount of data passed in heartbeat details; heartbeats should carry minimal state, not large payloads. |
 | `RecordActivityTaskHeartbeat` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
 | `RecordActivityTaskHeartbeat` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
-| `RecordActivityTaskHeartbeatById` | `NotFound` | Activity not found — same heartbeat timeout signal as token-based heartbeat. |
-| `RecordActivityTaskHeartbeatById` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. |
-| `RecordActivityTaskHeartbeatById` | `InvalidArgument` | Oversized payload. |
-| `RecordActivityTaskHeartbeatById` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts, in which case it is generally non-critical. If seen persistently, alert on this and check server health. |
-| `RecordActivityTaskHeartbeatById` | `Internal` | Typically unexpected server-side issues. Can be intermittent during things like server restarts or persistence DB issues. If seen at a higher rate or over a longer duration, check server health. |
 | `RespondQueryTaskCompleted` | `NotFound` | Query task no longer exists — query timed out before the worker could respond, or the calling client disconnected. |
 | `RespondQueryTaskCompleted` | `ResourceExhausted` | Execution bucket RPS exhausted at Priority 1. |
 | `RespondQueryTaskCompleted` | `InvalidArgument` | Malformed query result or oversized response payload. |
@@ -632,7 +661,6 @@ These tables list all operations by rate limit bucket and priority. Refer here w
 | `RecordActivityTaskHeartbeat` | Worker |
 | `RecordActivityTaskHeartbeatById` | Worker / App |
 | `RespondActivityTaskCompleted` | Worker |
-| `RespondActivityTaskCompletedById` | Worker / App |
 | `RespondWorkflowTaskCompleted` | Worker |
 | `RespondQueryTaskCompleted` | Worker |
 | `DispatchNexusTaskByNamespaceAndTaskQueue` | Nexus |
@@ -690,10 +718,7 @@ These tables list all operations by rate limit bucket and priority. Refer here w
 | `DescribeBatchOperation` | Client |
 | `DescribeWorkerDeployment` | Client |
 | `DescribeWorkerDeploymentVersion` | Client |
-| `RespondActivityTaskCanceled` | Worker |
-| `RespondActivityTaskCanceledById` | Worker / App |
 | `RespondActivityTaskFailed` | Worker |
-| `RespondActivityTaskFailedById` | Worker / App |
 | `RespondWorkflowTaskFailed` | Worker |
 
 #### Priority 4 — Poll APIs and Other Low Priority
