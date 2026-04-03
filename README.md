@@ -394,6 +394,7 @@ An important distinction: the rate limit buckets and priority section covers **o
 | `UpdateNamespace` | `FailedPrecondition` | Namespace in a state that prevents update (e.g. deprecated). |
 | `UpdateNamespace` | `Unavailable` | Intermittent server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts. If seen persistently, alert and check server health. |
 | `UpdateNamespace` | `Internal` | Intermittent server issues. If seen at a higher rate or over a longer duration, alert and check server health. |
+
 | `GetSystemInfo` | `ResourceExhausted` | Server-side throttling at Priority 0 — extremely rare since P0 is shed last. Alert on this — `GetSystemInfo` is called by workers and clients at startup to discover server capabilities and feature flags. Failures here can cause worker startup delays or failures, which has direct business impact as workers cannot begin polling for tasks. Check the Resource Exhausted with Cause panel on your server dashboard. |
 | `GetSystemInfo` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Alert on this even if intermittent — failures here can cause worker startup delays or failures, preventing workers from coming online. Check server health immediately. |
 | `GetSystemInfo` | `Internal` | Typically unexpected server-side issues. Alert on this — same reasoning as `Unavailable`, failures during worker startup have direct business impact. Check server health. |
@@ -442,8 +443,8 @@ The dashboard referenced here is the [Temporal Server Dashboard](https://github.
 | Dashboard Section | Panel | What to look for |
 |-------------------|-------|-----------------|
 | Server Overview — Persistence Requests, Latencies and Errors | **Persistence Latencies** (`persistence_latency_bucket` by `operation`) | High persistence latency is the most common server-side cause of `DeadlineExceeded`. Look for p99 latency spikes, especially on `GetWorkflowExecution` or history-related operations. |
-| Server Overview — Cluster Throughput | **Shard Lock Latency** (`semaphore_latency_bucket` for `ShardInfo`) | Elevated shard lock latency means history service shards are contended, which introduces latency to all operations and can cause timeouts. Orange threshold at 200ms, red at 400ms. |
-| Server Overview — Cluster Throughput | **Workflow Lock Latency** (`cache_latency_bucket` for `HistoryCacheGetOrCreate`) | High workflow lock latency means per-execution updates are queueing up. Common in high fan-out workflows. Orange at 200ms, red at 500ms. |
+| Server Overview — Cluster Throughput | **Shard Lock Latency** (`semaphore_latency_bucket{operation="ShardInfo", service_name="history"}`) | Elevated shard lock latency means history service shards are contended, which introduces latency to all operations and can cause timeouts. Orange threshold at 200ms, red at 400ms. |
+| Server Overview — Cluster Throughput | **Workflow Lock Latency** (`cache_latency_bucket{operation="HistoryCacheGetOrCreate", service_name="history"}`) | High workflow lock latency means per-execution updates are queueing up. Common in high fan-out workflows. Orange at 200ms, red at 500ms. |
 | Server Overview — Shard Movement | **Shards Created / Removed / Closed** | Shard movement during cluster scaling or restarts introduces transient latency spikes that can cause `DeadlineExceeded`. Correlate shard movement timing with your SDK metric spike. |
 | Server Overview — Shard Movement | **Service Restarts** | Worker or service pod restarts will cancel in-flight requests and cause `DeadlineExceeded` on the client side. |
 
@@ -508,17 +509,17 @@ Means the WFT timed out and was rescheduled before the worker could respond.
 
 | gRPC Code | Typical Meaning in Temporal |
 |-----------|----------------------------|
-| `NotFound` | Workflow/namespace/schedule doesn't exist or fell off retention |
+| `NotFound` | Meaning depends on the operation context. For **worker operations** (e.g. `RespondWorkflowTaskCompleted`, `RespondActivityTaskCompleted`, `RecordActivityTaskHeartbeat`) it typically means the workflow execution completed, was terminated, or a task timeout fired before the worker could respond. For **client operations** (e.g. `SignalWorkflowExecution`, `DescribeWorkflowExecution`) it means the workflow does not exist — wrong workflow ID, workflow never started, or it completed and was removed by namespace retention. |
 | `AlreadyExists` | Workflow ID collision on start; duplicate schedule ID |
-| `InvalidArgument` | Bad request parameters |
-| `ResourceExhausted` | Rate limited — also emits `temporal_request_resource_exhausted` with a `cause` tag indicating which quota was hit |
+| `InvalidArgument` | Bad request parameters, or payload size is between 2 MB and 4 MB — note the distinction from `ResourceExhausted`: payloads between 2-4 MB return `InvalidArgument`, while payloads over 4 MB return `ResourceExhausted`. In both size cases retrying will not help. |
+| `ResourceExhausted` | Has three distinct causes: (1) **Rate limiting** — RPS, concurrent request limits, or system overload; also emits `temporal_request_resource_exhausted` with a `cause` tag (`RpsLimit`, `ConcurrentLimit`, `SystemOverload`) indicating which quota was hit; (2) **gRPC message size too large** — request or response payload exceeds the 4 MB limit; the SDK will not retry this; (3) **BusyWorkflow throttle** — returned when `history.enableWorkflowIdReuseStartTimeValidation` is enabled and the same workflow ID is being started or signaled very rapidly; check for `BusyWorkflow` in the `cause` tag on server metrics to confirm. |
 | `Unavailable` | Server unreachable or transient infrastructure error |
-| `DeadlineExceeded` | Client-side context timeout, server-side processing timeout, or proxy cutting a long-lived connection |
+| `DeadlineExceeded` | A timeout occurred — can have several causes: client-side context timeout, server-side processing timeout, server-side DB latency causing the request to exceed its deadline, a gRPC proxy cutting a long-lived connection, or transient issues during server restarts. Context matters significantly — `DeadlineExceeded` on a poll operation is often benign (proxy cutting the long-poll), while on operations like `QueryWorkflow` or `UpdateWorkflowExecution` it typically signals worker health issues. |
 | `PermissionDenied` | Authorization failure |
 | `Unauthenticated` | Missing or invalid credentials |
-| `FailedPrecondition` | Workflow not in the correct state for the operation |
+| `FailedPrecondition` | System not in the correct state for the operation — for example trying to update or cancel a workflow that is already in a terminal state. Also returned when a workflow query fails a precondition, such as querying a workflow whose last workflow task failed or that did not complete successfully. |
 | `Internal` | Unexpected server-side error |
-| `Canceled` | RPC canceled by the client |
+| `Canceled` | RPC canceled by the client — typically a worker shutting down and canceling in-flight polls. Can also be canceled by a gRPC proxy sitting between the worker and the server. |
 
 ---
 
