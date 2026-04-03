@@ -394,7 +394,6 @@ An important distinction: the rate limit buckets and priority section covers **o
 | `UpdateNamespace` | `FailedPrecondition` | Namespace in a state that prevents update (e.g. deprecated). |
 | `UpdateNamespace` | `Unavailable` | Intermittent server issues — frontend unreachable or other server-side errors. Can be intermittent during server scaling or restarts. If seen persistently, alert and check server health. |
 | `UpdateNamespace` | `Internal` | Intermittent server issues. If seen at a higher rate or over a longer duration, alert and check server health. |
-
 | `GetSystemInfo` | `ResourceExhausted` | Server-side throttling at Priority 0 — extremely rare since P0 is shed last. Alert on this — `GetSystemInfo` is called by workers and clients at startup to discover server capabilities and feature flags. Failures here can cause worker startup delays or failures, which has direct business impact as workers cannot begin polling for tasks. Check the Resource Exhausted with Cause panel on your server dashboard. |
 | `GetSystemInfo` | `Unavailable` | Typically related to server issues — frontend unreachable or other server-side errors. Alert on this even if intermittent — failures here can cause worker startup delays or failures, preventing workers from coming online. Check server health immediately. |
 | `GetSystemInfo` | `Internal` | Typically unexpected server-side issues. Alert on this — same reasoning as `Unavailable`, failures during worker startup have direct business impact. Check server health. |
