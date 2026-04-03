@@ -24,7 +24,9 @@
     - [Execution Bucket Operations](#execution-bucket-operations)
     - [Visibility Bucket Operations](#visibility-bucket-operations)
     - [NamespaceReplicationInducing Bucket Operations](#namespacereplicationinducing-bucket-operations)
-10. [Sources](#sources)
+10. [Graph Pattern Reference](#graph-pattern-reference)
+11. [Sources](#sources)
+
 
 ---
 
@@ -765,6 +767,14 @@ All at Priority 1 within the visibility bucket.
 | `UpdateNamespace` | Admin | 1 |
 | `UpdateWorkerBuildIdCompatibility` | Worker / Admin | 2 |
 | `UpdateWorkerVersioningRules` | Worker / Admin | 2 |
+
+
+---
+## Graph Pattern Reference
+
+For a visual pattern playbook — common shapes you'll see in `temporal_request_failure` and `temporal_long_request_failure` RPS graphs, what they mean, their business impact, and how to triage them — see the separate **[Graph Pattern Reference](./GRAPH_PATTERNS.md)**.
+
+This is a living document that grows as new patterns are documented.
 
 ---
 
