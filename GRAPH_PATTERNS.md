@@ -8,11 +8,11 @@ For background on the metrics, operations, and rate limit buckets referenced her
 
 ## Table of Contents
 
-1. [Pattern 1: Sustained High Plateau with Periodic Sharp Drops and Recoveries](#pattern-1-sustained-high-plateau-with-periodic-sharp-drops-and-recoveries)
+1. [PollWorkflowTaskQueue — Sustained ResourceExhausted Saturation with Periodic Drops](#pollworkflowtaskqueue--sustained-resourceexhausted-saturation-with-periodic-drops)
 
 ---
 
-## Pattern 1: Sustained High Plateau with Periodic Sharp Drops and Recoveries
+## PollWorkflowTaskQueue — Sustained ResourceExhausted Saturation with Periodic Drops
 
 **What it looks like:**
 One series (most commonly `PollWorkflowTaskQueue`) climbs to a very high RPS of `ResourceExhausted` responses — often in the tens of thousands — and stays there as a sustained plateau. Periodically, the line drops sharply to near-zero before spiking back up to the same ceiling. Other series (completions, starts, signals) remain near-zero or at low rates throughout.
