@@ -173,6 +173,8 @@ Failures here are largely expected in normal operation, have built-in retry path
 | `temporal_request_failure` | `TerminateWorkflowExecution` | `NotFound` | Same — workflow already completed before the terminate arrived. |
 
 | `temporal_request_failure` | Any | `Unavailable` / `Internal` (intermittent, low rate) | Transient server issues during restarts or scaling. Expected to self-resolve. Alert only if sustained or high rate. |
+| `temporal_request_failure` / `temporal_long_request_failure` | `PollWorkflowTaskQueue`, `PollActivityTaskQueue`, `GetWorkflowExecutionHistory` (long-poll), `RespondWorkflowTaskCompleted/Failed`, `RespondActivityTaskCompleted/Failed` | `` (empty) | Expected during graceful worker shutdowns and rolling deployments. Monitor for spikes outside of deployment windows which may indicate unexpected worker crashes. |
+| `temporal_request_failure` | `StartWorkflowExecution`, `SignalWorkflowExecution`, `ExecuteMultiOperation` and other client operations | `` (empty) | Client disconnected mid-call. Worth alerting on if elevated — the operation may not have reached the server, meaning workflows or signals could have been lost. Correlate with client pod restart metrics. |
 
 ---
 
@@ -520,7 +522,7 @@ Means the WFT timed out and was rescheduled before the worker could respond.
 | `Unauthenticated` | Missing or invalid credentials |
 | `FailedPrecondition` | System not in the correct state for the operation — for example trying to update or cancel a workflow that is already in a terminal state. Also returned when a workflow query fails a precondition, such as querying a workflow whose last workflow task failed or that did not complete successfully. |
 | `Internal` | Unexpected server-side error |
-| `Canceled` | RPC canceled by the client — typically a worker shutting down and canceling in-flight polls. Can also be canceled by a gRPC proxy sitting between the worker and the server. |
+| `` (empty) | A blank status code means the gRPC call was never completed — the client disconnected mid-operation before a response was received. On worker operations like `PollWorkflowTaskQueue`, `PollActivityTaskQueue`, `GetWorkflowExecutionHistory` (long-poll), `RespondWorkflowTaskCompleted/Failed`, and `RespondActivityTaskCompleted/Failed` this almost always means the worker process shut down — either gracefully or unexpectedly — while the operation was in flight. On client operations like `StartWorkflowExecution`, `SignalWorkflowExecution`, or `ExecuteMultiOperation` it means the client process disconnected mid-call. For worker operations this is expected during graceful shutdowns and deployments. For client operations an elevated rate warrants investigation — it may indicate client pods restarting unexpectedly, and since the call never completed the operation may not have reached the server, meaning workflows or signals could have been lost. |
 
 ---
 
