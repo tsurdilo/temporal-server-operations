@@ -2,7 +2,7 @@
 
 This is a living playbook for interpreting common visual patterns in `temporal_request_failure` and `temporal_long_request_failure` RPS graphs. Each entry maps a visual shape to its likely causes, business impact, and how to distinguish between root causes using correlated signals.
 
-For background on the metrics, operations, and rate limit buckets referenced here, see the main [README](https://github.com/tsurdilo/temporal-metrics/blob/main/README.md).
+For background on the metrics, operations, and rate limit buckets referenced here, see the main [SDK Request Failures guide](./sdk-request-failures.md).
 
 ---
 

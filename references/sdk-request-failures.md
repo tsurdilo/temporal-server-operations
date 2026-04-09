@@ -772,7 +772,7 @@ All at Priority 1 within the visibility bucket.
 ---
 ## Graph Pattern Reference
 
-For a visual pattern playbook — common shapes you'll see in `temporal_request_failure` and `temporal_long_request_failure` RPS graphs, what they mean, their business impact, and how to triage them — see the separate **[Graph Pattern Reference](./GRAPH_PATTERNS.md)**.
+For a visual pattern playbook — common shapes you'll see in `temporal_request_failure` and `temporal_long_request_failure` RPS graphs, what they mean, their business impact, and how to triage them — see the separate **[Graph Pattern Reference](./graph-patterns.md)**.
 
 This is a living document that grows as new patterns are documented.
 
