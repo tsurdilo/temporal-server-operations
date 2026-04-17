@@ -11,9 +11,30 @@ This isn't a metrics glossary. It's a troubleshooting guide built around how pro
 - **It connects the dots.** Rather than explaining metrics in isolation, it guides you across related signals so you can build a complete picture of what's happening — not just identify a single data point.
 - **It covers real impact.** Every entry is grounded in what the failure actually means for your system and your users, not just what the metric technically represents.
 - **It's practical beyond incidents.** The same knowledge applies to cluster and database sizing, capacity planning, and understanding system behavior under load testing.
-- **It works as a Claude skill.** The content is structured to be used directly with Claude for interactive troubleshooting.
+- **It works as a Claude skill.** The content is structured to be used directly with Claude for interactive troubleshooting. See [Installation](#installation) below.
 
 This is a living document. It will keep growing as I work through new patterns and scenarios.
+
+---
+
+## Installation
+
+This repository is packaged as a Claude Code Agent Skill. Install it to give Claude access to this knowledge base during interactive troubleshooting sessions.
+
+### Option 1: Manual clone
+
+```bash
+mkdir -p ~/.claude/skills
+git clone https://github.com/tsurdilo/temporal-metrics ~/.claude/skills/temporal-metrics
+```
+
+### Option 2: npx skills
+
+```bash
+npx skills add tsurdilo/temporal-metrics
+```
+
+Once installed, Claude will automatically activate the skill when you ask about Temporal SDK metrics, rate limiting, throttling, gRPC status codes, or production incident troubleshooting.
 
 ---
 
@@ -23,4 +44,5 @@ Useful dashboards to use alongside this knowledge base:
 
 ## Table of Contents
 
-1. [Troubleshooting SDK Request Failure Metrics](./SDK_METRICS_REQUEST_FAILURES.md)
+1. [Troubleshooting SDK Request Failure Metrics](./references/sdk-request-failures.md)
+2. [Graph Pattern Reference](./references/graph-patterns.md)
