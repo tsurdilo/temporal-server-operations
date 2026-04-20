@@ -1,6 +1,4 @@
-# Temporal Dynamic Config Reference
-
-> Extracted from Temporal support/knowledge documentation. Covers the most important dynamic configs to be aware of, organized by service.
+# Temporal On-Prem Server Dynamic Config Reference
 
 ---
 
