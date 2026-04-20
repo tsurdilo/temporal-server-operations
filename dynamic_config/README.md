@@ -5,19 +5,25 @@
 ## Table of Contents
 
 - [Baseline: Configs to Consider for Every Cluster](#baseline-configs-to-consider-for-every-cluster)
-- [All Available Configs](#all-available-configs)
     - [Frontend](#frontend)
     - [History](#history)
     - [Matching](#matching)
-    - [System](#system)
-    - [Limits](#limits)
     - [Worker](#worker)
+- [All Available Configs](#all-available-configs)
+    - [Frontend](#frontend-1)
+    - [History](#history-1)
+    - [Matching](#matching-1)
+    - [System](#system-1)
+    - [Limits](#limits)
+    - [Worker](#worker-1)
 
 ---
 
 ## Baseline: Configs to Consider for Every Cluster
 
 These are the configs you should review and consciously set (or decide to leave at default) for any production cluster.
+
+### Frontend
 
 | Config Key | Default | Example Value | Description / When to Use |
 |---|---|---|---|
@@ -31,13 +37,14 @@ These are the configs you should review and consciously set (or decide to leave 
 | `frontend.persistenceGlobalMaxQPS` | 0 | — | Frontend persistence max QPS for the whole frontend cluster. |
 | `frontend.namespaceRPS.visibility` | 10 | `50` | Per-namespace RPS limit for visibility APIs. **Default is very low — very commonly needs increasing.** Increase when getting `RESOURCE_EXHAUSTED: namespace rate limit exceeded` on `list*` operations. |
 | `frontend.globalNamespaceRPS.visibility` | 0 | `500` | Cluster-wide per-namespace RPS for visibility APIs. Alternative to per-instance limit. |
-| `frontend.WorkerHeartbeatsEnabled` | true | `true` | Allows workers to send periodic heartbeats to the server. |
-| `frontend.ListWorkersEnabled` | true | `true` | Allows clients to retrieve worker heartbeat information. |
 | `frontend.WorkerCommandsEnabled` | false | `true` | Allows clients to send commands to workers. |
-| `frontend.keepAliveMinTime` | 10s | `10s` | Minimum time a client should wait before sending a keepalive ping. |
-| `frontend.keepAlivePermitWithoutStream` | true | `true` | If true, server allows keepalive pings even when there are no active streams. |
 | `frontend.visibilityArchivalQueryMaxPageSize` | 10000 | — | Max page size for archival queries. Reduce when UI archival queries cause issues (no restart required). |
 | `frontend.MaxConcurrentBatchOperationPerNamespace` | 1 | — | Max concurrent batch operation jobs per namespace. Increase to allow parallel batch jobs. |
+
+### History
+
+| Config Key | Default | Example Value | Description / When to Use |
+|---|---|---|---|
 | `history.rps` | 3000 | — | RPS limit per history pod. |
 | `history.cacheSizeBasedLimit` | false | `true` | If true, limits history cache by bytes instead of entry count. |
 | `history.hostLevelCacheMaxSizeBytes` | ~1GB | `100000000` | Max bytes for host-level cache (~100MB in example). Used when `cacheSizeBasedLimit=true`. |
@@ -46,16 +53,21 @@ These are the configs you should review and consciously set (or decide to leave 
 | `history.persistenceGlobalMaxQPS` | 0 | `36000` | History persistence max QPS for whole cluster. |
 | `history.persistencePerShardNamespaceMaxQPS` | 0 | `500` | Per-shard per-namespace persistence max QPS. Useful to cap noisy-neighbor namespaces. |
 | `history.shardIOConcurrency` | 1 | — | Concurrency of persistence operations per shard. For SQL persistence, increase to reduce shard lock contention. **Requires restart.** |
-| `history.MaxBufferedQueryCount` | 1 | — | Max consistent queries buffered while a workflow task is in-flight. Increase to 3–5 to fix "buffered query cleared, please retry" errors. |
+
+### Matching
+
+| Config Key | Default | Example Value | Description / When to Use |
+|---|---|---|---|
 | `matching.rps` | 1200 | — | RPS limit per matching pod. |
 | `matching.persistenceMaxQPS` | 3000 | `2400` | Matching persistence max QPS per host. Increase when hitting persistence max QPS errors. |
 | `matching.numTaskqueueWritePartitions` | 1 | `4` | Number of write partitions per task queue. **Increase for high-throughput task queues. Set to 1 for low-throughput queues.** Can be set per task queue via constraints. |
 | `matching.numTaskqueueReadPartitions` | 1 | `4` | Number of read partitions per task queue. Should match write partitions. Can be set per task queue via constraints. |
 | `matching.outstandingTaskAppendsThreshold` | 250 | `500` | Buffer size for outstanding task appends before backpressure kicks in. Increase when seeing "Too many outstanding appends to the task queue". **Requires node restart to take effect.** |
-| `matching.priorityLevels` | 5 | `10` | Number of simple priority levels. Set higher for richer priority use cases. Requires new matcher. |
-| `matching.enableFairness` | false | `true` (per-TQ) | Enable fairness for task dispatching. Can be set per task queue via constraints. |
-| `system.secondaryVisibilityWritingMode` | `"off"` | `"dual"` | Controls dual-write to standard and enhanced (ES) visibility. Set to `"dual"` when migrating to ES. Remove or set to `"off"` after migration is complete. |
-| `system.enableReadFromSecondaryVisibility` | false | `false` | Whether to read from secondary visibility store. Enable after ES migration is stable. |
+
+### Worker
+
+| Config Key | Default | Example Value | Description / When to Use |
+|---|---|---|---|
 | `worker.schedulerNamespaceStartWorkflowRPS` | 30 | `100` | RPS limit for starting workflows from schedules, per namespace as a whole. Increase for high-schedule-volume namespaces. |
 | `worker.batcherRPS` | 50 | — | RPS limit for batch operations per namespace. |
 | `worker.batcherConcurrency` | 5 | — | Number of concurrent workflow operations within a single batch job per namespace. |
@@ -81,10 +93,6 @@ These are the configs you should review and consciously set (or decide to leave 
 | `frontend.namespaceRPS.visibility` | 10 | `50` | Per-namespace RPS limit for visibility APIs. **Default is very low — very commonly needs increasing.** Increase when getting `RESOURCE_EXHAUSTED: namespace rate limit exceeded` on `list*` operations. |
 | `frontend.globalNamespaceRPS.visibility` | 0 | `500` | Cluster-wide per-namespace RPS for visibility APIs. Alternative to per-instance limit. |
 | `frontend.namespaceBurstRatio.visibility` | 1 | — | Burst ratio for visibility namespace RPS. Must be >= 1. |
-| `frontend.keepAliveMinTime` | 10s | `10s` | Minimum time a client should wait before sending a keepalive ping. |
-| `frontend.keepAlivePermitWithoutStream` | true | `true` | If true, server allows keepalive pings even when there are no active streams (RPCs). |
-| `frontend.WorkerHeartbeatsEnabled` | true | `true` | Allows workers to send periodic heartbeats to the server. |
-| `frontend.ListWorkersEnabled` | true | `true` | Allows clients to retrieve worker heartbeat information. |
 | `frontend.WorkerCommandsEnabled` | false | `true` | Allows clients to send commands to workers. |
 | `frontend.visibilityMaxPageSize` | 1000 | — | Max page size for `ListWorkflowExecutions`. Increase if needed. |
 | `frontend.historyMaxPageSize` | — | — | Max page size for `GetWorkflowExecutionHistory`. Increase via dynamic config when needed. |
@@ -139,7 +147,6 @@ These are the configs you should review and consciously set (or decide to leave 
 | `history.visibilityProcessorMaxPollHostRPS` | 0 | — | Host-level max poll rate for visibility processor. Tune to limit ES load. |
 | `history.visibilityProcessorSchedulerWorkerCount` | 512 | — | Workers for visibility task scheduler. Reduce (e.g. to 128) to slow down ES indexing during recovery. **Requires restart.** |
 | `history.visibilityTaskWorkerCount` | — | `0` | Set to `0` to completely block the visibility queue processor (e.g. during ES reindexing to prevent conflicts with new documents). |
-| `history.MaxBufferedQueryCount` | 1 | — | Max consistent queries buffered while a workflow task is in-flight. Increase to 3–5 to fix "buffered query cleared, please retry" errors. |
 | `history.workflowTaskCriticalAttempt` | 10 | — | Number of consecutive workflow task attempts before flagging as critical. |
 | `history.workflowTaskRetryMaxInterval` | 10m | — | Maximum interval added to workflow task `startToClose` timeout for retry backoff. |
 | `history.maxTotalUpdates` | 2000 | — | Max number of updates a workflow execution can receive. Set to 0 to disable. |
@@ -172,8 +179,6 @@ These are the configs you should review and consciously set (or decide to leave 
 | `matching.backlogNegligibleAge` | 5s | — | Threshold for negligible vs significant backlog age. If head of backlog is older than this, sync match and forwarding stop to ensure more equal dispatch order across partitions. |
 | `matching.maxWaitForPollerBeforeFwd` | 200ms | — | In presence of a non-negligible backlog, resume forwarding tasks if no poll has been seen within this duration. |
 | `matching.useNewMatcher` | false | — | Enable the new priority-enabled task matcher. Required for `priorityLevels` and `enableFairness` to take effect. |
-| `matching.enableFairness` | false | `true` (per-TQ) | Enable fairness for task dispatching. Implies `useNewMatcher`. Can be set per task queue via constraints. |
-| `matching.priorityLevels` | 5 | `10` | Number of simple priority levels (requires new matcher). Set to 10 for richer priority use cases. |
 | `matching.longPollExpirationInterval` | 1m | — | Long poll expiration interval in the matching service. |
 | `matching.syncMatchWaitDuration` | 200ms | — | Wait time for sync match before falling back to async. |
 | `matching.updateAckInterval` | 1m | — | How frequently the `task_queues` table is updated. Increase to reduce DB write frequency for task queues. |
@@ -184,8 +189,6 @@ These are the configs you should review and consciously set (or decide to leave 
 
 | Config Key | Default | Example Value | Description / When to Use |
 |---|---|---|---|
-| `system.secondaryVisibilityWritingMode` | `"off"` | `"dual"` | Controls dual-write to standard and enhanced (ES) visibility. Set to `"dual"` when migrating to ES. Remove or set to `"off"` after migration is complete. |
-| `system.enableReadFromSecondaryVisibility` | false | `false` | Whether to read from secondary visibility store. Enable after ES migration is stable. |
 | `system.visibilityDisableOrderByClause` | true | — | Disable `ORDER BY` clause for Elasticsearch queries. |
 | `system.forceSearchAttributesCacheRefreshOnRead` | false | — | Bypass search attribute cache. Useful right after adding a new search attribute. Available in server 1.20.3+. **Do not enable in production long-term.** |
 | `system.namespaceCacheRefreshInterval` | 2s | — | Interval for namespace cache refresh. Tune if namespace config updates are slow to propagate. |

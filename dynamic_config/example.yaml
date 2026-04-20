@@ -23,15 +23,7 @@ frontend.visibilityArchivalQueryMaxPageSize:
   - value: 10000
 frontend.MaxConcurrentBatchOperationPerNamespace:
   - value: 1
-frontend.WorkerHeartbeatsEnabled:
-  - value: true
-frontend.ListWorkersEnabled:
-  - value: true
 frontend.WorkerCommandsEnabled:
-  - value: true
-frontend.keepAliveMinTime:
-  - value: 10s
-frontend.keepAlivePermitWithoutStream:
   - value: true
 # history
 history.rps:
@@ -49,8 +41,6 @@ history.persistenceMaxQPS:
 history.persistencePerShardNamespaceMaxQPS:
   - value: 500
 history.shardIOConcurrency:
-  - value: 1
-history.MaxBufferedQueryCount:
   - value: 1
 #history.enableWorkflowIdReuseStartTimeValidation:
 #  - value: true
@@ -86,14 +76,6 @@ matching.numTaskqueueWritePartitions:
     }
 matching.persistenceMaxQPS:
   - value: 2400
-matching.priorityLevels:
-  - value: 10
-matching.enableFairness:
-  - value: true
-    constraints: {
-      namespace: 'default',
-      taskQueueName: 'priority-tq'
-    }
 #worker
 # depends on if schedules used and num of worker pods
 # can discuss
@@ -109,14 +91,6 @@ worker.batcherRPS:
   - value: 50
 worker.batcherConcurrency:
   - value: 5
-#system
-## dial visibility
-system.secondaryVisibilityWritingMode:
-  - value: "dual"
-    constraints: {}
-system.enableReadFromSecondaryVisibility:
-  - value: false
-    constraints: {}
 # optional
 #system.enableDataLossMetrics:
 #  - value: true
