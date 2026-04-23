@@ -6,6 +6,23 @@ Metrics defined here are emitted by all of those SDKs identically.
 > **Histogram unit:** Milliseconds by default. Can be configured to use seconds per-SDK.
 > This differs from Java and Go SDKs which always use seconds.
 
+## Table of Contents
+
+- [gRPC Client Metrics](#grpc-client-metrics)
+- [Worker Lifecycle Metrics](#worker-lifecycle-metrics)
+- [Workflow Task Metrics](#workflow-task-metrics)
+- [Workflow Execution Metrics](#workflow-execution-metrics)
+- [Workflow Cache Metrics](#workflow-cache-metrics)
+- [Activity Task Metrics](#activity-task-metrics)
+- [Local Activity Metrics](#local-activity-metrics)
+- [Nexus Task Metrics](#nexus-task-metrics)
+- [Resource-Based Tuner Metrics](#resource-based-tuner-metrics)
+- [Metric Tags Reference](#metric-tags-reference)
+- [Notes](#notes)
+- [Core SDK vs Java/Go SDK Differences](#core-sdk-vs-javago-sdk-differences)
+
+---
+
 **Sources:**
 - [`crates/sdk-core/src/telemetry/metrics.rs`](https://github.com/temporalio/sdk-core/blob/master/crates/sdk-core/src/telemetry/metrics.rs) — Worker metrics
 - [`crates/client/src/metrics.rs`](https://github.com/temporalio/sdk-core/blob/master/crates/client/src/metrics.rs) — gRPC client metrics

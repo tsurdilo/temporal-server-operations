@@ -3,6 +3,26 @@
 All metrics are prefixed with `temporal_` before being exported to their configured destination.
 Histogram metrics in the Java SDK are measured in **seconds**.
 
+## Table of Contents
+
+- [gRPC Client Metrics](#grpc-client-metrics)
+- [Signal Metrics](#signal-metrics)
+- [Worker Lifecycle Metrics](#worker-lifecycle-metrics)
+- [Workflow Task Metrics](#workflow-task-metrics)
+- [Workflow Execution Metrics](#workflow-execution-metrics)
+- [Workflow Cache Metrics](#workflow-cache-metrics)
+- [Workflow Thread Metrics](#workflow-thread-metrics)
+- [Activity Task Metrics](#activity-task-metrics)
+- [Local Activity Metrics](#local-activity-metrics)
+- [Nexus Task Metrics](#nexus-task-metrics)
+- [Metric Tags Reference](#metric-tags-reference)
+- [Notes](#notes)
+- [Prometheus Naming: The `_seconds` Suffix](#prometheus-naming-the-_seconds-suffix)
+- [Java SDK vs Go SDK Differences](#java-sdk-vs-go-sdk-differences)
+- [Java SDK vs Core SDK Differences](#java-sdk-vs-core-sdk-differences)
+
+---
+
 **Sources:**
 - [`temporal-serviceclient/src/main/java/io/temporal/serviceclient/MetricsType.java`](https://github.com/temporalio/sdk-java/blob/master/temporal-serviceclient/src/main/java/io/temporal/serviceclient/MetricsType.java)
 - [`temporal-sdk/src/main/java/io/temporal/worker/MetricsType.java`](https://github.com/temporalio/sdk-java/blob/master/temporal-sdk/src/main/java/io/temporal/worker/MetricsType.java)

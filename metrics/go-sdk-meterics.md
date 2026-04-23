@@ -3,6 +3,25 @@
 All metrics are prefixed with `temporal_` before being exported to their configured destination.
 Histogram metrics in the Go SDK are measured in **seconds**.
 
+## Table of Contents
+
+- [gRPC Client Metrics](#grpc-client-metrics)
+- [Worker Lifecycle Metrics](#worker-lifecycle-metrics)
+- [Workflow Task Metrics](#workflow-task-metrics)
+- [Workflow Execution Metrics](#workflow-execution-metrics)
+- [Workflow Cache Metrics](#workflow-cache-metrics)
+- [Workflow Thread Metrics](#workflow-thread-metrics)
+- [Activity Task Metrics](#activity-task-metrics)
+- [Local Activity Metrics](#local-activity-metrics)
+- [Nexus Task Metrics](#nexus-task-metrics)
+- [Signal Metrics](#signal-metrics)
+- [Metric Tags Reference](#metric-tags-reference)
+- [Notes](#notes)
+- [Go SDK vs Java SDK Differences](#go-sdk-vs-java-sdk-differences)
+- [Go SDK vs Core SDK Differences](#go-sdk-vs-core-sdk-differences)
+
+---
+
 **Source:**
 - [`internal/common/metrics/constants.go`](https://github.com/temporalio/sdk-go/blob/master/internal/common/metrics/constants.go)
 
