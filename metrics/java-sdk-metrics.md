@@ -197,6 +197,58 @@ Java SDK specific (also available in Go SDK).
 
 ---
 
+## Prometheus Naming: The `_seconds` Suffix
+
+When using `MicrometerClientStatsReporter` with a `PrometheusMeterRegistry`, metric names change depending on their type. This is Micrometer's standard Prometheus integration behavior, not something Temporal controls.
+
+**How the mapping works:**
+
+The Java SDK internally uses the [Tally](https://github.com/uber-go/tally) metrics abstraction. `MicrometerClientStatsReporter` bridges Tally types to Micrometer types like this:
+
+| Tally type | Micrometer type | Prometheus behavior |
+|---|---|---|
+| Counter | `Counter` | Appends `_total` |
+| Gauge | `Gauge` | No suffix |
+| Timer / Histogram | `Timer` | Appends `_seconds` |
+
+**Prometheus additionally produces multiple series per Timer:**
+
+For each Histogram metric, Prometheus exposes four series. For example `temporal_request_latency` becomes:
+- `temporal_request_latency_seconds_bucket` (one per histogram bucket)
+- `temporal_request_latency_seconds_sum`
+- `temporal_request_latency_seconds_count`
+- `temporal_request_latency_seconds_max` (if enabled)
+
+**Complete list of metrics that get `_seconds` appended (all Histograms):**
+
+| SDK metric name | Prometheus name |
+|---|---|
+| `temporal_request_latency` | `temporal_request_latency_seconds` |
+| `temporal_long_request_latency` | `temporal_long_request_latency_seconds` |
+| `temporal_workflow_task_schedule_to_start_latency` | `temporal_workflow_task_schedule_to_start_latency_seconds` |
+| `temporal_workflow_task_execution_latency` | `temporal_workflow_task_execution_latency_seconds` |
+| `temporal_workflow_task_execution_total_latency` | `temporal_workflow_task_execution_total_latency_seconds` |
+| `temporal_workflow_task_replay_latency` | `temporal_workflow_task_replay_latency_seconds` |
+| `temporal_workflow_endtoend_latency` | `temporal_workflow_endtoend_latency_seconds` |
+| `temporal_activity_schedule_to_start_latency` | `temporal_activity_schedule_to_start_latency_seconds` |
+| `temporal_activity_execution_latency` | `temporal_activity_execution_latency_seconds` |
+| `temporal_activity_succeed_endtoend_latency` | `temporal_activity_succeed_endtoend_latency_seconds` |
+| `temporal_local_activity_execution_latency` | `temporal_local_activity_execution_latency_seconds` |
+| `temporal_local_activity_succeed_endtoend_latency` | `temporal_local_activity_succeed_endtoend_latency_seconds` |
+| `temporal_local_activity_total_execution_latency` | `temporal_local_activity_total_execution_latency_seconds` |
+| `temporal_nexus_schedule_to_start_latency` | `temporal_nexus_schedule_to_start_latency_seconds` |
+| `temporal_nexus_execution_latency` | `temporal_nexus_execution_latency_seconds` |
+
+**Metrics that are NOT affected** (Counters and Gauges keep their names, though Prometheus appends `_total` to counters):
+
+All `*_counter`, `*_failed`, `*_cancelled`, `*_no_task`, `*_start`, `*_hit`, `*_miss`, `*_size`, `*_eviction`, `*_invocation`, `*_thread_count` metrics are unaffected by the `_seconds` suffix.
+
+> **Cross-SDK dashboard gotcha:** Go SDK histograms do **not** get `_seconds` appended because the Go SDK uses a different metrics bridge. If you are writing Prometheus queries or Grafana dashboards that span both Java and Go workers on the same task queue, you must handle the naming difference explicitly — e.g. using `temporal_activity_schedule_to_start_latency_seconds_bucket` for Java and `temporal_activity_schedule_to_start_latency_bucket` for Go.
+
+> **OTel does not add `_seconds`:** The `_seconds` suffix is specific to `MicrometerClientStatsReporter` + Prometheus. If you configure an OpenTelemetry-based reporter instead, histograms are emitted as OTel `Histogram` instruments and the metric names are exported exactly as defined — no `_seconds` appended. This means OTel-instrumented Java workers use the same histogram names as Go SDK workers, making cross-SDK dashboards straightforward.
+
+---
+
 ## Java SDK vs Go SDK Differences
 
 | Area | Java SDK | Go SDK |
