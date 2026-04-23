@@ -1,0 +1,50 @@
+{
+  "__inputs": [{"name": "DS_PROMETHEUS", "label": "Prometheus", "description": "", "type": "datasource", "pluginId": "prometheus", "pluginName": "Prometheus"}],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.0.0"},
+    {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"},
+    {"type": "panel", "id": "timeseries", "name": "Time series", "version": ""},
+    {"type": "panel", "id": "stat", "name": "Stat", "version": ""}
+  ],
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 2,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {"collapsed": true, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0}, "id": 1, "title": "Regular and Long-Poll Requests and Failures", "type": "row", "panels": [
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {}, "overrides": []}, "gridPos": {"h": 3, "w": 24, "x": 0, "y": 1}, "id": 2, "title": "", "type": "text", "options": {"mode": "markdown", "content": "**Regular and Long-Poll Requests and Failures** — this section focuses on requests and request failures for operations your SDK clients and SDK Workers make to Temporal server"}},
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"lineWidth": 2}}, "overrides": []}, "gridPos": {"h": 7, "w": 12, "x": 0, "y": 4}, "id": 3, "title": "SDK Requests", "description": "Rate of regular SDK requests broken down by namespace, operation, and status code.", "type": "timeseries", "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["min", "max", "mean", "lastNotNull"]}}, "targets": [{"expr": "sum by (namespace, operation, status_code) (rate(temporal_request{namespace=\"$namespace\"}[$__rate_interval]))", "legendFormat": "{{namespace}} - {{operation}} - {{status_code}}", "refId": "A"}]},
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"lineWidth": 2}}, "overrides": []}, "gridPos": {"h": 7, "w": 12, "x": 12, "y": 4}, "id": 4, "title": "SDK Long-Poll Requests", "description": "Rate of long-poll SDK requests broken down by namespace, operation, and status code.", "type": "timeseries", "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["min", "max", "mean", "lastNotNull"]}}, "targets": [{"expr": "sum by (namespace, operation, status_code) (rate(temporal_long_request{namespace=\"$namespace\"}[$__rate_interval]))", "legendFormat": "{{namespace}} - {{operation}} - {{status_code}}", "refId": "A"}]},
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "color": {"mode": "thresholds"}}, "overrides": []}, "gridPos": {"h": 7, "w": 12, "x": 0, "y": 11}, "id": 5, "title": "SDK Request Failures", "description": "Rate of regular SDK request failures broken down by namespace, operation, and status code.", "type": "timeseries", "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["min", "max", "mean", "lastNotNull"]}}, "targets": [{"expr": "sum by (namespace, operation, status_code) (rate(temporal_request_failure{namespace=\"$namespace\"}[$__rate_interval]))", "legendFormat": "{{namespace}} - {{operation}} - {{status_code}}", "refId": "A"}]},
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"unit": "short", "custom": {"lineWidth": 2}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}, "color": {"mode": "thresholds"}}, "overrides": []}, "gridPos": {"h": 7, "w": 12, "x": 12, "y": 11}, "id": 6, "title": "SDK Long-Poll Request Failures", "description": "Rate of long-poll SDK request failures broken down by namespace, operation, and status code.", "type": "timeseries", "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["min", "max", "mean", "lastNotNull"]}}, "targets": [{"expr": "sum by (namespace, operation, status_code) (rate(temporal_long_request_failure{namespace=\"$namespace\"}[$__rate_interval]))", "legendFormat": "{{namespace}} - {{operation}} - {{status_code}}", "refId": "A"}]}
+    ]},
+    {"collapsed": true, "gridPos": {"h": 1, "w": 24, "x": 0, "y": 1}, "id": 10, "title": "Workflow Completion Stats", "type": "row", "panels": [
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {}, "overrides": []}, "gridPos": {"h": 3, "w": 24, "x": 0, "y": 2}, "id": 11, "title": "", "type": "text", "options": {"mode": "markdown", "content": "**Workflow Completion Stats** — this section focuses on completion status. Note that these are really only requests from client/worker to complete workflow execution. Temporal server is the ultimate source of truth for any execution start and completion. Always reference server metrics completion stats to compare. Server can in some cases reject worker or client request to complete execution. Server can under some conditions also complete execution without client/worker requests."}},
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}, "overrides": []}, "gridPos": {"h": 4, "w": 6, "x": 0, "y": 5}, "id": 12, "title": "Workflow Completed", "type": "stat", "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"}, "targets": [{"expr": "sum(increase(temporal_workflow_completed{namespace=\"$namespace\"}[$__range]) or on () vector(0))", "legendFormat": "total", "refId": "A"}]},
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}, "overrides": []}, "gridPos": {"h": 4, "w": 6, "x": 6, "y": 5}, "id": 13, "title": "Workflow Cancelled", "type": "stat", "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"}, "targets": [{"expr": "sum(increase(temporal_workflow_cancelled{namespace=\"$namespace\"}[$__range]) or on () vector(0))", "legendFormat": "total", "refId": "A"}]},
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}, "gridPos": {"h": 4, "w": 6, "x": 12, "y": 5}, "id": 14, "title": "Workflow Failed", "type": "stat", "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"}, "targets": [{"expr": "sum(increase(temporal_workflow_failed{namespace=\"$namespace\"}[$__range]) or on () vector(0))", "legendFormat": "total", "refId": "A"}]},
+      {"datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}, "overrides": []}, "gridPos": {"h": 4, "w": 6, "x": 18, "y": 5}, "id": 15, "title": "Workflow Continue As New", "type": "stat", "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto", "textMode": "auto", "colorMode": "background"}, "targets": [{"expr": "sum(increase(temporal_workflow_continue_as_new{namespace=\"$namespace\"}[$__range]) or on () vector(0))", "legendFormat": "total", "refId": "A"}]}
+    ]}
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["temporal", "prometheus", "sdk"],
+  "templating": {
+    "list": [
+      {"current": {}, "hide": 0, "includeAll": false, "label": "Datasource", "multi": false, "name": "DS_PROMETHEUS", "options": [], "query": "prometheus", "refresh": 1, "type": "datasource"},
+      {"current": {}, "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}, "definition": "label_values(temporal_request, namespace)", "hide": 0, "includeAll": false, "label": "Namespace", "multi": false, "name": "namespace", "query": "label_values(temporal_request, namespace)", "refresh": 2, "sort": 1, "type": "query"},
+      {"current": {"selected": true, "text": "0.99", "value": "0.99"}, "hide": 0, "label": "Percentile", "name": "p", "options": [{"selected": false, "text": "0.50", "value": "0.50"}, {"selected": false, "text": "0.75", "value": "0.75"}, {"selected": false, "text": "0.90", "value": "0.90"}, {"selected": false, "text": "0.95", "value": "0.95"}, {"selected": true, "text": "0.99", "value": "0.99"}, {"selected": false, "text": "0.999", "value": "0.999"}], "query": "0.50,0.75,0.90,0.95,0.99,0.999", "type": "custom"}
+    ]
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Temporal SDK Overview",
+  "uid": "temporal-sdk-overview-v1",
+  "version": 1,
+  "weekStart": ""
+}
