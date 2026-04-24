@@ -3,6 +3,24 @@
 All metrics are prefixed with `temporal_` before being exported to their configured destination.
 Histogram metrics in the Go SDK are measured in **seconds**.
 
+## Table of Contents
+
+- [gRPC Client Metrics](#grpc-client-metrics)
+- [Worker Lifecycle Metrics](#worker-lifecycle-metrics)
+- [Workflow Task Metrics](#workflow-task-metrics)
+- [Workflow Execution Metrics](#workflow-execution-metrics)
+- [Workflow Cache Metrics](#workflow-cache-metrics)
+- [Workflow Thread Metrics](#workflow-thread-metrics)
+- [Activity Task Metrics](#activity-task-metrics)
+- [Local Activity Metrics](#local-activity-metrics)
+- [Nexus Task Metrics](#nexus-task-metrics)
+- [Signal Metrics](#signal-metrics)
+- [Metric Tags Reference](#metric-tags-reference)
+- [Go SDK vs Java SDK Differences](#go-sdk-vs-java-sdk-differences)
+- [Go SDK vs Core SDK Differences](#go-sdk-vs-core-sdk-differences)
+
+---
+
 **Source:**
 - [`internal/common/metrics/constants.go`](https://github.com/temporalio/sdk-go/blob/master/internal/common/metrics/constants.go)
 
@@ -198,24 +216,30 @@ Go SDK specific (also available in Java SDK).
 
 | Area | Go SDK | Java SDK |
 |---|---|---|
-| Histogram unit | Seconds | Seconds |
-| Workflow canceled spelling | `temporal_workflow_canceled` | `temporal_workflow_cancelled` |
-| Local activity deprecated metrics | `local_activity_total`, `local_activity_failed`, `local_activity_canceled` still emitted | Not present |
-| `activity_task_error` | Present | Not present |
-| `workflow_task_replay_latency` | Present | Not present |
-| `num_pollers` gauge | Present | Not present |
-| `workflow_active_thread_count` | Goroutine count | Thread count |
-| Activity cancellation counter | Not present | `temporal_activity_execution_cancelled` |
-| `worker_task_slots_used` | Present | Present |
+| Workflow canceled spelling | `temporal_workflow_canceled` (one `l`) | `temporal_workflow_cancelled` (two `l`s) |
+| `workflow_task_execution_total_latency` | Not present | Present (includes workflow run lock wait time) |
+| `activity_execution_cancelled` counter | Not present | Present |
+| `activity_task_error` counter | Present | Not present |
+| Local activity deprecated aliases | `local_activity_total`, `local_activity_failed`, `local_activity_canceled` still emitted | Not present |
+| Nexus endtoend latency | `temporal_nexus_task_endtoend_latency` present | Not present |
+| `cause` tag | Present | Not present |
 
 ---
 
-## Notes
+## Go SDK vs Core SDK Differences
 
-- **`temporal_long_request` vs `temporal_request`:** Poll operations (`PollWorkflowTaskQueue`, `PollActivityTaskQueue`, `PollNexusTaskQueue`) emit under `temporal_long_request_*`. All other RPC calls use `temporal_request_*`.
-- **`temporal_sticky_cache_miss`** means the worker must replay the full workflow history from scratch. High miss rates indicate cache eviction pressure — tune `WorkerOptions.MaxWorkflowExecutionCacheSize`.
-- **`temporal_workflow_task_schedule_to_start_latency`** is the primary signal for workflow worker capacity. P95 above ~1 second indicates task queue backlog.
-- **`temporal_activity_schedule_to_start_latency`** is the activity equivalent — high values mean activity workers cannot keep up.
-- **`temporal_workflow_task_replay_latency`** is Go-specific and measures just the replay portion of a workflow task. High values here indicate large or expensive history replay.
-- **`temporal_corrupted_signals`** fires when a signal payload cannot be deserialized — typically a schema mismatch between signal sender and workflow definition.
-- Some SDKs may emit additional metrics beyond this list. Only metrics in the [official SDK metrics reference](https://docs.temporal.io/references/sdk-metrics) have guaranteed, defined behavior.
+The Core SDK powers TypeScript, Python, .NET, and Ruby. Use this table when building dashboards or alerts that need to work across both Go workers and Core-based workers.
+
+| Area | Go SDK | Core SDK (TS/Python/.NET/Ruby) |
+|---|---|---|
+| Histogram unit | Seconds | Milliseconds by default (configurable to seconds) |
+| `activity_task_received` counter | Not present | Present |
+| `activity_task_error` counter | Present | Not present |
+| `workflow_task_no_completion` counter | Present | Not present |
+| `corrupted_signals` counter | Present | Not present |
+| `poller_start` counter | Present | Not present |
+| Local activity deprecated aliases | `local_activity_failed`, `local_activity_canceled` still emitted | Not emitted |
+| Nexus execution metric naming | `temporal_nexus_execution_latency` / `temporal_nexus_execution_failed` | `temporal_nexus_task_execution_latency` / `temporal_nexus_task_execution_failed` |
+| `status_code` tag format | PascalCase e.g. `FailedPrecondition` | SCREAMING_SNAKE_CASE e.g. `FAILED_PRECONDITION` — **different format** |
+| `workflow_active_thread_count` gauge | Present (goroutine count) | Not present |
+| `client_name` tag value | `temporal_go` | SDK-specific per language bridge |
