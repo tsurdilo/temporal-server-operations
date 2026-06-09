@@ -67,6 +67,8 @@ These are the configs you should review and consciously set (or decide to leave 
 | `matching.numTaskqueueWritePartitions` | 4 | Number of write partitions per task queue. Default 4 for all user task queues (internal system queues default to 1). **Set to 1 for low-throughput queues to save resources.** Can be set per task queue via constraints. |
 | `matching.numTaskqueueReadPartitions` | 4 | Number of read partitions per task queue. Should match write partitions. Default 4. Can be set per task queue via constraints. |
 | `matching.outstandingTaskAppendsThreshold` | 250 | Buffer size for outstanding task appends before backpressure kicks in. Increase when seeing "Too many outstanding appends to the task queue". **Requires node restart to take effect.** |
+| `metrics.breakdownByTaskQueue` | true | Controls whether matching and history metrics include the actual task queue name as a label tag (`taskqueue`). When `false`, the tag value is replaced with `__omitted__`. **Disabling this disables all per-task-queue gauges including `approximate_backlog_count`, `approximate_backlog_age_seconds`, and `physical_approximate_backlog_count`.** Disable only if high task queue cardinality is overwhelming your observability stack. Can be scoped per task queue via constraints. |
+| `metrics.breakdownByPartition` | true | Controls whether matching metrics include the actual partition ID as a label tag (`partition`). When `false`, normal partitions are reported as `__normal__`; sticky queues always report as `__sticky__` regardless. **Disabling this also disables all per-task-queue backlog gauges** (same gate as `metrics.breakdownByTaskQueue` — both must be `true` for backlog metrics to emit). Disable only if partition cardinality is too high. Can be scoped per task queue via constraints. |
 
 ### Worker
 
@@ -295,6 +297,9 @@ These are the configs you should review and consciously set (or decide to leave 
 | `matching.longPollExpirationInterval` | 1m | Long poll expiration interval in the matching service. |
 | `matching.syncMatchWaitDuration` | 200ms | Wait time for sync match before falling back to async. |
 | `matching.updateAckInterval` | 1m | How frequently the `task_queues` table is updated. Increase to reduce DB write frequency for task queues. |
+| `metrics.breakdownByTaskQueue` | true | Controls whether matching and history metrics include the actual task queue name as a label tag (`taskqueue`). When `false`, the tag value is replaced with `__omitted__`. **Disabling this disables all per-task-queue gauges including `approximate_backlog_count`, `approximate_backlog_age_seconds`, and `physical_approximate_backlog_count`.** Additionally, when a task queue unloads, the zero-value emission that clears stale gauge values in Prometheus is skipped — meaning old values can persist in dashboards until Prometheus series retention expires. Disable only if high task queue cardinality is overwhelming your observability stack. Can be scoped per task queue via constraints. |
+| `metrics.breakdownByPartition` | true | Controls whether matching metrics include the actual partition ID as a label tag (`partition`). When `false`, normal partitions are reported as `__normal__`; sticky queues always report as `__sticky__` regardless. **Both `metrics.breakdownByTaskQueue` and `metrics.breakdownByPartition` must be `true` for per-task-queue backlog gauges to emit, and for zero-value cleanup to fire on task queue unload.** Disable only if partition cardinality is too high. Can be scoped per task queue via constraints. |
+| `metrics.breakdownByBuildID` | true | Controls whether matching metrics include the actual worker deployment version as a label tag (`worker_version`). When `false`, versioned queues are reported as `__versioned__`; unversioned queues always report as `__unversioned__` regardless. Disabling this disables per-task-queue backlog gauges for versioned queues only. Can be scoped per task queue via constraints. |
 
 ---
 
@@ -310,7 +315,7 @@ These are the configs you should review and consciously set (or decide to leave 
 | `system.forceSearchAttributesCacheRefreshOnRead` | false | Bypass search attribute cache. Useful right after adding a new search attribute. Available in server 1.20.3+. **Do not enable in production long-term.** |
 | `system.namespaceCacheRefreshInterval` | 2s | Interval for namespace cache refresh. Tune if namespace config updates are slow to propagate. |
 | `system.enableEagerWorkflowStart` | true | Skips the trip through matching by returning the first workflow task inline in the `StartWorkflowExecution` response. Enabled by default. |
-| `system.enableActivityEagerExecution` | false | Enables eager activity execution per namespace — activities can be returned inline in the workflow task response without going through matching. |
+| `system.enableActivityEagerExecution` | false | Enables eager activity execution per namespace — activities can be dispatched directly back to the completing worker inline in the `RespondWorkflowTaskCompleted` response, bypassing matching entirely. The SDK requests eager execution by default but the server ignores it unless this flag is `true`. **Set to `true` on all production clusters** — this is enabled on Temporal Cloud and is a significant latency and throughput optimization. |
 | `system.enableStickyQuery` | true | Whether sticky query is enabled per namespace. |
 | `system.operatorRPSRatio` | 0.2 | Percentage of rate limit reserved for operator API calls (highest priority). Value between 0 and 1. Default 20%. |
 | `system.enableDataLossMetrics` | false | Emit metrics when data loss errors are encountered. Useful for detecting persistence issues. |
@@ -471,4 +476,5 @@ On-prem defaults are lower than Cloud limits here. Migrating gives workloads mor
 |---|---|---|
 | `frontend.namespaceCount` | 1,200 concurrent long-running requests per-instance, per-API (long-polls, queries) | 20,000 Activity pollers + 20,000 Workflow Task pollers per namespace (default; can be increased via support ticket) |
 | `system.maxCallbacksPerWorkflow` | 32 total callbacks | 2,000 total callbacks per Workflow Execution |
+| `system.enableActivityEagerExecution` | `false` | Enabled on Cloud — activities can be dispatched directly back to the completing worker inline in the `RespondWorkflowTaskCompleted` response, bypassing matching entirely. **OSS users should set this to `true`** — the SDK requests eager execution by default and the server silently ignores it if this flag is off. On-prem clusters without this enabled are missing a significant latency and throughput optimization. |
 
