@@ -15,6 +15,7 @@ Histogram metrics in the Java SDK are measured in **seconds**.
 - [Activity Task Metrics](#activity-task-metrics)
 - [Local Activity Metrics](#local-activity-metrics)
 - [Nexus Task Metrics](#nexus-task-metrics)
+- [Resource Tuner Metrics](#resource-tuner-metrics)
 - [Metric Tags Reference](#metric-tags-reference)
 - [Prometheus Naming: The `_seconds` Suffix](#prometheus-naming-the-_seconds-suffix)
 - [Java SDK vs Go SDK Differences](#java-sdk-vs-go-sdk-differences)
@@ -22,12 +23,12 @@ Histogram metrics in the Java SDK are measured in **seconds**.
 
 ---
 
-**Sources:**
-- [`temporal-serviceclient/src/main/java/io/temporal/serviceclient/MetricsType.java`](https://github.com/temporalio/sdk-java/blob/master/temporal-serviceclient/src/main/java/io/temporal/serviceclient/MetricsType.java)
-- [`temporal-sdk/src/main/java/io/temporal/worker/MetricsType.java`](https://github.com/temporalio/sdk-java/blob/master/temporal-sdk/src/main/java/io/temporal/worker/MetricsType.java)
-- [`temporal-sdk/src/main/java/io/temporal/internal/worker/WorkflowWorker.java`](https://github.com/temporalio/sdk-java/blob/master/temporal-sdk/src/main/java/io/temporal/internal/worker/WorkflowWorker.java)
-- [`temporal-sdk/src/main/java/io/temporal/internal/worker/ActivityWorker.java`](https://github.com/temporalio/sdk-java/blob/master/temporal-sdk/src/main/java/io/temporal/internal/worker/ActivityWorker.java)
-- [`temporal-sdk/src/main/java/io/temporal/internal/worker/LocalActivityWorker.java`](https://github.com/temporalio/sdk-java/blob/master/temporal-sdk/src/main/java/io/temporal/internal/worker/LocalActivityWorker.java)
+**Sources** (verified against `~/devel/temporal/sdk-java`)**:**
+- `temporal-serviceclient/src/main/java/io/temporal/serviceclient/MetricsType.java`
+- `temporal-sdk/src/main/java/io/temporal/worker/MetricsType.java`
+- `temporal-sdk/src/main/java/io/temporal/internal/worker/WorkflowWorker.java`
+- `temporal-sdk/src/main/java/io/temporal/internal/worker/ActivityWorker.java`
+- `temporal-sdk/src/main/java/io/temporal/internal/worker/LocalActivityWorker.java`
 
 ---
 
@@ -89,6 +90,7 @@ Emitted by `WorkflowWorker` during workflow task polling and execution.
 | `temporal_workflow_task_replay_latency` | Histogram | Time spent replaying history during a workflow task |
 | `temporal_workflow_task_execution_failed` | Counter | Workflow task execution failed |
 | `temporal_workflow_task_no_completion` | Counter | Task was processed but no completion was sent to the server |
+| `temporal_workflow_task_heartbeat` | Counter | Emitted each time the worker sends a WFT heartbeat to extend the task timeout |
 
 **Tags:** `workflow_type`, `namespace`, `task_queue`
 
@@ -108,7 +110,7 @@ Emitted when a workflow execution reaches a terminal state.
 | Metric | Type | Description |
 |---|---|---|
 | `temporal_workflow_completed` | Counter | Workflow execution completed successfully |
-| `temporal_workflow_cancelled` | Counter | Workflow execution ended by cancellation |
+| `temporal_workflow_canceled` | Counter | Workflow execution ended by cancellation |
 | `temporal_workflow_failed` | Counter | Workflow execution failed |
 | `temporal_workflow_continue_as_new` | Counter | Workflow execution ended with continue-as-new |
 | `temporal_workflow_endtoend_latency` | Histogram | Total time from schedule to close for a single workflow run |
@@ -126,7 +128,8 @@ Emitted by `WorkflowExecutorCache` (sticky cache / workflow thread cache).
 | `temporal_sticky_cache_hit` | Counter | Workflow task found a matching cached execution |
 | `temporal_sticky_cache_miss` | Counter | Workflow task found no cached execution (cold replay required) |
 | `temporal_sticky_cache_size` | Gauge | Current number of cached workflow executions |
-| `temporal_sticky_cache_total_forced_eviction` | Counter | Executions forcibly evicted from the cache |
+| `temporal_sticky_cache_thread_forced_eviction` | Counter | Executions evicted because the workflow thread pool was exhausted |
+| `temporal_sticky_cache_total_forced_eviction` | Counter | **Deprecated.** Unreliable — covers multiple eviction causes with inconsistent counting; do not use for alerting |
 
 ---
 
@@ -152,7 +155,6 @@ Emitted by `ActivityWorker` during activity task polling and execution.
 | `temporal_activity_succeed_endtoend_latency` | Histogram | Total time from first schedule to successful completion (across all retries) |
 | `temporal_activity_execution_failed` | Counter | Activity task execution failed |
 | `temporal_activity_execution_cancelled` | Counter | Activity task execution cancelled |
-| `temporal_unregistered_activity_invocation` | Counter | Activity type dispatched to this worker is not registered |
 
 **Tags:** `activity_type`, `namespace`, `task_queue`
 
@@ -164,6 +166,7 @@ Emitted by `LocalActivityWorker`. Local activities execute in-process within the
 
 | Metric | Type | Description |
 |---|---|---|
+| `temporal_local_activity_total` | Counter | Every local activity execution attempt |
 | `temporal_local_activity_execution_latency` | Histogram | Time to execute a single local activity attempt |
 | `temporal_local_activity_succeed_endtoend_latency` | Histogram | Total time from schedule to successful completion |
 | `temporal_local_activity_total_execution_latency` | Histogram | Total execution time including all local retries |
@@ -181,9 +184,25 @@ Java SDK specific (also available in Go SDK).
 | Metric | Type | Description |
 |---|---|---|
 | `temporal_nexus_poll_no_task` | Counter | Nexus task poll returned empty |
-| `temporal_nexus_schedule_to_start_latency` | Histogram | Time from Nexus task scheduled to worker picking it up |
-| `temporal_nexus_execution_latency` | Histogram | Time to execute a Nexus task |
-| `temporal_nexus_execution_failed` | Counter | Nexus task execution failed |
+| `temporal_nexus_task_schedule_to_start_latency` | Histogram | Time from Nexus task scheduled to worker picking it up |
+| `temporal_nexus_task_execution_latency` | Histogram | Time to execute a Nexus task |
+| `temporal_nexus_task_execution_failed` | Counter | Nexus task execution failed |
+| `temporal_nexus_task_endtoend_latency` | Histogram | Total time from Nexus task creation to completion |
+
+**Tags:** `namespace`, `task_queue`
+
+---
+
+## Resource Tuner Metrics
+
+Emitted when using `ResourceBasedTuner` to dynamically size worker slot pools based on system resource utilization.
+
+| Metric | Type | Description |
+|---|---|---|
+| `temporal_resource_slots_mem_usage` | Gauge | Current memory utilization as seen by the resource tuner |
+| `temporal_resource_slots_cpu_usage` | Gauge | Current CPU utilization as seen by the resource tuner |
+| `temporal_resource_slots_mem_pid_output` | Gauge | PID controller output for memory-based slot allocation |
+| `temporal_resource_slots_cpu_pid_output` | Gauge | PID controller output for CPU-based slot allocation |
 
 **Tags:** `namespace`, `task_queue`
 
@@ -244,8 +263,9 @@ For each Histogram metric, Prometheus exposes four series. For example `temporal
 | `temporal_local_activity_execution_latency` | `temporal_local_activity_execution_latency_seconds` |
 | `temporal_local_activity_succeed_endtoend_latency` | `temporal_local_activity_succeed_endtoend_latency_seconds` |
 | `temporal_local_activity_total_execution_latency` | `temporal_local_activity_total_execution_latency_seconds` |
-| `temporal_nexus_schedule_to_start_latency` | `temporal_nexus_schedule_to_start_latency_seconds` |
-| `temporal_nexus_execution_latency` | `temporal_nexus_execution_latency_seconds` |
+| `temporal_nexus_task_schedule_to_start_latency` | `temporal_nexus_task_schedule_to_start_latency_seconds` |
+| `temporal_nexus_task_execution_latency` | `temporal_nexus_task_execution_latency_seconds` |
+| `temporal_nexus_task_endtoend_latency` | `temporal_nexus_task_endtoend_latency_seconds` |
 
 **Metrics that are NOT affected** (Counters and Gauges keep their names, though Prometheus appends `_total` to counters):
 
@@ -261,7 +281,7 @@ All `*_counter`, `*_failed`, `*_cancelled`, `*_no_task`, `*_start`, `*_hit`, `*_
 
 | Area | Java SDK | Go SDK |
 |---|---|---|
-| Workflow canceled spelling | `temporal_workflow_cancelled` (two `l`s) | `temporal_workflow_canceled` (one `l`) |
+| Workflow canceled spelling | `temporal_workflow_canceled` (one `l`) | `temporal_workflow_canceled` (one `l`) |
 | `workflow_task_execution_total_latency` | Present (includes workflow run lock wait time) | Not present |
 | `activity_execution_cancelled` counter | Present | Not present |
 | `activity_task_error` counter | Not present | Present |
@@ -278,12 +298,12 @@ The Core SDK powers TypeScript, Python, .NET, and Ruby. Use this table when buil
 | Area | Java SDK | Core SDK (TS/Python/.NET/Ruby) |
 |---|---|---|
 | Histogram unit | Seconds | Milliseconds by default (configurable to seconds) |
-| Workflow canceled spelling | `temporal_workflow_cancelled` (two `l`s) | `temporal_workflow_canceled` (one `l`) |
+| Workflow canceled spelling | `temporal_workflow_canceled` (one `l`) | `temporal_workflow_canceled` (one `l`) |
 | `activity_task_received` counter | Not present | Present |
 | `activity_execution_cancelled` counter | Present | Not present |
 | `workflow_task_execution_total_latency` | Present (includes workflow run lock wait) | Not present |
 | `workflow_task_no_completion` counter | Present | Not present |
-| `local_activity_total` counter | Not present | Present |
-| Nexus execution metric naming | `temporal_nexus_execution_latency` / `temporal_nexus_execution_failed` | `temporal_nexus_task_execution_latency` / `temporal_nexus_task_execution_failed` |
+| `local_activity_total` counter | Present | Present |
+| Nexus execution metric naming | `temporal_nexus_task_execution_latency` / `temporal_nexus_task_execution_failed` | `temporal_nexus_task_execution_latency` / `temporal_nexus_task_execution_failed` |
 | `workflow_active_thread_count` gauge | Present (JVM thread count) | Not present |
 | `cause` tag | Not present | Present |

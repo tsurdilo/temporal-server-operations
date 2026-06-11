@@ -336,6 +336,21 @@ Operators who want focused coverage without implementing the full alert inventor
 | 62 | Visibility Latency Critical | 🔴 Critical | Visibility Latencies per Operation | p99 visibility latency exceeds 5s |
 | 63 | Visibility End-to-End Latency High | ⚠️ Warning | Visibility Task End-to-End Latencies | End-to-end visibility task latency exceeds 3s — workflow state changes taking too long to appear in search |
 
+#### Dual Visibility Store Alerts (implemented — dashboard v2.5.0+)
+
+These alerts use `visibility_persistence_*` metrics with the `visibility_index_name`
+label (`temporal_visibility` = primary, `temporal_visibility_secondary` = secondary).
+Only meaningful when `system.secondaryVisibilityWritingMode = dual`. The `visibility_persistence_*`
+metrics carry no `namespace` label — no namespace filter is applied.
+
+| # | Alert Name | Severity | Panel | Metric | Threshold |
+|---|---|---|---|---|---|
+| 59a | Visibility Store Write Errors (Warning) | ⚠️ Warning | Visibility Write Error Rate per Store (2118) | `visibility_persistence_errors` by `visibility_index_name` | > 0.1 req/s for 2m |
+| 59b | Visibility Store Write Errors (Critical) | 🔴 Critical | Visibility Write Error Rate per Store (2118) | `visibility_persistence_errors` by `visibility_index_name` | > 1 req/s for 1m |
+| 59c | Visibility Store Write Latency High | ⚠️ Warning | Visibility Write Latency per Store (2119) | `visibility_persistence_latency` p99 by `visibility_index_name` | > 3s for 5m |
+
+Runbook: `runbooks/59a-visibility-store-write-errors.md`
+
 ---
 
 ### Section 17 — Worker Registry (In-memory)
@@ -372,9 +387,11 @@ Operators who want focused coverage without implementing the full alert inventor
 
 | Severity | Count |
 |---|---|
-| 🔴 Critical | 44 |
-| ⚠️ Warning | 44 |
-| **Total** | **88** |
+| 🔴 Critical | 45 |
+| ⚠️ Warning | 46 |
+| **Total** | **91** |
+
+> Counts include dual visibility store alerts 59a–59c (implemented 2026-06-11).
 
 ---
 

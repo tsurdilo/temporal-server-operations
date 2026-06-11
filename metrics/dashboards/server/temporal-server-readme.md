@@ -318,7 +318,7 @@ Tracks the number of concurrent long-poll requests from SDK workers to the Front
 
 ### 16. Visibility
 
-Tracks the performance and availability of the Temporal Visibility store, which powers workflow search and listing APIs. Backed by either Elasticsearch (advanced visibility) or the primary database (standard visibility).
+Tracks the performance and availability of the Temporal Visibility store, which powers workflow search and listing APIs. Backed by either Elasticsearch (advanced visibility) or the primary database (standard visibility). When dual visibility is enabled, the three store-level panels split by `visibility_index_name` to distinguish primary from secondary store health.
 
 | Panel | Description |
 |---|---|
@@ -326,6 +326,9 @@ Tracks the performance and availability of the Temporal Visibility store, which 
 | **Visibility Availability** | Percentage of visibility-related service requests that succeeded, shown as a gauge. Covers `ListWorkflowExecutions`, `CountWorkflowExecutions`, `ScanWorkflowExecutions` and similar. Thresholds: 99% green, 95% orange. |
 | **Visibility Task End-to-End Latencies** | End-to-end queue latency for visibility tasks — from when a task is generated to when it is processed. High values mean workflow state changes are taking longer to appear in visibility search results. |
 | **Visibility Task Processing by Operation** | Processing latency of individual visibility tasks broken down by operation. Isolates the time spent in the visibility write itself, separate from time spent waiting in the queue. |
+| **Visibility Write Request Rate per Store** | Rate of visibility persistence write requests split by `visibility_index_name` (primary vs secondary) and operation. A flat line on one store while the other continues indicates that store has stopped receiving writes — either it is down or dual write mode has changed. Only meaningful when dual visibility is enabled. |
+| **Visibility Write Error Rate per Store** | Rate of visibility persistence errors split by `visibility_index_name` and operation. Any sustained non-zero value on a store is the primary alert signal for a visibility store outage. History retries indefinitely (backoff: 1s initial, 1.1× coefficient, 3-minute cap). Orange > 0.1 req/s, red > 1 req/s. |
+| **Visibility Write Latency per Store** | P-selected percentile write latency per visibility store split by `visibility_index_name` and operation. Divergence between primary and secondary latency indicates one store is under pressure or recovering. Use alongside the error rate panel to distinguish a slow store from a failed one. Orange > 3s, red > 5s. |
 
 ---
 
@@ -469,6 +472,8 @@ The following panels have threshold reference lines configured:
 | **Visibility Latencies per Operation** | 3s | 5s |
 | **Visibility Task End-to-End Latencies** | 3s | 5s |
 | **Visibility Task Processing by Operation** | 2s | 5s |
+| **Visibility Write Error Rate per Store** | 0.1 req/s | 1 req/s |
+| **Visibility Write Latency per Store** | 3s | 5s |
 
 ### Cluster Replication
 

@@ -2770,7 +2770,7 @@
           },
           "id": 2115,
           "title": "Task Scheduler Latency per Operation",
-          "description": "In-memory schedule-to-start latency: time between a history task being loaded into memory and acquiring an executor worker (task_latency_schedule). Rises when history.transferProcessorSchedulerWorkerCount goroutines are fully saturated. A sustained rise on Transfer.* operations while other namespaces slow down indicates a bulk-processing workload (e.g. mass terminations or deletions) starving the shared worker pool. Operator response: temporarily reduce history.transferProcessorSchedulerWorkerCount via dynamic config — no restart required. Orange > 500ms, red > 2s.",
+          "description": "In-memory schedule-to-start latency: time between a history task being loaded into memory and acquiring an executor worker (task_latency_schedule). Rises when history.transferProcessorSchedulerWorkerCount goroutines are fully saturated. A sustained rise on Transfer.* operations while other namespaces slow down indicates a bulk-processing workload (e.g. mass terminations or deletions) starving the shared worker pool. Operator response: temporarily reduce history.transferProcessorSchedulerWorkerCount via dynamic config \u2014 no restart required. Orange > 500ms, red > 2s.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -2827,7 +2827,7 @@
           },
           "id": 2116,
           "title": "Task Scheduler Throttled Rate per Operation",
-          "description": "Rate of tasks explicitly throttled by the host-level task scheduler (task_scheduler_throttled), broken down by operation. Complements Task Scheduler Latency — throttled tasks are turned away rather than queued, so any sustained non-zero rate means the scheduler is at capacity. Any non-zero value is worth investigating alongside the latency panel.",
+          "description": "Rate of tasks explicitly throttled by the host-level task scheduler (task_scheduler_throttled), broken down by operation. Complements Task Scheduler Latency \u2014 throttled tasks are turned away rather than queued, so any sustained non-zero rate means the scheduler is at capacity. Any non-zero value is worth investigating alongside the latency panel.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -5114,6 +5114,185 @@
               "refId": "A"
             }
           ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 30
+          },
+          "id": 2117,
+          "title": "Visibility Write Request Rate per Store",
+          "description": "Rate of visibility persistence write requests split by store (primary vs secondary). A flat line on one store while the other continues indicates that store has stopped receiving writes \u2014 either it is down or dual write mode has changed.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(visibility_persistence_requests{service_name=\"history\"}[$__rate_interval])) by (visibility_index_name, operation)",
+              "legendFormat": "{{visibility_index_name}} / {{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 30
+          },
+          "id": 2118,
+          "title": "Visibility Write Error Rate per Store",
+          "description": "Rate of visibility persistence errors split by store (primary vs secondary). Any sustained non-zero value on a store indicates that store is failing writes. This is the primary alert signal for a visibility store outage. History will retry indefinitely (backoff: 1s initial, 1.1x coefficient, 3m cap).",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(visibility_persistence_errors{service_name=\"history\"}[$__rate_interval])) by (visibility_index_name, operation)",
+              "legendFormat": "{{visibility_index_name}} / {{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 3.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 5.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 30
+          },
+          "id": 2119,
+          "title": "Visibility Write Latency per Store",
+          "description": "P-selected percentile write latency per visibility store. Divergence between primary and secondary latency indicates one store is under pressure or recovering. Use alongside the error rate panel to distinguish a slow store from a failed one.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum(rate(visibility_persistence_latency_bucket{service_name=\"history\"}[$__rate_interval])) by (visibility_index_name, operation, le))",
+              "legendFormat": "{{visibility_index_name}} / {{operation}}",
+              "refId": "A"
+            }
+          ]
         }
       ]
     },
@@ -6468,8 +6647,8 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.4.0",
+  "title": "Temporal Server Dashboard v2.5.0",
   "uid": "temporal-overview-v1",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
