@@ -36,4 +36,4 @@ Content graduates here from `tmp/` once it meets the full criteria: documented, 
 
 | Runbook | Covers |
 |---------|--------|
-| [Dual Visibility](runbooks/dual-visibility.md) | Primary failure, secondary failure, both stores fail — detection via `visibility_persistence_*` metrics, recovery steps, write mode management |
+| [Dual Visibility](runbooks/dual-visibility.md) | Primary failure, secondary failure, both stores fail — detection via `visibility_persistence_*` metrics, recovery steps, write mode management. **SQL-backed dual visibility only** — Elasticsearch coverage TBD. |

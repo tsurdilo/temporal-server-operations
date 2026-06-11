@@ -46,4 +46,4 @@ and back.
 
 | Runbook | Scenarios | Dashboard Version | Alerts |
 |---------|-----------|-------------------|--------|
-| [Dual Visibility](./dual-visibility.md) | Primary failure, secondary failure, both fail | v2.5.0+ | 059a, 059b, 059c |
+| [Dual Visibility](./dual-visibility.md) | Primary failure, secondary failure, both fail — SQL-backed only (ES TBD) | v2.5.0+ | 059a, 059b, 059c |
