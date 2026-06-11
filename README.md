@@ -21,3 +21,19 @@ OSS Temporal server metrics references.
     - [Standby Cluster Dashboard](metrics/dashboards/server/temporal-standby-readme.md) — replication health, lag, and failover readiness for standby clusters
 - [SDK Dashboards](metrics/dashboards/sdk/README.md) — Grafana dashboards for monitoring Temporal SDK clients and workers (Java, Go, TypeScript, Python, .NET, Ruby).
 - [Troubleshooting Dashboards](metrics/dashboards/troubleshooting/README.md) — Grafana dashboards focused on troubleshooting specific Temporal operational issues.
+
+### Alerts
+
+- [Server Alerts](metrics/alerts/server/README.md) — Grafana alerting provisioning rules for a self-hosted Temporal Server cluster. Covers the essential alert set plus dual visibility store alerts. Each alert links to a runbook with diagnosis and recovery steps.
+
+---
+
+## [Runbooks](runbooks/README.md)
+
+Production-ready operational runbooks for self-hosted Temporal clusters. Each runbook has been tested against a real cluster and cross-references the specific dashboard panels and alert rules that surface its signals.
+
+Content graduates here from `tmp/` once it meets the full criteria: documented, dashboard panels in place, alerts wired up, and failure scenarios tested live.
+
+| Runbook | Covers |
+|---------|--------|
+| [Dual Visibility](runbooks/dual-visibility.md) | Primary failure, secondary failure, both stores fail — detection via `visibility_persistence_*` metrics, recovery steps, write mode management |
