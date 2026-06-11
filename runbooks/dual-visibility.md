@@ -5,10 +5,8 @@ Operational reference for self-hosted Temporal clusters running dual visibility
 diagnosis, recovery, and write-mode management for all three failure scenarios.
 
 > **Scope:** This runbook covers **SQL-backed dual visibility only** (both stores
-> are PostgreSQL). Elasticsearch-backed configurations have different failure
-> modes and connection pool behavior — ES coverage will be added in a future
-> iteration. Do not apply the recovery commands here to an ES-primary or
-> ES-secondary setup without first validating the differences.
+> are PostgreSQL). It has not been validated against Elasticsearch-backed
+> configurations — ES coverage will be added in a future iteration.
 
 ---
 
