@@ -40,6 +40,16 @@ Alert runbook: [`metrics/alerts/server/runbooks/59a-visibility-store-write-error
 
 ## Background
 
+**Dual visibility is a last-resort migration tool, not an HA mechanism.** The
+right approach is to plan your visibility store choice upfront and set it up
+correctly from the start. Dual visibility exists for cases where that wasn't
+possible — migrating a running cluster from one store to another without
+downtime. It does not improve availability or reliability: a primary store
+failure still degrades reads, there is no automatic failover to secondary, and
+secondary receives no read traffic under any circumstances. For read HA, use
+Elasticsearch — the ES cluster handles shard-level failover transparently
+without any Temporal-level routing logic.
+
 Dual visibility writes every visibility event (workflow open/close/update) to two
 PostgreSQL stores in parallel via `dualWriteWrapper`
 (`visibility_manager_dual.go:241`). Reads go to the primary only (`dualReadWrapper`,

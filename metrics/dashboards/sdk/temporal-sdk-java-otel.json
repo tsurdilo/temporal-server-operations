@@ -177,7 +177,10 @@
             "defaults": {
               "unit": "reqps",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -187,8 +190,8 @@
                     "value": null
                   },
                   {
-                    "color": "red",
-                    "value": 1
+                    "color": "orange",
+                    "value": 0.1
                   }
                 ]
               },
@@ -237,7 +240,10 @@
             "defaults": {
               "unit": "reqps",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -247,8 +253,8 @@
                     "value": null
                   },
                   {
-                    "color": "red",
-                    "value": 1
+                    "color": "orange",
+                    "value": 0.1
                   }
                 ]
               },
@@ -297,7 +303,30 @@
             "defaults": {
               "unit": "s",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 2.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
               }
             },
             "overrides": []
@@ -510,7 +539,30 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 0
+                  },
+                  {
+                    "color": "orange",
+                    "value": 10
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
               }
             },
             "overrides": []
@@ -599,6 +651,23 @@
               "unit": "short",
               "custom": {
                 "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 0
+                  },
+                  {
+                    "color": "orange",
+                    "value": 5
+                  }
+                ]
               }
             },
             "overrides": []
@@ -723,7 +792,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -734,7 +806,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 1
+                    "value": 20
+                  },
+                  {
+                    "color": "red",
+                    "value": 50
                   }
                 ]
               },
@@ -784,6 +860,23 @@
               "unit": "short",
               "custom": {
                 "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 0
+                  },
+                  {
+                    "color": "orange",
+                    "value": 100
+                  }
+                ]
               }
             },
             "overrides": []
@@ -827,7 +920,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -1209,7 +1305,30 @@
             "defaults": {
               "unit": "s",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 5.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
               }
             },
             "overrides": []
@@ -1253,7 +1372,30 @@
             "defaults": {
               "unit": "s",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 300.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1800.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
               }
             },
             "overrides": []
@@ -1423,6 +1565,23 @@
               "unit": "s",
               "custom": {
                 "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 5.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 10.0
+                  }
+                ]
               }
             },
             "overrides": []
@@ -1510,7 +1669,29 @@
             "defaults": {
               "unit": "s",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 5.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 10.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
               }
             },
             "overrides": []
@@ -1554,7 +1735,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -1565,7 +1749,7 @@
                   },
                   {
                     "color": "red",
-                    "value": 1
+                    "value": 0.001
                   }
                 ]
               },
@@ -1614,7 +1798,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -1674,7 +1861,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -1815,7 +2005,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -1825,8 +2018,12 @@
                     "value": null
                   },
                   {
+                    "color": "orange",
+                    "value": 10.0
+                  },
+                  {
                     "color": "red",
-                    "value": 1
+                    "value": 20.0
                   }
                 ]
               },
@@ -1875,7 +2072,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -1935,7 +2135,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -1946,7 +2149,7 @@
                   },
                   {
                     "color": "red",
-                    "value": 1
+                    "value": 0.001
                   }
                 ]
               },
@@ -2120,7 +2323,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -2130,7 +2336,7 @@
                     "value": null
                   },
                   {
-                    "color": "red",
+                    "color": "orange",
                     "value": 1
                   }
                 ]
@@ -2180,7 +2386,10 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
               },
               "thresholds": {
                 "mode": "absolute",
@@ -2240,7 +2449,30 @@
             "defaults": {
               "unit": "s",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 900.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1800.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
               }
             },
             "overrides": []
@@ -2284,7 +2516,29 @@
             "defaults": {
               "unit": "s",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 8.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 10.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
               }
             },
             "overrides": []
@@ -2328,7 +2582,30 @@
             "defaults": {
               "unit": "s",
               "custom": {
-                "lineWidth": 2
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 900.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1800.0
+                  }
+                ]
+              },
+              "color": {
+                "mode": "palette-classic"
               }
             },
             "overrides": []
@@ -2688,7 +2965,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Java SDK Dashboard (OTel) v1.1.0",
+  "title": "Temporal Java SDK Dashboard (OTel) v1.2.0",
   "uid": "temporal-sdk-java-otel-v1",
   "version": 1,
   "weekStart": ""
