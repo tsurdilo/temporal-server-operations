@@ -4,12 +4,6 @@ This repository includes various Temporal Server operational artifacts.
 
 ---
 
-## [Dynamic Config](dynamic_config/README.md)
-
-OSS Temporal server dynamic config reference, dynamic config YAML samples, and troubleshooting info.
-
----
-
 ## Metrics
 
 ### References
@@ -41,3 +35,9 @@ Content graduates here from `tmp/` once it meets the full criteria: documented, 
 | Playbook | Covers |
 |---------|--------|
 | [Dual Visibility](playbooks/dual-visibility.md) | Primary failure, secondary failure, both stores fail — detection via `visibility_persistence_*` metrics, recovery steps, write mode management. **SQL-backed dual visibility only** — Elasticsearch coverage TBD. |
+
+---
+
+## [Dynamic Config](dynamic_config/README.md)
+
+OSS Temporal server dynamic config reference, dynamic config YAML samples, and troubleshooting info.
