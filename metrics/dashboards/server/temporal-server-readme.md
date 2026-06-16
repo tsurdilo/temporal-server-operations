@@ -277,7 +277,7 @@ Tracks the size of workflow execution history, event counts, mutable state, and 
 
 ### 13. Matching Task Queue Info
 
-Focuses on matching task queue latencies and throttling. Can be useful among other things for managing task queue partitions if needed. For a detailed guide on when and how to adjust partitions, see the [Task Queue Partitions Operator Guide](../../dynamic_config/task-queue-partitions.md).
+Focuses on matching task queue latencies and throttling. Can be useful among other things for managing task queue partitions if needed. For a detailed guide on when and how to adjust partitions, see the [Task Queue Partitions Operator Guide](../../dynamic_config/guides/change-task-queue-partitions.md).
 
 | Panel | Description |
 |---|---|
@@ -493,4 +493,4 @@ The following panels have threshold reference lines configured:
 
 ## Related Resources
 
-- [Temporal Standby Cluster — Replication Health Dashboard](./temporal-standby-replication-README.md)
+- [Temporal Standby Cluster — Replication Health Dashboard](./temporal-standby-readme.md)

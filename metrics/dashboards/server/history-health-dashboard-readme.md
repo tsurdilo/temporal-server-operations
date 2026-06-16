@@ -40,7 +40,7 @@ It is intentionally cluster-level, not namespace-level. There is no Temporal nam
 
 ## Relationship to Temporal Server Overview Dashboard
 
-This dashboard is a **companion to** the [Temporal Server Overview](../temporal-server/README.md) dashboard, not a replacement for it. They serve different purposes:
+This dashboard is a **companion to** the [Temporal Server Overview](./temporal-server-readme.md) dashboard, not a replacement for it. They serve different purposes:
 
 | Dashboard | Purpose | Primary audience |
 |---|---|---|
@@ -340,7 +340,7 @@ Shard movement most commonly occurs during cluster restarts and scaling of histo
 
 ## Panels Duplicated from Server Overview
 
-The following panels appear in both this dashboard and the [Temporal Server Overview](../temporal-server/README.md) dashboard. The duplication is intentional — these panels are needed here for incident correlation without switching dashboards.
+The following panels appear in both this dashboard and the [Temporal Server Overview](./temporal-server-readme.md) dashboard. The duplication is intentional — these panels are needed here for incident correlation without switching dashboards.
 
 | Panel | Server Overview row | Notes |
 |---|---|---|
@@ -380,4 +380,4 @@ All `host_health` queries assume a `service_name` label. This is emitted by OSS 
 
 ## Related Resources
 
-- [Temporal Server Overview Dashboard](../temporal-server/README.md) — full cluster overview, per-namespace workload health
+- [Temporal Server Overview Dashboard](./temporal-server-readme.md) — full cluster overview, per-namespace workload health

@@ -150,4 +150,4 @@ kubectl run pg-check-secondary --rm -it --restart=Never --image=postgres:16-alpi
 ```
 
 For the full operational runbook including write mode management and all failure
-scenarios: [`runbooks/dual-visibility.md`](../../../../runbooks/dual-visibility.md)
+scenarios: [`playbooks/dual-visibility.md`](../../../../playbooks/dual-visibility.md)

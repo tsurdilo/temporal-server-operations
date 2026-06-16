@@ -31,7 +31,7 @@ A dedicated Grafana dashboard for monitoring Temporal standby clusters in a mult
 
 ## Overview
 
-This dashboard answers a different question than the main [Temporal Server Dashboard](./temporal-server-dashboard-README.md). Where the server dashboard asks *"is this cluster working?"*, this dashboard asks *"is replication fidelity maintained and is this cluster ready to take over?"*
+This dashboard answers a different question than the main [Temporal Server Dashboard](./temporal-server-readme.md). Where the server dashboard asks *"is this cluster working?"*, this dashboard asks *"is replication fidelity maintained and is this cluster ready to take over?"*
 
 It is designed to be deployed once per standby cluster and used by operators to:
 
@@ -235,7 +235,7 @@ The following dynamic configs on the standby cluster have a direct effect on wha
 
 ## Relationship to the Server Dashboard
 
-This dashboard and the [Temporal Server Dashboard](./temporal-server-dashboard-README.md) are designed to be used together for multi-cluster deployments.
+This dashboard and the [Temporal Server Dashboard](./temporal-server-readme.md) are designed to be used together for multi-cluster deployments.
 
 | Question | Dashboard to use |
 |---|---|
