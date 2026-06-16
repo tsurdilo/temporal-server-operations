@@ -10,9 +10,11 @@ OSS Temporal server dynamic config reference, dynamic config YAML samples, and t
 
 ---
 
-## [Metrics](metrics/references/README.md)
+## Metrics
 
-OSS Temporal server metrics references.
+### References
+
+- [Metrics References](metrics/references/README.md) — per-metric reference docs for the Temporal server and all SDKs (Go, Java, Core).
 
 ### Dashboards
 
