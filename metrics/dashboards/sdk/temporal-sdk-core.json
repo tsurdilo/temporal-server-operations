@@ -2756,7 +2756,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Core SDK Dashboard (TypeScript, Python, .NET, Ruby) v1.1.0",
+  "title": "Temporal Core SDK Dashboard (TypeScript, Python, .NET, Ruby) v1.2.0",
   "uid": "temporal-sdk-core-v1",
   "version": 1,
   "weekStart": ""

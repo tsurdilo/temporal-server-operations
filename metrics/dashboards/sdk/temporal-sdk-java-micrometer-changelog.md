@@ -1,5 +1,24 @@
 # Changelog — Temporal Java SDK Dashboard (Micrometer)
 
+## v1.3.0 — 2026-06-16
+
+### Changed — Alert-aligned thresholds
+
+Corrected threshold values on alert-relevant panels so that dashboard red lines match the corresponding alert firing thresholds exactly. When an alert fires, the panel now visually confirms the breach at the same value.
+
+- `Request Latency` (panel 7) — red at 2s (matches alert 31: p99 > 2s); previously red at 5s
+- `Workflow Task Schedule To Start Latency` (panel 22) — orange at 1s, red at 5s (matches alert 19: p99 > 5s); previously incorrect values
+- `Activity Schedule To Start Latency` (panel 23) — orange at 300s, red at 1800s (matches alert 20b: p99 > 1800s); previously no red threshold
+- `Number of Active Pollers` (panel 36) — red at 0 (matches alert 15: value == 0); previously no threshold
+- `Workflow Task Execution Latency` (panel 44) — orange at 5s, red at 10s (matches alert 32: p99 > 10s); previously no threshold
+- `Workflow Task Execution Failed` (panel 47) — red at 0.001 (matches alerts 21/22: rate > 0); previously orange only
+- `Sticky Cache Size` (panel 54) — red at 0 (matches alert 34: value == 0); previously no threshold
+- `Activity Execution Failed` (panel 63) — orange at 10, red at 20 (matches alert 26: rate > 20/s); previously orange at 1
+- `Local Activity Execution Latency` (panel 74) — orange at 900s, red at 1800s (matches alert 29: p99 > 1800s); previously red at 10s
+- `Local Activity Total Execution Latency` (panel 76) — orange at 900s, red at 1800s (matches alert 30: p99 > 1800s); previously red at 10s
+
+---
+
 ## v1.2.0 — 2026-06-15
 
 ### Changed — Thresholds

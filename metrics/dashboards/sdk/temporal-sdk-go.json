@@ -2915,7 +2915,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Go SDK Dashboard v1.1.0",
+  "title": "Temporal Go SDK Dashboard v1.2.0",
   "uid": "temporal-sdk-go-v1",
   "version": 1,
   "weekStart": ""

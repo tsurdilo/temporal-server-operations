@@ -2965,7 +2965,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Java SDK Dashboard (Micrometer) v1.2.0",
+  "title": "Temporal Java SDK Dashboard (Micrometer) v1.3.0",
   "uid": "temporal-sdk-java-micrometer-v1",
   "version": 1,
   "weekStart": ""

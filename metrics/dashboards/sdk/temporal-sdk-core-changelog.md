@@ -1,5 +1,23 @@
 # Changelog — Temporal Core SDK Dashboard (TypeScript, Python, .NET, Ruby)
 
+## v1.2.0 — 2026-06-16
+
+### Changed — Alert-aligned thresholds
+
+Corrected threshold values on alert-relevant panels so that dashboard red lines match the corresponding alert firing thresholds exactly. Core SDK panels use milliseconds for latency — threshold values are 1000× the second-based alert thresholds.
+
+- `Request Latency` (panel 7) — orange at 1000ms, red at 2000ms (matches alert 31: p99 > 2s); previously red at 5ms
+- `Workflow Task Schedule To Start Latency` (panel 22) — orange at 1000ms, red at 5000ms (matches alert 19: p99 > 5s); previously red at 5ms
+- `Activity Schedule To Start Latency` (panel 23) — orange at 300000ms, red at 1800000ms (matches alert 20b: p99 > 1800s); previously no red threshold
+- `Number of Active Pollers` (panel 33) — red at 0 (matches alert 15: value == 0); previously no threshold
+- `Workflow Task Execution Latency` (panel 44) — orange at 5000ms, red at 10000ms (matches alert 32: p99 > 10s); previously no threshold
+- `Workflow Task Execution Failed` (panel 46) — red at 0.001 (matches alerts 21/22: rate > 0); previously red at 1
+- `Activity Execution Failed` (panel 64) — orange at 10, red at 20 (matches alert 26: rate > 20/s); previously orange at 1
+- `Local Activity Execution Latency` (panel 75) — orange at 900000ms, red at 1800000ms (matches alert 29: p99 > 1800s); previously red at 10ms
+- `Local Activity Total Execution Latency` (panel 74) — orange at 900000ms, red at 1800000ms (matches alert 30: p99 > 1800s); previously red at 10ms
+
+---
+
 ## v1.1.0 — 2026-06-15
 
 ### Changed — Thresholds

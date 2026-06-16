@@ -2965,7 +2965,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Java SDK Dashboard (OTel) v1.2.0",
+  "title": "Temporal Java SDK Dashboard (OTel) v1.3.0",
   "uid": "temporal-sdk-java-otel-v1",
   "version": 1,
   "weekStart": ""
