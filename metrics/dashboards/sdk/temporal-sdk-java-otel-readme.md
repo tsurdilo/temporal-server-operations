@@ -215,10 +215,3 @@ This section focuses on Nexus Tasks information. All panels are filtered by `nam
 | **Nexus Execution Latency** | Time to execute a Nexus task at the selected percentile. Uses `temporal_nexus_execution_latency_bucket` (OTel). |
 
 ---
-
-## Related Resources
-
-- [Temporal Java SDK Metrics Reference](https://docs.temporal.io/references/sdk-metrics)
-- [Temporal Java SDK](https://github.com/temporalio/sdk-java)
-- [SDK Metrics Request Failures Troubleshooting](https://github.com/tsurdilo/temporal-server-operations/blob/main/metrics/SDK_METRICS_REQUEST_FAILURES.md)
-- [Temporal Community Forum](https://community.temporal.io)

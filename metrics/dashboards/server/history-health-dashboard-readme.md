@@ -380,8 +380,4 @@ All `host_health` queries assume a `service_name` label. This is emitted by OSS 
 
 ## Related Resources
 
-- [History Host Health Runbook](./history-host-health-runbook.md) — source of truth for all health check logic, poller setup, and failover decision guidance
 - [Temporal Server Overview Dashboard](../temporal-server/README.md) — full cluster overview, per-namespace workload health
-- [Temporal Server Metrics Reference](https://docs.temporal.io/references/cluster-metrics)
-- [Temporal metric_defs.go](https://github.com/temporalio/temporal/blob/main/common/metrics/metric_defs.go)
-- [Temporal Self-Hosted Monitoring Guide](https://docs.temporal.io/self-hosted-guide/monitoring)

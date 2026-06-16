@@ -494,7 +494,3 @@ The following panels have threshold reference lines configured:
 ## Related Resources
 
 - [Temporal Standby Cluster — Replication Health Dashboard](./temporal-standby-replication-README.md)
-- [Temporal Server Metrics Reference](https://docs.temporal.io/references/cluster-metrics)
-- [Temporal Server metric_defs.go](https://github.com/temporalio/temporal/blob/main/common/metrics/metric_defs.go)
-- [Temporal Self-Hosted Monitoring Guide](https://docs.temporal.io/self-hosted-guide/monitoring)
-- [Temporal Community Forum](https://community.temporal.io)

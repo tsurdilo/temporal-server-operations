@@ -397,6 +397,5 @@ Runbook: `runbooks/59a-visibility-store-write-errors.md`
 
 ## Related Resources
 
-- [Temporal Server Dashboard README](./temporal-server-readme.md)
+- [Temporal Server Dashboard README](../../dashboards/server/temporal-server-readme.md)
 - [Temporal Dynamic Config Reference](../../dynamic_config/README.md)
-- [Temporal Server Metrics Reference](https://docs.temporal.io/references/cluster-metrics)

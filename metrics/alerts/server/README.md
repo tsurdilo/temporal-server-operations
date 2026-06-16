@@ -119,4 +119,3 @@ Each alert has a runbook in [runbooks/](./runbooks/). Runbook content (triage st
 - [Alert Planning Document](./planning.md) — full alert inventory, design decisions, PromQL reference
 - [Temporal Server Dashboard README](../../dashboards/server/temporal-server-readme.md)
 - [Temporal Dynamic Config Reference](../../../dynamic_config/README.md)
-- [Temporal Server Metrics Reference](https://docs.temporal.io/references/cluster-metrics)

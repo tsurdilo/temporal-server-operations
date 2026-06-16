@@ -248,12 +248,3 @@ This dashboard and the [Temporal Server Dashboard](./temporal-server-dashboard-R
 | Is the standby's own infrastructure healthy enough for failover? | **This dashboard** → Section 7 |
 
 ---
-
-## Related Resources
-
-- [Temporal Server Dashboard](./temporal-server-dashboard-README.md)
-- [Temporal Server Metrics Reference](https://docs.temporal.io/references/cluster-metrics)
-- [Temporal Server metric_defs.go](https://github.com/temporalio/temporal/blob/main/common/metrics/metric_defs.go)
-- [Temporal Self-Hosted Monitoring Guide](https://docs.temporal.io/self-hosted-guide/monitoring)
-- [Temporal Multi-Cluster Guide](https://docs.temporal.io/self-hosted-guide/multi-cluster-replication)
-- [Temporal Community Forum](https://community.temporal.io)

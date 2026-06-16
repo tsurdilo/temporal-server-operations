@@ -199,13 +199,3 @@ This section focuses on Nexus Tasks information. All panels are filtered by `nam
 | **Nexus Task End-to-End Latency** | Total end-to-end time for a Nexus task at the selected percentile. Uses `temporal_nexus_task_endtoend_latency_bucket`. Reported in milliseconds. |
 
 ---
-
-## Related Resources
-
-- [Temporal SDK Metrics Reference](https://docs.temporal.io/references/sdk-metrics)
-- [Temporal TypeScript SDK](https://github.com/temporalio/sdk-typescript)
-- [Temporal Python SDK](https://github.com/temporalio/sdk-python)
-- [Temporal .NET SDK](https://github.com/temporalio/sdk-dotnet)
-- [Temporal Ruby SDK](https://github.com/temporalio/sdk-ruby)
-- [SDK Metrics Request Failures Troubleshooting](https://github.com/tsurdilo/temporal-server-operations/blob/main/metrics/SDK_METRICS_REQUEST_FAILURES.md)
-- [Temporal Community Forum](https://community.temporal.io)
