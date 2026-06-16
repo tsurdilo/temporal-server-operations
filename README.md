@@ -39,3 +39,11 @@ Production-ready operational playbooks for self-hosted Temporal clusters. Each p
 ## [Dynamic Config](dynamic_config/README.md)
 
 OSS Temporal server dynamic config reference, dynamic config YAML samples, and troubleshooting info.
+
+---
+
+## Related Projects
+
+- [temporal-etcd-dynconfig](https://github.com/tsurdilo/temporal-etcd-dynconfig) — etcd-backed dynamic config client for Temporal
+- [temporal-configmap-dynconfig](https://github.com/tsurdilo/temporal-configmap-dynconfig) — Kubernetes ConfigMap-backed dynamic config client for Temporal
+- [temporal-helm-superchart](https://github.com/tsurdilo/temporal-helm-superchart) — Helm super-chart wrapping the upstream Temporal chart with a full observability stack
