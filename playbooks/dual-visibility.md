@@ -1,10 +1,10 @@
-# Dual Visibility Operations Runbook
+# Dual Visibility Operations Playbook
 
 Operational reference for self-hosted Temporal clusters running dual visibility
 (`system.secondaryVisibilityWritingMode = dual`). Covers failure detection,
 diagnosis, recovery, and write-mode management for all three failure scenarios.
 
-> **Scope:** This runbook covers **SQL-backed dual visibility only** (both stores
+> **Scope:** This playbook covers **SQL-backed dual visibility only** (both stores
 > are PostgreSQL). It has not been validated against Elasticsearch-backed
 > configurations — ES coverage will be added in a future iteration.
 

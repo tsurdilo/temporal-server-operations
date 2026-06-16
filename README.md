@@ -30,12 +30,12 @@ OSS Temporal server metrics references.
 
 ---
 
-## [Runbooks](runbooks/README.md)
+## [Playbooks](playbooks/README.md)
 
-Production-ready operational runbooks for self-hosted Temporal clusters. Each runbook has been tested against a real cluster and cross-references the specific dashboard panels and alert rules that surface its signals.
+Production-ready operational playbooks for self-hosted Temporal clusters. Each playbook has been tested against a real cluster and cross-references the specific dashboard panels and alert rules that surface its signals.
 
 Content graduates here from `tmp/` once it meets the full criteria: documented, dashboard panels in place, alerts wired up, and failure scenarios tested live.
 
-| Runbook | Covers |
+| Playbook | Covers |
 |---------|--------|
-| [Dual Visibility](runbooks/dual-visibility.md) | Primary failure, secondary failure, both stores fail — detection via `visibility_persistence_*` metrics, recovery steps, write mode management. **SQL-backed dual visibility only** — Elasticsearch coverage TBD. |
+| [Dual Visibility](playbooks/dual-visibility.md) | Primary failure, secondary failure, both stores fail — detection via `visibility_persistence_*` metrics, recovery steps, write mode management. **SQL-backed dual visibility only** — Elasticsearch coverage TBD. |

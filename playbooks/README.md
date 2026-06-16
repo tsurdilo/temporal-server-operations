@@ -1,12 +1,12 @@
-# Runbooks
+# Playbooks
 
-Production-ready operational runbooks for self-hosted Temporal Server clusters.
+Production-ready operational playbooks for self-hosted Temporal Server clusters.
 
 ---
 
 ## What Lives Here
 
-A runbook graduates from [`tmp/`](../tmp/) into this directory when it meets all
+A playbook graduates from [`tmp/`](../tmp/) into this directory when it meets all
 of the following criteria:
 
 | Criterion | What "done" looks like |
@@ -21,9 +21,9 @@ here.
 
 ---
 
-## Runbook Format
+## Playbook Format
 
-Every runbook in this directory follows the same header block:
+Every playbook in this directory follows the same header block:
 
 ```
 ## References
@@ -44,6 +44,6 @@ and back.
 
 ## Index
 
-| Runbook | Scenarios | Dashboard Version | Alerts |
+| Playbook | Scenarios | Dashboard Version | Alerts |
 |---------|-----------|-------------------|--------|
 | [Dual Visibility](./dual-visibility.md) | Primary failure, secondary failure, both fail — SQL-backed only (ES TBD) | v2.5.0+ | 059a, 059b, 059c |
