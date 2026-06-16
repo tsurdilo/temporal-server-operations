@@ -1,6 +1,6 @@
 # Temporal Server Operations
 
-An operational knowledge base for self-hosted Temporal clusters. Contains Grafana dashboards, Grafana alert provisioning YAMLs, operational playbooks, and dynamic config reference, covering both the Temporal server and all SDK reporters (Java, Go, TypeScript, Python, .NET, Ruby).
+An operational knowledge base for self-hosted Temporal clusters. Contains Grafana dashboards, Grafana alert provisioning YAMLs, operational playbooks, and dynamic config reference, covering both the Temporal server and all Temporal SDKs.
 
 Everything here is designed to be used directly: drop dashboards into Grafana, drop alert YAMLs into `provisioning/alerting/`, and follow playbooks against a real cluster.
 
