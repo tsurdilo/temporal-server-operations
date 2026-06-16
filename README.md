@@ -6,10 +6,6 @@ This repository includes various Temporal Server operational artifacts.
 
 ## Metrics
 
-### References
-
-- [Metrics References](metrics/references/README.md) — per-metric reference docs for the Temporal server and all SDKs (Go, Java, Core).
-
 ### Dashboards
 
 - [Server Dashboards](metrics/dashboards/server/README.md) — Grafana dashboards for monitoring a self-hosted Temporal Server cluster, including:
@@ -23,6 +19,10 @@ This repository includes various Temporal Server operational artifacts.
 
 - [Server Alerts](metrics/alerts/server/README.md) — Grafana alerting provisioning rules for a self-hosted Temporal Server cluster. Covers the essential alert set plus dual visibility store alerts. Each alert links to a runbook with diagnosis and recovery steps.
 - [SDK Alerts](metrics/alerts/sdk/README.md) — Grafana alerting provisioning rules for Temporal SDK clients and workers. One YAML per SDK reporter (Java Micrometer, Java OTel, Go, Core). Each alert links to a runbook with diagnosis and recovery steps.
+
+### References
+
+- [Metrics References](metrics/references/README.md) — per-metric reference docs for the Temporal server and all SDKs (Go, Java, Core).
 
 ---
 
