@@ -733,6 +733,7 @@ sum by (namespace, workflow_type, task_queue, failure_reason) (
 | **Label** | `failure_reason="WorkflowError"` |
 | **Threshold** | rate > 20/s |
 | **Dimensions** | `namespace`, `workflow_type`, `task_queue` |
+| **Essential set** | Yes — [runbook](./runbooks/23-wft-execution-failed-workflowerror.md) |
 
 **Description:** Workflow task failed due to an error in workflow code — this can be an intermittent failure, a panic, or a non-Temporal exception thrown inside the workflow function. The server will retry the workflow task, which may result in the same failure repeatedly until the issue is resolved. Check worker logs — this metric does not carry `workflow_id`, so worker logs are needed to identify the affected executions. Investigate and fix the root cause, then redeploy workers.
 

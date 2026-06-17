@@ -2,7 +2,7 @@
 
 Grafana alerting provisioning rules for Temporal SDK workers on a self-hosted Temporal Server cluster.
 
-> **Current scope:** Essential Alert Set — 23 alerts covering the most impactful SDK failure modes across all four reporters (Java Micrometer, Java OTel, Go SDK, Core SDK). See [alerts-index.md](./alerts-index.md) for the full inventory of all 36 defined alerts, and [planning.md](./planning.md) for design decisions and working notes.
+> **Current scope:** Essential Alert Set — 24 alerts covering the most impactful SDK failure modes across all four reporters (Java Micrometer, Java OTel, Go SDK, Core SDK). See [alerts-index.md](./alerts-index.md) for the full inventory of all 36 defined alerts, and [planning.md](./planning.md) for design decisions and working notes.
 
 ---
 
@@ -114,6 +114,7 @@ component: worker | poller | cache | wft | activity | local-activity | request
 | 20b | [Activity Schedule-To-Start Latency Severely Elevated](./runbooks/20b-activity-schedule-to-start-severe.md) | 🔴 Critical | activity | 5m |
 | 21 | [WFT Execution Failed: NonDeterminismError](./runbooks/21-nde.md) | 🔴 Critical | wft | 1m |
 | 22 | [WFT Execution Failed: GrpcMessageTooLarge](./runbooks/22-grpc-message-too-large.md) | 🔴 Critical | wft | 1m |
+| 23 | [WFT Execution Failed: WorkflowError](./runbooks/23-wft-execution-failed-workflowerror.md) | ⚠️ Warning | wft | 2m |
 | 26 | [Activity Execution Failed Rate Elevated](./runbooks/26-activity-execution-failed.md) | ⚠️ Warning | activity | 5m |
 | 27 | [Unregistered Activity Invocation](./runbooks/27-unregistered-activity.md) | 🔴 Critical | activity | 1m |
 | 29 | [Local Activity Execution Latency Exceeds WFT Heartbeat Timeout](./runbooks/29-la-execution-latency-timeout.md) | 🔴 Critical | local-activity | 5m |
@@ -146,6 +147,7 @@ All thresholds are starting points. Adjust to match your workload, namespace SLO
 | 20b | p99 > 1800s (30m) | Critical activity latency — large backlog risk |
 | 21 | Any NDE | Binary — executions stuck |
 | 22 | Any GrpcMessageTooLarge | Binary — executions terminated |
+| 23 | rate > 20/s | Sustained WFT failure churn — thread pool exhaustion or code bug |
 | 26 | rate > 20/s | Sustained activity failure churn |
 | 27 | Any unregistered invocation | Binary — deployment bug |
 | 29 | p99 > 1800s (30m) | Single LA attempt exceeds WFT heartbeat timeout |

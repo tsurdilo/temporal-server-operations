@@ -874,7 +874,7 @@ groups:
               type: classic_conditions
         noDataState: NoData
         execErrState: Error
-        for: 5m
+        for: 1m
         labels:
           severity: critical
           service: temporal-sdk
@@ -947,7 +947,7 @@ groups:
               type: classic_conditions
         noDataState: NoData
         execErrState: Error
-        for: 5m
+        for: 1m
         labels:
           severity: critical
           service: temporal-sdk
@@ -1020,7 +1020,7 @@ groups:
               type: classic_conditions
         noDataState: NoData
         execErrState: Error
-        for: 5m
+        for: 1m
         labels:
           severity: critical
           service: temporal-sdk
@@ -1190,6 +1190,74 @@ groups:
             **4. Fix the root cause and redeploy first.**
             Terminated executions do not retry automatically. Before restarting any executions, fix the underlying cause — oversized payloads, excessive signal accumulation, or large fan-outs — and deploy the corrected worker. Restarting executions without fixing the code will cause them to hit the same limit and be terminated again. Once the fix is deployed and verified, restart affected executions manually via the Temporal UI or CLI if they need to continue.
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/sdk/runbooks/22-grpc-message-too-large.md
+
+      - uid: temporal-sdk-java-micrometer-023
+        title: "Temporal SDK Java (Micrometer): WFT Execution Failed — WorkflowError"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE
+            model:
+              editorMode: code
+              expr: |
+                sum by (namespace, workflow_type, task_queue, failure_reason) (
+                  rate(temporal_workflow_task_execution_failed_total{failure_reason="WorkflowError"}[5m])
+                )
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [20]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: warning
+          service: temporal-sdk
+          component: wft
+        annotations:
+          __dashboardUid__: temporal-sdk-java-micrometer-v1
+          __panelId__: "47"
+          summary: "Temporal SDK Java (Micrometer): WorkflowError WFT failures elevated on {{ $labels.workflow_type }}"
+          description: |
+            **1. Identify the affected workflow IDs.**
+            This metric does not carry `workflow_id` — check worker logs for the associated workflow ID, run ID, and the full exception stack trace. The `WorkflowTaskFailed` event in the affected execution's history will also contain the error message.
+
+            **2. Determine the root cause.**
+            `WorkflowError` covers unhandled exceptions and panics in workflow code that the SDK catches and sends to the server as a workflow task failure. Common causes:
+            - **Thread pool exhaustion** — `RejectedExecutionException` from the workflow thread pool being saturated. Check `setMaxWorkflowThreadCount` on `WorkerFactoryOptions` — if set too low relative to the number of concurrent workflow executions, the pool is exhausted and new WFTs are rejected. Increase `maxWorkflowThreadCount` or reduce concurrent workflow load.
+            - **Unhandled exception in workflow code** — a bug or unexpected condition in the workflow function that throws an exception not handled by the workflow. The server retries the WFT — if the exception is deterministic (reproducible on every replay), executions will be stuck retrying until the code is fixed and redeployed.
+            - **Data converter error** — failure to serialize or deserialize workflow inputs, outputs, or memo fields. Check data converter configuration and payload codec.
+
+            **3. Check worker thread and slot pressure.**
+            Cross-check alert [#14 — Worker Task Slots Exhausted](./14-worker-slots-exhausted.md) for `worker_type=WorkflowWorker` — slot exhaustion and thread pool exhaustion often occur together under high load. Also check worker pod CPU and memory utilization via your infrastructure observability stack.
+
+            **4. Fix and redeploy.**
+            If the cause is thread pool exhaustion, increase `maxWorkflowThreadCount` on `WorkerFactoryOptions` and redeploy. If the cause is a code bug, fix the exception path and redeploy — affected executions will resume on their next WFT retry automatically once compatible code is running.
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/sdk/runbooks/23-wft-execution-failed-workflowerror.md
 
       - uid: temporal-sdk-java-micrometer-026
         title: "Temporal SDK Java (Micrometer): Activity Execution Failed Rate Elevated"
