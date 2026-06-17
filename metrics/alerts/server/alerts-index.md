@@ -5,6 +5,8 @@ Complete reference for all 91 server alert definitions across 19 sections. Inclu
 > **Essential Set:** A curated subset of 17 alerts has been selected for deployment. See [README.md](./README.md) for setup instructions and runbook links.
 > **Planning document:** See [planning.md](./planning.md) for design decisions and the full working notes.
 
+> **Tuning note:** All thresholds and `for` durations documented here are baselines — calibrated starting points that should work well for most production deployments. Different workloads, cluster sizes, and SLO requirements will need different values. The `for` duration controls how long a condition must hold continuously before the alert fires: shorter values catch problems faster at the cost of more noise from transient spikes; longer values reduce false positives but delay detection. Treat every value here as a starting point and adjust to your environment.
+
 ---
 
 ## Status Key

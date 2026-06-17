@@ -5,6 +5,8 @@ Complete reference for all 36 SDK alert definitions. Descriptions, thresholds, a
 > **Essential Set:** A curated subset of these alerts has been selected for deployment. See [README.md](./README.md) for the Essential Set, setup instructions, and runbook links.
 > **Planning document:** See [planning.md](./planning.md) for design decisions and the full working notes.
 
+> **Tuning note:** All thresholds and `for` durations documented here are baselines — calibrated starting points that should work well for most production deployments. Different workloads, cluster sizes, and SLO requirements will need different values. The `for` duration controls how long a condition must hold continuously before the alert fires: shorter values catch problems faster at the cost of more noise from transient spikes; longer values reduce false positives but delay detection. Treat every value here as a starting point and adjust to your environment.
+
 ---
 
 ## Table of Contents
@@ -731,7 +733,7 @@ sum by (namespace, workflow_type, task_queue, failure_reason) (
 | **`for`** | 2m |
 | **Metric** | `temporal_workflow_task_execution_failed` |
 | **Label** | `failure_reason="WorkflowError"` |
-| **Threshold** | rate > 20/s |
+| **Threshold** | rate > 10/s |
 | **Dimensions** | `namespace`, `workflow_type`, `task_queue` |
 | **Essential set** | Yes — [runbook](./runbooks/23-wft-execution-failed-workflowerror.md) |
 
@@ -741,7 +743,7 @@ sum by (namespace, workflow_type, task_queue, failure_reason) (
 ```promql
 sum by (namespace, workflow_type, task_queue, failure_reason) (
   rate(temporal_workflow_task_execution_failed_total{failure_reason="WorkflowError"}[5m])
-) > 20
+) > 10
 ```
 
 ---
@@ -775,8 +777,8 @@ sum by (namespace, workflow_type, task_queue) (
 
 ## Section 7 — Activity Task Info
 
-> **SDK dashboard panels:** Activity Execution Failed (panel 63), Unregistered Activity Invocation (panel 65)
-> **Metrics:** `temporal_activity_execution_failed`, `temporal_unregistered_activity_invocation`
+> **SDK dashboard panels:** Activity Execution Failed (panel 63), Unregistered Activity Invocation (panel 65 — Go SDK only)
+> **Metrics:** `temporal_activity_execution_failed`, `temporal_unregistered_activity_invocation` (Go SDK only)
 
 ---
 
@@ -785,9 +787,9 @@ sum by (namespace, workflow_type, task_queue) (
 | Field | Value |
 |---|---|
 | **Severity** | ⚠️ Warning |
-| **`for`** | 5m |
+| **`for`** | 2m |
 | **Metric** | `temporal_activity_execution_failed` |
-| **Threshold** | rate > 20/s |
+| **Threshold** | rate > 10/s |
 | **Dimensions** | `namespace`, `activity_type`, `task_queue` |
 
 **Description:** Activities are explicitly failing — not timing out but returning failures — at a sustained rate. If this is not expected, investigate activity code for the affected `activity_type`. A high failure rate drives a burst of retry tasks being scheduled, putting additional pressure on activity workers and on the server database if workers cannot keep up with task dispatch and tasks need to be persisted. Cross-check alert #20 (Activity Schedule-To-Start Latency High) — a growing backlog from retry bursts will show up there first. If your use case intentionally fails activities by design — polling patterns, saga compensations, flow control via exceptions — set `ApplicationFailure` category to `BENIGN` on those intentional failures. All SDKs support this and will suppress this metric for those failures, making the alert exclusively track unexpected failures.
@@ -796,12 +798,14 @@ sum by (namespace, workflow_type, task_queue) (
 ```promql
 sum by (namespace, activity_type, task_queue) (
   rate(temporal_activity_execution_failed_total[5m])
-) > 20
+) > 10
 ```
 
 ---
 
 ### Alert 27 — Unregistered Activity Invocation
+
+> **Go SDK only.** `temporal_unregistered_activity_invocation` is not emitted by the Java Micrometer, Java OTel, or Core SDKs. This alert is only present in `temporal-sdk-go-alerts.yaml`.
 
 | Field | Value |
 |---|---|

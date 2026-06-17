@@ -6,7 +6,7 @@ A Grafana dashboard for monitoring Temporal Java SDK clients and workers configu
 >
 > **Reporter:** This dashboard targets Java SDK workers configured with an OpenTelemetry-based metrics reporter. If you are using `MicrometerClientStatsReporter` instead, use the `temporal-sdk-java-micrometer` dashboard — histogram metric names differ between the two reporters.
 
-> **Current version:** v1.2.0 — see [CHANGELOG](./temporal-sdk-java-otel-changelog.md)
+> **Current version:** v1.4.0 — see [CHANGELOG](./temporal-sdk-java-otel-changelog.md)
 
 ---
 
@@ -183,7 +183,6 @@ This section focuses on information about Activity Tasks. All panels are broken 
 | **Activity Poll No Task** | Rate of activity polls that completed with no task returned. Uses `temporal_activity_poll_no_task`. |
 | **Activity Execution Failed** | Rate of activity task execution failures. Turns red at any non-zero value. Uses `temporal_activity_execution_failed`. |
 | **Activity Execution Cancelled** | Rate of activity task execution cancellations. Turns orange at any non-zero value. Uses `temporal_activity_execution_cancelled`. |
-| **Unregistered Activity Invocation** | Rate of activity types dispatched to this worker that are not registered. Turns red at any non-zero value. Uses `temporal_unregistered_activity_invocation`. |
 | **Activity Execution Latency** | Time to execute a single activity task attempt at the selected percentile. Uses `temporal_activity_execution_latency_bucket` (OTel). |
 | **Activity Succeed End-to-End Latency** | Total time from first schedule to successful completion across all retries at the selected percentile. Uses `temporal_activity_succeed_endtoend_latency_bucket` (OTel). |
 

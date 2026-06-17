@@ -41,9 +41,9 @@ Each SDK reporter emits metrics with different naming conventions. Use the YAML 
 | Reporter | YAML file | Counter suffix | Histogram suffix |
 |---|---|---|---|
 | Java Micrometer | `temporal-sdk-java-micrometer-alerts.yaml` | `_total` | `_seconds_bucket` |
-| Java OTel | `temporal-sdk-java-otel-alerts.yaml` | `_total` | `_seconds_bucket` |
-| Go SDK | `temporal-sdk-go-alerts.yaml` | `_total` | `_seconds_bucket` |
-| Core SDK (Python/.NET/Ruby) | `temporal-sdk-core-alerts.yaml` | `_total` | `_seconds_bucket` |
+| Java OTel | `temporal-sdk-java-otel-alerts.yaml` | _(none)_ | `_bucket` |
+| Go SDK | `temporal-sdk-go-alerts.yaml` | _(none)_ | `_bucket` |
+| Core SDK (Python/.NET/Ruby) | `temporal-sdk-core-alerts.yaml` | _(none)_ | `_bucket` |
 
 > If you run multiple SDK reporters in the same Prometheus instance, import multiple YAML files. Each file uses a unique alert group name to avoid conflicts.
 
@@ -115,8 +115,8 @@ component: worker | poller | cache | wft | activity | local-activity | request
 | 21 | [WFT Execution Failed: NonDeterminismError](./runbooks/21-nde.md) | 🔴 Critical | wft | 1m |
 | 22 | [WFT Execution Failed: GrpcMessageTooLarge](./runbooks/22-grpc-message-too-large.md) | 🔴 Critical | wft | 1m |
 | 23 | [WFT Execution Failed: WorkflowError](./runbooks/23-wft-execution-failed-workflowerror.md) | ⚠️ Warning | wft | 2m |
-| 26 | [Activity Execution Failed Rate Elevated](./runbooks/26-activity-execution-failed.md) | ⚠️ Warning | activity | 5m |
-| 27 | [Unregistered Activity Invocation](./runbooks/27-unregistered-activity.md) | 🔴 Critical | activity | 1m |
+| 26 | [Activity Execution Failed Rate Elevated](./runbooks/26-activity-execution-failed.md) | ⚠️ Warning | activity | 2m |
+| 27 | [Unregistered Activity Invocation](./runbooks/27-unregistered-activity.md) ⚠️ Go SDK only | 🔴 Critical | activity | 1m |
 | 29 | [Local Activity Execution Latency Exceeds WFT Heartbeat Timeout](./runbooks/29-la-execution-latency-timeout.md) | 🔴 Critical | local-activity | 5m |
 | 30 | [Local Activity Total Execution Latency Exceeds WFT Heartbeat Timeout](./runbooks/30-la-total-latency-timeout.md) | 🔴 Critical | local-activity | 5m |
 | 31 | [Request Latency High on Critical User-Facing Operations](./runbooks/31-request-latency-critical-ops.md) | 🔴 Critical | request | 5m |
@@ -127,7 +127,7 @@ component: worker | poller | cache | wft | activity | local-activity | request
 
 ## Thresholds
 
-All thresholds are starting points. Adjust to match your workload, namespace SLOs, and cluster size.
+All thresholds and `for` durations are starting points that should work well for most production deployments. Every environment is different — a high-throughput cluster, a latency-sensitive namespace, or a bursty workload may need higher or lower thresholds, and shorter or longer `for` durations before an alert fires. Treat these values as a calibrated baseline and tune them to your specific setup. The `for` duration in particular controls how long a condition must hold before alerting — shorter values catch problems faster but increase noise from transient spikes; longer values reduce false positives but delay detection.
 
 | # | Threshold | Basis |
 |---|---|---|
@@ -147,8 +147,8 @@ All thresholds are starting points. Adjust to match your workload, namespace SLO
 | 20b | p99 > 1800s (30m) | Critical activity latency — large backlog risk |
 | 21 | Any NDE | Binary — executions stuck |
 | 22 | Any GrpcMessageTooLarge | Binary — executions terminated |
-| 23 | rate > 20/s | Sustained WFT failure churn — thread pool exhaustion or code bug |
-| 26 | rate > 20/s | Sustained activity failure churn |
+| 23 | rate > 10/s | Sustained WFT failure churn — thread pool exhaustion or code bug |
+| 26 | rate > 10/s | Sustained activity failure churn |
 | 27 | Any unregistered invocation | Binary — deployment bug |
 | 29 | p99 > 1800s (30m) | Single LA attempt exceeds WFT heartbeat timeout |
 | 30 | p99 > 1800s (30m) | LA retry chain exceeds WFT heartbeat timeout |

@@ -1,5 +1,7 @@
 # Unregistered Activity Invocation
 
+> **Go SDK only.** `temporal_unregistered_activity_invocation` is only emitted by the Go SDK. The Java Micrometer, Java OTel, and Core SDKs do not emit this metric — unregistered activity failures on those SDKs are tracked as general activity execution failures via `temporal_activity_execution_failed` (alert [#26](./26-activity-execution-failed.md)).
+
 **Severity:** Critical
 **Component:** activity
 **Metric:** `temporal_unregistered_activity_invocation` — any occurrence

@@ -874,7 +874,7 @@ groups:
               type: classic_conditions
         noDataState: NoData
         execErrState: Error
-        for: 1m
+        for: 5m
         labels:
           severity: critical
           service: temporal-sdk
@@ -947,7 +947,7 @@ groups:
               type: classic_conditions
         noDataState: NoData
         execErrState: Error
-        for: 1m
+        for: 5m
         labels:
           severity: critical
           service: temporal-sdk
@@ -1020,7 +1020,7 @@ groups:
               type: classic_conditions
         noDataState: NoData
         execErrState: Error
-        for: 1m
+        for: 5m
         labels:
           severity: critical
           service: temporal-sdk
@@ -1215,7 +1215,7 @@ groups:
             model:
               conditions:
                 - evaluator:
-                    params: [20]
+                    params: [10]
                     type: gt
                   operator:
                     type: and
@@ -1283,7 +1283,7 @@ groups:
             model:
               conditions:
                 - evaluator:
-                    params: [20]
+                    params: [10]
                     type: gt
                   operator:
                     type: and
@@ -1301,7 +1301,7 @@ groups:
               type: classic_conditions
         noDataState: OK
         execErrState: Error
-        for: 5m
+        for: 2m
         labels:
           severity: warning
           service: temporal-sdk
@@ -1326,74 +1326,6 @@ groups:
             **5. Consider using benign failures for expected failures.**
             If your use case intentionally fails activities by design — polling patterns, saga compensations, flow control via exceptions — mark those `ApplicationFailure` instances with category `BENIGN`. All SDKs support this and will suppress this metric for those failures, making this alert exclusively track unexpected failures without needing per-`activity_type` threshold tuning.
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/sdk/runbooks/26-activity-execution-failed.md
-
-      - uid: temporal-sdk-java-micrometer-027
-        title: "Temporal SDK Java (Micrometer): Unregistered Activity Invocation"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE
-            model:
-              editorMode: code
-              expr: |
-                sum by (namespace, activity_type, task_queue) (
-                  rate(temporal_unregistered_activity_invocation_total[5m])
-                )
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 1m
-        labels:
-          severity: critical
-          service: temporal-sdk
-          component: activity
-        annotations:
-          __dashboardUid__: temporal-sdk-java-micrometer-v1
-          __panelId__: "65"
-          summary: "Temporal SDK Java (Micrometer): unregistered activity {{ $labels.activity_type }} — deployment or routing issue"
-          description: |
-            **1. Identify the unregistered activity type.**
-            The metric carries an `activity_type` label — use it to identify exactly which activity type is missing. Check worker logs for additional context.
-
-            **2. Check your worker registration.**
-            Verify that the activity type shown in the alert is registered in the worker that is polling on the affected task queue. Check your worker startup code — the activity must be explicitly registered before the worker starts polling.
-
-            **3. Check for a deployment issue.**
-            If the activity was recently added or renamed, check whether the correct worker binary is deployed. A rolling deploy where old worker versions are still running will cause the old workers to receive tasks for newly registered activity types they do not know about. Wait for the rollout to complete or accelerate it.
-
-            **4. Check for a routing issue.**
-            Verify that the task queue name in the workflow code matches the task queue the worker is polling on. A mismatch — for example, a typo in the task queue name — will route activity tasks to workers that are not configured to handle them.
-
-            **5. Check for a worker restart during activity execution.**
-            If a worker was restarted mid-execution with a different binary that is missing the activity registration, in-flight tasks will be re-dispatched to a worker that cannot handle them. Check recent worker deployment history and pod restart counts.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/sdk/runbooks/27-unregistered-activity.md
 
       - uid: temporal-sdk-java-micrometer-029
         title: "Temporal SDK Java (Micrometer): Local Activity Execution Latency Exceeds WFT Heartbeat Timeout"

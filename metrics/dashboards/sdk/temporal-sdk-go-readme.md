@@ -6,7 +6,7 @@ A Grafana dashboard for monitoring Temporal Go SDK clients and workers.
 >
 > **Reporter:** This dashboard targets Go SDK workers using the default Prometheus metrics reporter. Metric names are exported as-is from the SDK — no `_total` or `_seconds` suffixes are appended. If you are using the Java SDK, use the `temporal-sdk-java-micrometer` or `temporal-sdk-java-otel` dashboard instead.
 
-> **Current version:** v1.1.0 — see [CHANGELOG](./temporal-sdk-go-changelog.md)
+> **Current version:** v1.3.0 — see [CHANGELOG](./temporal-sdk-go-changelog.md)
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Severity:** Warning
 **Component:** activity
-**Metric:** `temporal_activity_execution_failed` — rate > 20/s
+**Metric:** `temporal_activity_execution_failed` — rate > 10/s
 **Dashboard panel:** [Activity Execution Failed](../../../dashboards/sdk/temporal-sdk-go-readme.md) — panel 63
 **Full alert definition:** [Alert #26 — alerts-index.md](../alerts-index.md#alert-26--activity-execution-failed-rate-elevated)
 
@@ -19,7 +19,7 @@
 
 ## What this alert detects
 
-Activities are explicitly failing — not timing out but returning failures — at a sustained rate above 20 per second on this namespace and task queue. `ApplicationFailure` instances marked with category `BENIGN` are excluded and do not increment this counter, so this alert tracks unexpected failures only if your application uses benign failures correctly.
+Activities are explicitly failing — not timing out but returning failures — at a sustained rate above 10 per second on this namespace and task queue. `ApplicationFailure` instances marked with category `BENIGN` are excluded and do not increment this counter, so this alert tracks unexpected failures only if your application uses benign failures correctly.
 
 ## Why it matters
 

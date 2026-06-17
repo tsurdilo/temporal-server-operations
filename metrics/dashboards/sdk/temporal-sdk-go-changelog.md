@@ -1,5 +1,13 @@
 # Changelog — Temporal Go SDK Dashboard
 
+## v1.3.0 — 2026-06-17
+
+### Changed — Alert threshold alignment
+
+- `Activity Execution Failed` (panel 63) — red threshold lowered from 20 to 10 (matches updated alert 26: rate > 10/s)
+
+---
+
 ## v1.2.0 — 2026-06-16
 
 ### Changed — Alert-aligned thresholds

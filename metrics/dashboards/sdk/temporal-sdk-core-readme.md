@@ -4,7 +4,7 @@ A Grafana dashboard for monitoring Temporal workers built on the Core SDK — th
 
 > **Compatibility:** Temporal Core SDK (TypeScript, Python, .NET, Ruby) · Grafana 9.0+ · Prometheus
 
-> **Current version:** v1.1.0 — see [CHANGELOG](./temporal-sdk-core-changelog.md)
+> **Current version:** v1.3.0 — see [CHANGELOG](./temporal-sdk-core-changelog.md)
 
 ---
 
@@ -166,7 +166,6 @@ This section focuses on information about Activity Tasks. All panels are broken 
 | **Activity Poll No Task** | Rate of activity polls that completed with no task returned. |
 | **Activity Task Received** | Rate of activity tasks received and dispatched to the language layer. Core SDK specific — fires when Core hands a task to the language runtime. |
 | **Activity Execution Failed** | Rate of activity task execution failures. Turns red at any non-zero value. |
-| **Unregistered Activity Invocation** | Rate of activity types dispatched to this worker that are not registered. Turns red at any non-zero value. |
 | **Activity Execution Latency** | Time from when Core dispatched the task to lang completing it at the selected percentile. Uses `temporal_activity_execution_latency_bucket`. Reported in milliseconds. |
 | **Activity Succeed End-to-End Latency** | Total time from first schedule to successful completion across all retries at the selected percentile. Uses `temporal_activity_succeed_endtoend_latency_bucket`. Reported in milliseconds. |
 

@@ -2019,11 +2019,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 10.0
+                    "value": 5.0
                   },
                   {
                     "color": "red",
-                    "value": 20.0
+                    "value": 10.0
                   }
                 ]
               },
@@ -2121,69 +2121,6 @@
           "targets": [
             {
               "expr": "sum by (activity_type, task_queue) (rate(temporal_activity_execution_cancelled_total{namespace=\"$namespace\"}[$__rate_interval]))",
-              "legendFormat": "{{activity_type}} - {{task_queue}}",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "lineWidth": 2,
-                "thresholdsStyle": {
-                  "mode": "dashed"
-                }
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 0.001
-                  }
-                ]
-              },
-              "color": {
-                "mode": "thresholds"
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 7,
-            "w": 12,
-            "x": 12,
-            "y": 17
-          },
-          "id": 65,
-          "title": "Unregistered Activity Invocation",
-          "description": "Rate of activity types dispatched to this worker that are not registered, broken down by activity type and task queue.",
-          "type": "timeseries",
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "min",
-                "max",
-                "mean",
-                "lastNotNull"
-              ]
-            }
-          },
-          "targets": [
-            {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_unregistered_activity_invocation_total{namespace=\"$namespace\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2965,7 +2902,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Java SDK Dashboard (Micrometer) v1.3.0",
+  "title": "Temporal Java SDK Dashboard (Micrometer) v1.4.0",
   "uid": "temporal-sdk-java-micrometer-v1",
   "version": 1,
   "weekStart": ""

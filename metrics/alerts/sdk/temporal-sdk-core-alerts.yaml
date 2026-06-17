@@ -1191,6 +1191,73 @@ groups:
             Terminated executions do not retry automatically. Before restarting any executions, fix the underlying cause — oversized payloads, excessive signal accumulation, or large fan-outs — and deploy the corrected worker. Restarting executions without fixing the code will cause them to hit the same limit and be terminated again. Once the fix is deployed and verified, restart affected executions manually via the Temporal UI or CLI if they need to continue.
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/sdk/runbooks/22-grpc-message-too-large.md
 
+      - uid: temporal-sdk-core-023
+        title: "Temporal SDK Core: WFT Execution Failed — WorkflowError"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE
+            model:
+              editorMode: code
+              expr: |
+                sum by (namespace, workflow_type, task_queue, failure_reason) (
+                  rate(temporal_workflow_task_execution_failed_total{failure_reason="WorkflowError"}[5m])
+                )
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [10]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: warning
+          service: temporal-sdk
+          component: wft
+        annotations:
+          __dashboardUid__: temporal-sdk-core-v1
+          __panelId__: "47"
+          summary: "Temporal SDK Core: WorkflowError WFT failures elevated on {{ $labels.workflow_type }}"
+          description: |
+            **1. Identify the affected workflow IDs.**
+            This metric does not carry `workflow_id` — check worker logs for the associated workflow ID, run ID, and the full exception stack trace. The `WorkflowTaskFailed` event in the affected execution's history will also contain the error message and type.
+
+            **2. Determine the root cause.**
+            `WorkflowError` covers unhandled exceptions and panics in workflow code that the SDK catches and reports to the server as a workflow task failure. Common causes:
+            - **Unhandled exception or panic in workflow code** — a bug or unexpected condition in the workflow function that is not handled. The server retries the WFT — if the exception is reproducible on every replay, the execution is stuck. Look at the `WorkflowTaskFailed` event in the affected execution's history for the error message and type.
+            - **Data converter error** — failure to serialize or deserialize workflow inputs, outputs, or memo fields. Check data converter configuration and payload codec.
+
+            **3. Check worker slot pressure.**
+            Cross-check alert [#14 — Worker Task Slots Exhausted](./14-worker-slots-exhausted.md) for `worker_type=WorkflowWorker`. Also check worker pod CPU and memory utilization via your infrastructure observability stack.
+
+            **4. Fix and redeploy.**
+            Fix the exception path or data converter configuration and redeploy — affected executions will resume on their next WFT retry automatically once compatible code is running.
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/sdk/runbooks/23-wft-execution-failed-workflowerror.md
+
       - uid: temporal-sdk-core-026
         title: "Temporal SDK Core: Activity Execution Failed Rate Elevated"
         condition: C
@@ -1215,7 +1282,7 @@ groups:
             model:
               conditions:
                 - evaluator:
-                    params: [20]
+                    params: [10]
                     type: gt
                   operator:
                     type: and
@@ -1233,7 +1300,7 @@ groups:
               type: classic_conditions
         noDataState: OK
         execErrState: Error
-        for: 5m
+        for: 2m
         labels:
           severity: warning
           service: temporal-sdk
@@ -1258,74 +1325,6 @@ groups:
             **5. Consider using benign failures for expected failures.**
             If your use case intentionally fails activities by design — polling patterns, saga compensations, flow control via exceptions — mark those `ApplicationFailure` instances with category `BENIGN`. All SDKs support this and will suppress this metric for those failures, making this alert exclusively track unexpected failures without needing per-`activity_type` threshold tuning.
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/sdk/runbooks/26-activity-execution-failed.md
-
-      - uid: temporal-sdk-core-027
-        title: "Temporal SDK Core: Unregistered Activity Invocation"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE
-            model:
-              editorMode: code
-              expr: |
-                sum by (namespace, activity_type, task_queue) (
-                  rate(temporal_unregistered_activity_invocation_total[5m])
-                )
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 1m
-        labels:
-          severity: critical
-          service: temporal-sdk
-          component: activity
-        annotations:
-          __dashboardUid__: temporal-sdk-core-v1
-          __panelId__: "65"
-          summary: "Temporal SDK Core: unregistered activity {{ $labels.activity_type }} — deployment or routing issue"
-          description: |
-            **1. Identify the unregistered activity type.**
-            The metric carries an `activity_type` label — use it to identify exactly which activity type is missing. Check worker logs for additional context.
-
-            **2. Check your worker registration.**
-            Verify that the activity type shown in the alert is registered in the worker that is polling on the affected task queue. Check your worker startup code — the activity must be explicitly registered before the worker starts polling.
-
-            **3. Check for a deployment issue.**
-            If the activity was recently added or renamed, check whether the correct worker binary is deployed. A rolling deploy where old worker versions are still running will cause the old workers to receive tasks for newly registered activity types they do not know about. Wait for the rollout to complete or accelerate it.
-
-            **4. Check for a routing issue.**
-            Verify that the task queue name in the workflow code matches the task queue the worker is polling on. A mismatch — for example, a typo in the task queue name — will route activity tasks to workers that are not configured to handle them.
-
-            **5. Check for a worker restart during activity execution.**
-            If a worker was restarted mid-execution with a different binary that is missing the activity registration, in-flight tasks will be re-dispatched to a worker that cannot handle them. Check recent worker deployment history and pod restart counts.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/sdk/runbooks/27-unregistered-activity.md
 
       - uid: temporal-sdk-core-029
         title: "Temporal SDK Core: Local Activity Execution Latency Exceeds WFT Heartbeat Timeout"

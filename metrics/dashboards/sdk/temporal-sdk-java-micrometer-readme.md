@@ -6,7 +6,7 @@ A Grafana dashboard for monitoring Temporal Java SDK clients and workers configu
 >
 > **Reporter:** This dashboard targets Java SDK workers configured with `MicrometerClientStatsReporter` + `PrometheusMeterRegistry`. If you are using the OpenTelemetry reporter instead, use the `temporal-sdk-java-otel` dashboard — histogram metric names differ between the two reporters.
 
-> **Current version:** v1.2.0 — see [CHANGELOG](./temporal-sdk-java-micrometer-changelog.md)
+> **Current version:** v1.4.0 — see [CHANGELOG](./temporal-sdk-java-micrometer-changelog.md)
 
 ---
 
@@ -72,7 +72,6 @@ Gauge metrics (`temporal_worker_task_slots_available`, `temporal_worker_task_slo
 | `temporal_activity_poll_no_task` | `temporal_activity_poll_no_task_total` |
 | `temporal_activity_execution_failed` | `temporal_activity_execution_failed_total` |
 | `temporal_activity_execution_cancelled` | `temporal_activity_execution_cancelled_total` |
-| `temporal_unregistered_activity_invocation` | `temporal_unregistered_activity_invocation_total` |
 | `temporal_local_activity_execution_failed` | `temporal_local_activity_execution_failed_total` |
 | `temporal_local_activity_execution_cancelled` | `temporal_local_activity_execution_cancelled_total` |
 | `temporal_nexus_poll_no_task` | `temporal_nexus_poll_no_task_total` |
@@ -209,7 +208,6 @@ This section focuses on information about Activity Tasks. All panels are broken 
 | **Activity Poll No Task** | Rate of activity polls that completed with no task returned. Uses `temporal_activity_poll_no_task_total` (Micrometer). |
 | **Activity Execution Failed** | Rate of activity task execution failures. Turns red at any non-zero value. Uses `temporal_activity_execution_failed_total` (Micrometer). |
 | **Activity Execution Cancelled** | Rate of activity task execution cancellations. Turns orange at any non-zero value. Uses `temporal_activity_execution_cancelled_total` (Micrometer). |
-| **Unregistered Activity Invocation** | Rate of activity types dispatched to this worker that are not registered. Turns red at any non-zero value. Uses `temporal_unregistered_activity_invocation_total` (Micrometer). |
 | **Activity Execution Latency** | Time to execute a single activity task attempt at the selected percentile. Uses `temporal_activity_execution_latency_seconds_bucket` (Micrometer). |
 | **Activity Succeed End-to-End Latency** | Total time from first schedule to successful completion across all retries at the selected percentile. Uses `temporal_activity_succeed_endtoend_latency_seconds_bucket` (Micrometer). |
 

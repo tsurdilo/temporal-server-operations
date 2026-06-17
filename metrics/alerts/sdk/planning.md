@@ -12,6 +12,31 @@
 
 > **Current step: Steps 1–4 COMPLETE. Next: Step 5 — testing against the live Docker Compose stack.**
 
+## Upcoming Work
+
+### Step 5 — Test Java Micrometer alerts against live Docker Compose stack
+Use `deploy-temporal-metrics.sh` to deploy Java Micrometer dashboard + alerts. Test as many of the 23 essential alerts as possible and validate firing conditions.
+
+### Step 6 — Multi-cluster replication split-brain playbook
+Research and write a playbook covering the split-brain / FailoverVersion desync scenario raised in the Temporal community. Full thread and context below for reference.
+
+**Scenario summary:** Two-cluster setup. After a reinstall of clusterB, its ClusterId changed. Both clusters ended up agreeing on ActiveClusterName but disagreed on clusterB's ClusterId — breaking clusterB → clusterA namespace replication. clusterA remained stuck at FailoverVersion=2 while clusterB advanced to v12. Workflows stamped at v11 on clusterA became permanently stuck because their branch version (11) exceeded the active namespace version (2), causing all mutable-state-version checks to fail.
+
+**Recovery path confirmed by Yu Xia (Temporal server engineer):**
+1. Remove and re-add clusterB registration on clusterA (`operator cluster remove` + re-add) — ClusterId is immutable, upsert will not fix a mismatch. Global namespace is briefly unavailable during this window.
+2. Check namespace-replication DLQ for missed v11/v12 namespace updates (`tdbg dlq read/merge --dlq-type namespace --cluster cluster0300s3`). Safe to merge; worst case is re-DLQ. Check the original DLQ error first if possible.
+3. Issue double failover **from clusterB** to advance FailoverVersion above 12: `cluster0300s3 → cluster0000s7` (v21 → v22). Must be from clusterB — issuing from clusterA at v2 would compute v11 which is stale and would be rejected, likely causing another desync.
+4. Fixing FailoverVersion should automatically unpause stuck workflows. Without fixing it, terminate + restart still gets stuck.
+
+**Research needed for playbook:**
+- Trace server code path for the mutable-state-version vs namespace-active-version check (how exactly workflows become stuck)
+- Understand how the original split-brain occurred — what sequence of events leads to ClusterId divergence after a reinstall
+- Validate the remove+re-add procedure against source code (what state is cleaned up, what is preserved, what the brief unavailability window looks like)
+- Confirm DLQ merge safety — what causes namespace updates to DLQ in the first place
+- Document the FailoverVersion increment formula and why the failover must originate from the cluster with the highest known version
+
+**Source:** Temporal community Slack thread, AvtorPaka + Yu Xia, 2026-06-16.
+
 ---
 
 ## Overview

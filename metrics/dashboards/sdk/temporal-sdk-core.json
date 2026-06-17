@@ -1775,6 +1775,23 @@
               "unit": "short",
               "custom": {
                 "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 5.0
+                  },
+                  {
+                    "color": "red",
+                    "value": 10.0
+                  }
+                ]
               }
             },
             "overrides": []
@@ -1871,69 +1888,6 @@
           "targets": [
             {
               "expr": "sum by (activity_type, task_queue) (rate(temporal_activity_execution_failed{namespace=\"$namespace\"}[$__rate_interval]))",
-              "legendFormat": "{{activity_type}} - {{task_queue}}",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "lineWidth": 2,
-                "thresholdsStyle": {
-                  "mode": "dashed"
-                }
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 0.001
-                  }
-                ]
-              },
-              "color": {
-                "mode": "thresholds"
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 7,
-            "w": 12,
-            "x": 12,
-            "y": 17
-          },
-          "id": 65,
-          "title": "Unregistered Activity Invocation",
-          "description": "Rate of activity types dispatched to this worker that are not registered, broken down by activity type and task queue.",
-          "type": "timeseries",
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "min",
-                "max",
-                "mean",
-                "lastNotNull"
-              ]
-            }
-          },
-          "targets": [
-            {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_unregistered_activity_invocation{namespace=\"$namespace\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2756,7 +2710,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Core SDK Dashboard (TypeScript, Python, .NET, Ruby) v1.2.0",
+  "title": "Temporal Core SDK Dashboard (TypeScript, Python, .NET, Ruby) v1.3.0",
   "uid": "temporal-sdk-core-v1",
   "version": 1,
   "weekStart": ""

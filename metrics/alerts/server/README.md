@@ -87,7 +87,7 @@ component: <frontend | history | persistence | server | matching>
 
 ## Thresholds
 
-All thresholds are starting points based on Temporal's default dynamic config values. Adjust to match your cluster size, workload, and SLO requirements.
+All thresholds and `for` durations are starting points based on Temporal's default dynamic config values that should work well for most production deployments. Every cluster is different — a large multi-region deployment, a high-throughput namespace, or unusual workload patterns may need higher or lower thresholds, and shorter or longer `for` durations before an alert fires. Treat these values as a calibrated baseline and tune them to your specific setup. The `for` duration in particular controls how long a condition must hold before alerting — shorter values catch problems faster but increase noise from transient spikes; longer values reduce false positives but delay detection.
 
 | # | Threshold | Basis |
 |---|---|---|

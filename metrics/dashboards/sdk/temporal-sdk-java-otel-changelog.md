@@ -1,5 +1,14 @@
 # Changelog — Temporal Java SDK Dashboard (OTel)
 
+## v1.4.0 — 2026-06-17
+
+### Changed — Alert threshold alignment and panel cleanup
+
+- `Activity Execution Failed` (panel 63) — red threshold lowered from 20 to 10 (matches updated alert 26: rate > 10/s)
+- `Unregistered Activity Invocation` (panel 65) — removed; `temporal_unregistered_activity_invocation` is not emitted by the Java SDK (Go SDK only)
+
+---
+
 ## v1.3.0 — 2026-06-16
 
 ### Changed — Alert-aligned thresholds
