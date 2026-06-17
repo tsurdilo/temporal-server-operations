@@ -824,7 +824,7 @@ groups:
               expr: |
                 sum by (namespace, worker_type, task_queue) (
                   temporal_num_pollers
-                )
+                ) or vector(0)
               instant: true
               intervalMs: 1000
               maxDataPoints: 43200
