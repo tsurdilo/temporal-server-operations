@@ -76,6 +76,9 @@ matching.numTaskqueueWritePartitions:
     }
 matching.persistenceMaxQPS:
   - value: 2400
+#system
+system.enableActivityEagerExecution:
+  - value: true
 #worker
 # depends on if schedules used and num of worker pods
 # can discuss
