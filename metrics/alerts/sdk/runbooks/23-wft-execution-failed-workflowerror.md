@@ -33,7 +33,7 @@ This metric does not carry `workflow_id` — check worker logs for the associate
 **2. Determine the root cause.**
 `WorkflowError` covers several distinct failure modes:
 
-- **Thread pool exhaustion** — `RejectedExecutionException` from the workflow thread pool being saturated. This happens when `setMaxWorkflowThreadCount` on `WorkerFactoryOptions` is set too low relative to the number of concurrent workflow executions — the pool runs out of threads and new WFTs are rejected before they can execute. Increase `maxWorkflowThreadCount` or reduce concurrent workflow load. Cross-check alert [#14 — Worker Task Slots Exhausted](./14-worker-slots-exhausted.md) — slot exhaustion and thread pool exhaustion often occur together under high load.
+- **Thread pool exhaustion (Java SDK only)** — `RejectedExecutionException` from the workflow thread pool being saturated. This happens when `setMaxWorkflowThreadCount` on `WorkerFactoryOptions` is set too low relative to the number of concurrent workflow executions — the pool runs out of threads and new WFTs are rejected before they can execute. Increase `maxWorkflowThreadCount` or reduce concurrent workflow load. Cross-check alert [#14 — Worker Task Slots Exhausted](./14-worker-slots-exhausted.md) — slot exhaustion and thread pool exhaustion often occur together under high load.
 
 - **Unhandled exception in workflow code** — a bug or unexpected condition in the workflow function throws an exception that is not handled. The server retries the WFT — if the exception is reproducible on every replay, the execution is stuck. Look at the `WorkflowTaskFailed` event in the affected execution's history for the error message and type.
 
@@ -43,7 +43,7 @@ This metric does not carry `workflow_id` — check worker logs for the associate
 Cross-check alert [#14 — Worker Task Slots Exhausted](./14-worker-slots-exhausted.md) for `worker_type=WorkflowWorker`. Also check worker pod CPU and memory utilization via your infrastructure observability stack — a CPU-starved worker is slower to complete WFTs, which can accelerate thread pool exhaustion under load.
 
 **4. Fix and redeploy.**
-- For thread pool exhaustion: increase `maxWorkflowThreadCount` on `WorkerFactoryOptions` and redeploy. Consider also whether the workflow load exceeds what this worker pool is designed to handle — scaling worker pods horizontally may be needed alongside the thread count increase.
+- For thread pool exhaustion (Java SDK only): increase `maxWorkflowThreadCount` on `WorkerFactoryOptions` and redeploy. Consider also whether the workflow load exceeds what this worker pool is designed to handle — scaling worker pods horizontally may be needed alongside the thread count increase.
 - For code bugs: fix the exception path and redeploy. Affected executions will resume on their next WFT retry automatically once compatible code is running.
 - For data converter errors: fix the converter configuration and redeploy.
 

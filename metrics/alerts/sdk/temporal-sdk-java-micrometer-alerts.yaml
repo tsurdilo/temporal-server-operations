@@ -1248,7 +1248,7 @@ groups:
 
             **2. Determine the root cause.**
             `WorkflowError` covers unhandled exceptions and panics in workflow code that the SDK catches and sends to the server as a workflow task failure. Common causes:
-            - **Thread pool exhaustion** — `RejectedExecutionException` from the workflow thread pool being saturated. Check `setMaxWorkflowThreadCount` on `WorkerFactoryOptions` — if set too low relative to the number of concurrent workflow executions, the pool is exhausted and new WFTs are rejected. Increase `maxWorkflowThreadCount` or reduce concurrent workflow load.
+            - **Thread pool exhaustion (Java SDK only)** — `RejectedExecutionException` from the workflow thread pool being saturated. Check `setMaxWorkflowThreadCount` on `WorkerFactoryOptions` — if set too low relative to the number of concurrent workflow executions, the pool is exhausted and new WFTs are rejected. Increase `maxWorkflowThreadCount` or reduce concurrent workflow load.
             - **Unhandled exception in workflow code** — a bug or unexpected condition in the workflow function that throws an exception not handled by the workflow. The server retries the WFT — if the exception is deterministic (reproducible on every replay), executions will be stuck retrying until the code is fixed and redeployed.
             - **Data converter error** — failure to serialize or deserialize workflow inputs, outputs, or memo fields. Check data converter configuration and payload codec.
 
