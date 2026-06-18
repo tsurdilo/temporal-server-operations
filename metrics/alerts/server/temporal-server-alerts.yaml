@@ -1060,6 +1060,82 @@ groups:
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/59a-visibility-store-write-errors.md
         isPaused: false
 
+      # ---------------------------------------------------------------------------
+      # Alert 34j — Shard IO Semaphore Deadlock Approaching
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-034j
+        title: "Temporal: Shard IO Semaphore Deadlock Approaching"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "histogram_quantile(0.99, sum(rate(dd_shard_io_semaphore_latency_bucket{service_name=\"history\"}[5m])) by (instance, le))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [20]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: warning
+          service: temporal
+          component: history
+        annotations:
+          __dashboardUid__: temporal-shard-io-v1
+          summary: "Temporal: shard IO semaphore health ping latency high on {{ $labels.instance }} (p99 {{ $value | humanizeDuration }}) — deadlock detector approaching 40s threshold"
+          description: |
+            The deadlock detector's shard IO semaphore health ping p99 latency has exceeded
+            20s on {{ $labels.instance }}. The deadlock detector timeout is 40s (10s DB op
+            timeout + 30s grace, from source). If the ping cannot acquire the semaphore
+            within 40s, the shard is declared a suspected deadlock (alert 34f fires) and
+            the pod must be restarted.
+
+            This alert fires at 20s — half the threshold — to allow time to act before
+            the deadlock is declared.
+
+            Immediate checks:
+            1. Check semaphore_latency{operation="ShardInfo",priority="0"} p99 — if elevated,
+               active write traffic is saturating the semaphore
+            2. Check persistence_latency on UpdateWorkflowExecution and AddTasks — if elevated,
+               DB writes are slow and holding semaphore slots longer; fix DB first
+            3. Check persistence_sql_in_use / persistence_sql_max_open_conn — if approaching
+               1.0, connection pool is under pressure
+            4. Check semaphore_failures — if non-zero, callers are already giving up waiting
+
+            Do NOT raise history.shardIOConcurrency while DB metrics are unhealthy.
+            If DB is healthy and backend is SQL, consider raising shardIOConcurrency
+            (requires history host rolling restart).
+
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/34j-shard-io-semaphore-deadlock-approaching.md
+        isPaused: false
+
       - uid: temporal-alert-059c
         title: "Temporal: Visibility Store Write Latency High"
         condition: C

@@ -1,8 +1,8 @@
 # Temporal Server — Full Alert Index
 
-Complete reference for all 91 server alert definitions across 19 sections. Includes both the Essential Set (implemented in `temporal-server-alerts.yaml`) and the full planned inventory.
+Complete reference for all 92 server alert definitions across 19 sections. Includes both the Essential Set (implemented in `temporal-server-alerts.yaml`) and the full planned inventory.
 
-> **Essential Set:** A curated subset of 17 alerts has been selected for deployment. See [README.md](./README.md) for setup instructions and runbook links.
+> **Essential Set:** A curated subset of 18 alerts has been selected for deployment. See [README.md](./README.md) for setup instructions and runbook links.
 > **Planning document:** See [planning.md](./planning.md) for design decisions and the full working notes.
 
 > **Tuning note:** All thresholds and `for` durations documented here are baselines — calibrated starting points that should work well for most production deployments. Different workloads, cluster sizes, and SLO requirements will need different values. The `for` duration controls how long a condition must hold continuously before the alert fires: shorter values catch problems faster at the cost of more noise from transient spikes; longer values reduce false positives but delay detection. Treat every value here as a starting point and adjust to your environment.
@@ -27,7 +27,7 @@ Complete reference for all 91 server alert definitions across 19 sections. Inclu
 - [Section 6 — Throttling and Limits](#section-6--throttling-and-limits) (#29–#30)
 - [Section 7 — Busy Workflow Throttling](#section-7--busy-workflow-throttling) (#31–#33)
 - [Section 8 — Shard Movement](#section-8--shard-movement) (#34)
-- [Section 9 — Shard Queue Health](#section-9--shard-queue-health) (#34a–#34i)
+- [Section 9 — Shard Queue Health](#section-9--shard-queue-health) (#34a–#34j)
 - [Section 10 — History Timer Task Info](#section-10--history-timer-task-info) (#35–#39)
 - [Section 11 — Workflow Stats](#section-11--workflow-stats) (#40–#41)
 - [Section 12 — Workflow Execution History Info](#section-12--workflow-execution-history-info) (#42–#47)
@@ -778,6 +778,30 @@ The deadlock detector has reported at least one unresolved suspected deadlock on
 
 ---
 
+### Alert 34j — Shard IO Semaphore Deadlock Approaching
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| Severity | warning |
+| UID | `temporal-alert-034j` |
+| Panel | Shard IO Concurrency Dashboard (`temporal-shard-io-v1`) |
+| `for` | 5m |
+
+**Condition:** `histogram_quantile(0.99, sum(rate(dd_shard_io_semaphore_latency_bucket{service_name="history"}[5m])) by (instance, le)) > 20`
+
+The deadlock detector's shard IO semaphore health ping p99 latency exceeds 20 seconds on any history pod. This metric is emitted only by the deadlock detector, not by normal write traffic — elevated values mean contention is severe enough to starve the background health check.
+
+The deadlock detector timeout for this ping is **40 seconds** (10s DB operation timeout + 30s grace period, from `service/history/shard/context_impl.go`). If the ping cannot acquire the semaphore within 40s, the shard is declared a suspected deadlock and alert 34f fires — requiring an immediate pod restart. This alert fires at 20s to allow intervention before that threshold is reached.
+
+`noDataState: OK` — the metric emits only under contention. Absence of data is the healthy state.
+
+**Relationship to alert 34f:** 34j is the pre-fire warning; 34f is the fire. Seeing 34j trending toward 40s means 34f is imminent without remediation.
+
+**Runbook:** [34j-shard-io-semaphore-deadlock-approaching.md](./runbooks/34j-shard-io-semaphore-deadlock-approaching.md)
+
+---
+
 ## Section 10 — History Timer Task Info
 
 > **Dashboard panels:** Timer Task Processing Latency, Timer Task Scheduling Latency (panel 325), Total Timer Tasks Errors
@@ -1414,5 +1438,5 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 | Severity | Implemented | Planned | Total |
 |---|---|---|---|
 | 🔴 Critical | 14 | 31 | 45 |
-| ⚠️ Warning | 3 | 43 | 46 |
-| **Total** | **17** | **74** | **91** |
+| ⚠️ Warning | 4 | 43 | 47 |
+| **Total** | **18** | **74** | **92** |
