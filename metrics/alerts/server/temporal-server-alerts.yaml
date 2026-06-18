@@ -1109,6 +1109,7 @@ groups:
           component: history
         annotations:
           __dashboardUid__: temporal-shard-io-v1
+          __panelId__: "1"
           summary: "Temporal: shard IO semaphore health ping latency high on {{ $labels.instance }} (p99 {{ $value | humanizeDuration }}) — deadlock detector approaching 40s threshold"
           description: |
             The deadlock detector's shard IO semaphore health ping p99 latency has exceeded

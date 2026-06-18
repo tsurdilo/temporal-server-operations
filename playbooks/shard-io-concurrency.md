@@ -36,6 +36,8 @@
 
 `history.shardIOConcurrency` controls how many persistence writes a single history shard can have in-flight simultaneously. The default is `1` — fully serialized. Raising it allows more concurrent writes per shard, which can reduce semaphore latency when the DB has headroom.
 
+There is a direct tradeoff: as you increase `shardIOConcurrency`, semaphore latency goes down (fewer writes queuing) but persistence latency goes up (more writers competing at the DB). The goal is to find the point where semaphore latency is acceptable without pushing persistence latency into saturation territory (>50ms p99). Adding more concurrency past the DB's throughput ceiling stops helping semaphore latency but keeps hurting persistence latency — that is when you stop and back off one step.
+
 This playbook walks you through the dashboard panels in order to reach a yes or no decision — and if yes, tells you what value to set and how to apply it safely.
 
 ---
@@ -168,3 +170,19 @@ After the rolling restart is complete and the cluster has stabilized, all of the
 - `persistence_latency` on write operations stable
 - Pool ratio not elevated
 - `dd_shard_io_semaphore_latency` returned to baseline (if it was elevated)
+
+---
+
+## When to re-evaluate this setting
+
+Once you have raised `history.shardIOConcurrency` above `1`, certain infrastructure changes can invalidate your current setting by reducing the safe ceiling. Re-open this dashboard and re-run from Step 3 whenever any of the following occur:
+
+| Change | Why it matters |
+|---|---|
+| **Scaling down history hosts** | Fewer pods means more shards per pod. The ceiling (`pool_size ÷ shards_per_pod`) drops. If the new ceiling falls below your current `shardIOConcurrency`, lower the config and do a rolling restart **before** removing pods. |
+| **Reducing SQL connection pool size** | Any reduction to `max_open_connections` in your SQL config shrinks the pool and lowers the ceiling by the same math. |
+| **Increasing shard count** | More shards distributed across the same pods increases shards-per-pod and lowers the ceiling. |
+
+**In all three cases the action is the same:** check the ceiling panel, and if `shardIOConcurrency > new ceiling`, lower the config value and do a rolling restart before making the infrastructure change.
+
+> **Dashboard gaps during restarts.** The ceiling panel will show gaps during a rolling restart as shards drop off and reacquire. These transient low values do not reflect the steady-state ceiling. Always wait for the restart to complete and shards to fully rebalance before reading the ceiling panel — typically 30–60 seconds per pod.
