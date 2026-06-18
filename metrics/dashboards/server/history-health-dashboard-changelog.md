@@ -1,5 +1,15 @@
 # Changelog — Temporal History Host Health Dashboard
 
+## v1.3.0 — 2026-06-18
+
+### Fixed
+- Corrected health state value table — `host_health` emits values `1`, `2`, and `3` per pod; removed incorrect claim that value `3` (DECLINED_SERVING) is never emitted by the per-pod gauge
+- Updated **Pods DECLINED_SERVING** panel description — non-zero is expected during rolling restarts and startup, not "always 0"
+- Updated Threshold Reference table entry for Pods DECLINED_SERVING to reflect correct behavior
+- Removed stale reference to a "60s init window" in the NOT_SERVING state description — no such window exists in the server
+
+---
+
 ## v1.2.0 — 2026-05-12
 
 ### Changed

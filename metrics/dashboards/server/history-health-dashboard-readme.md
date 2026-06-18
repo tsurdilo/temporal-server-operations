@@ -4,7 +4,7 @@ A Grafana dashboard for monitoring the deep health of a self-hosted Temporal Ser
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus · Kubernetes
 
-> **Current version:** v1.2.0 — see [CHANGELOG](./history-health-dashboard-changelog.md)
+> **Current version:** v1.3.0 — see [CHANGELOG](./history-health-dashboard-changelog.md)
 
 ---
 
@@ -225,14 +225,15 @@ The primary row. All other rows exist to explain what you see here.
 |---|---|---|
 | `0` | `UNSPECIFIED` | Pod not reporting — treat as missing data |
 | `1` | `SERVING` | All 5 DeepHealthCheck checks passed |
-| `2` | `NOT_SERVING` | RPC or persistence threshold exceeded, or gRPC health not SERVING after the 60s init window |
+| `2` | `NOT_SERVING` | RPC or persistence threshold exceeded, or gRPC health server unreachable (degenerate pod failure) |
+| `3` | `DECLINED_SERVING` | Pod marked itself not ready — startup (shard acquisition in progress), shutdown, or crashloop |
 
-> **Note:** the per-pod `host_health` gauge only ever emits values `0`, `1`, or `2`. Value `3` (DECLINED_SERVING) is a fleet-level aggregate state returned by the frontend's `healthCheckerImpl.Check` — it is never written to the per-pod gauge. Queries filtering `host_health == 3` on individual pods will always return no data.
+> **Note:** the per-pod `host_health` gauge emits values `1`, `2`, or `3`. Value `4` (INTERNAL_ERROR) is only returned in the `DeepHealthCheck` RPC response when the frontend cannot resolve history pod membership — it is never written to the per-pod gauge and indicates a misconfiguration, not a transient state.
 
 | Panel | Type | Description |
 |---|---|---|
 | **Pods NOT_SERVING** | Stat | Count of history pods in state 2. Red at any value ≥ 1. |
-| **Pods DECLINED_SERVING** | Stat | Always 0 — per-pod `host_health` never emits value 3. This panel is retained for completeness but will not show data. |
+| **Pods DECLINED_SERVING** | Stat | Count of history pods in state 3. Non-zero during rolling restarts and startup — expected. Non-zero outside a deploy window on a stable pod count warrants investigation (possible crashloop or stuck shard acquisition). |
 | **Pods SERVING** | Stat | Count of history pods in state 1. Red if zero. |
 | **Total Pods Reporting** | Stat | Count of history pods emitting `host_health`. A drop here means pods disappeared or the poller stopped. |
 | **Fleet Size Change** | Stat | Pods that stopped reporting `host_health` compared to peak count in the last hour. Non-zero means pods disappeared entirely — a stopped or crashed pod does not emit `host_health` and will not appear as NOT_SERVING. Red at ≥ 1. |
@@ -325,7 +326,7 @@ Shard movement most commonly occurs during cluster restarts and scaling of histo
 | Row | Panel | Orange | Red | Notes |
 |---|---|---|---|---|
 | History Host Health | Pods NOT_SERVING | — | ≥ 1 | Any degraded pod warrants investigation |
-| History Host Health | Pods DECLINED_SERVING | — | — | Always 0 — per-pod metric never emits state 3 |
+| History Host Health | Pods DECLINED_SERVING | — | — | Expected non-zero during restarts/startup; investigate if non-zero outside a deploy window |
 | History Host Health | Fleet Size Change | — | ≥ 1 | Any missing pod; a dropped pod goes absent, not NOT_SERVING |
 | History Host Health | Metric Freshness | 60s | 120s | 120s = poller likely broken |
 | History Host Health | Pod Health % (not_serving) | — | 50% | Frontend cluster threshold |

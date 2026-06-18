@@ -46,6 +46,6 @@ and back.
 
 | Playbook | Scenarios | Dashboard | Alerts |
 |---------|-----------|-----------|--------|
-| [History Host Health](./history-host-health.md) | Diagnosing and acting on `host_health` alerts — degraded pods, majority failure, silent poller failure, failover decision | [History Host Health](../metrics/dashboards/server/history-health-dashboard-readme.md) v1.2.0 | 0a, 0b, 0b-critical, 0c |
+| [History Host Health](./history-host-health.md) | Diagnosing and acting on `host_health` alerts — degraded pods, majority failure, silent poller failure, failover decision | [History Host Health](../metrics/dashboards/server/history-health-dashboard-readme.md) v1.3.0 | 0a, 0b, 0b-critical, 0c |
 | [Dual Visibility](./dual-visibility.md) | Primary failure, secondary failure, both fail — SQL-backed only (ES TBD) | [Temporal Server](../metrics/dashboards/server/temporal-server-readme.md) v2.5.0+ | 059a, 059b, 059c |
 | [Shard IO Concurrency](./shard-io-concurrency.md) | Should I raise `history.shardIOConcurrency`? — SQL only (PostgreSQL / MySQL) | [Shard IO Concurrency](../metrics/dashboards/server/shard-io-concurrency-readme.md) v1.1.0 | 034j, 034f |

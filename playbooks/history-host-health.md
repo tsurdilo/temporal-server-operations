@@ -2,7 +2,7 @@
 
 ## References
 
-**Dashboard:** [Temporal History Host Health Dashboard](../metrics/dashboards/server/history-health-dashboard-readme.md) — v1.2.0
+**Dashboard:** [Temporal History Host Health Dashboard](../metrics/dashboards/server/history-health-dashboard-readme.md) — v1.3.0
 
 | Row | What to look for |
 |---|---|

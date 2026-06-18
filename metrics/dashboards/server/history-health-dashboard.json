@@ -2216,7 +2216,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal History Host Health Dashboard v1.2.0",
+  "title": "Temporal History Host Health Dashboard v1.3.0",
   "uid": "temporal-history-health-v1",
   "version": 1,
   "weekStart": ""
