@@ -18,7 +18,7 @@ Complete reference for all 92 server alert definitions across 19 sections. Inclu
 
 ## Table of Contents
 
-- [Section 0 — History Host Health](#section-0--history-host-health) (#0a–#0c)
+- [Section 0 — History Host Health](#section-0--history-host-health) (#0a, #0b, #0b-critical, #0c)
 - [Section 1 — Cluster Throughput](#section-1--cluster-throughput) (#1–#6)
 - [Section 2 — Shard and Workflow Lock Latencies](#section-2--shard-and-workflow-lock-latencies) (#7–#10)
 - [Section 3 — Persistence](#section-3--persistence) (#11–#18)
@@ -43,7 +43,7 @@ Complete reference for all 92 server alert definitions across 19 sections. Inclu
 ## Section 0 — History Host Health
 
 > **Dashboard:** [Temporal History Host Health Dashboard](../../dashboards/server/history-health-dashboard.json) (`history-health-dashboard.json`) — **not** the main Temporal Server Dashboard. This is the only section that references the companion health dashboard.
-> **Metric:** `host_health` (`HistoryHostHealthGauge`) — emitted only when an external poller calls `AdminHandler.DeepHealthCheck` on each history pod.
+> **Metric:** `host_health` — emitted only when an external poller calls `AdminHandler.DeepHealthCheck` on the frontend, which fans out to each history pod.
 
 ### Alert 0a — History Pod Disappeared
 
@@ -59,7 +59,23 @@ Fires when any pod stops emitting `host_health` compared to the fleet baseline s
 
 ---
 
-### Alert 0b — History Pod Degraded
+### Alert 0b — History Pod Degraded (Warning)
+
+| Field | Value |
+|---|---|
+| Status | 📋 Planned |
+| Severity | warning |
+| Component | history |
+
+**Condition:** `sum(clamp_max(host_health{service_name="history"} == 2, 1)) >= 1`
+
+Fires when any pod is reporting `NOT_SERVING` (`host_health == 2`). This is the early signal — the cluster is still functional and a graceful namespace failover (handover) is still possible. Investigate immediately. Do not wait for this to escalate to 0b-critical before acting, as a graceful failover requires the active cluster to still be partially operational to drain replication tasks.
+
+Covers persistence/RPC threshold breaches (checks 2–5) and the degenerate case where the pod's in-process health component errors (check 1a). Note: `host_health == 3` (DECLINED_SERVING — pod starting up or shutting down) is intentionally excluded to avoid noise during normal rolling restarts.
+
+---
+
+### Alert 0b-critical — History Fleet Majority Degraded (Critical)
 
 | Field | Value |
 |---|---|
@@ -67,9 +83,9 @@ Fires when any pod stops emitting `host_health` compared to the fleet baseline s
 | Severity | critical |
 | Component | history |
 
-**Condition:** `sum(clamp_max(host_health{service_name="history"} == 2, 1)) >= 1`
+**Condition:** `sum(clamp_max(host_health{service_name="history"} == 2, 1)) / count(host_health{service_name="history"}) > 0.5`
 
-Fires when any pod is actively reporting `NOT_SERVING` (`host_health == 2`). Covers persistence/RPC threshold breaches and gRPC health failures past the 60s init window.
+Fires when more than 50% of history pods are reporting `NOT_SERVING`. At this point the cluster is severely degraded. If the infrastructure issue is confirmed and not recovering, initiate failover for all global namespaces immediately. If the cluster is no longer responsive, graceful failover (handover) may no longer be possible — forced failover with potential replication task loss may be the only option. See the failover guidance in the runbook.
 
 ---
 
