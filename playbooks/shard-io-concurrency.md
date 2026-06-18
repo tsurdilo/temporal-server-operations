@@ -71,8 +71,9 @@ Look at `persistence_latency` p99 for `UpdateWorkflowExecution` and `CreateWorkf
 
 This is the most important check before raising `shardIOConcurrency`.
 
-- **Persistence latency low (< ~10ms p99):** the DB is fast and has headroom. Raising `shardIOConcurrency` will likely help. Continue to Step 3.
-- **Persistence latency elevated or rising:** the DB is the bottleneck, not the semaphore. Raising `shardIOConcurrency` adds more concurrent writers to an already-stressed DB and will make things worse. **Do not raise it.** Fix the DB first — connection pool sizing, query performance, DB instance capacity.
+- **Low and stable (< 10ms p99):** DB is fast and has headroom. Raising `shardIOConcurrency` will likely help. Continue to Step 3.
+- **Moderate and stable (10–50ms p99):** DB has some latency but is not saturated. Raising `shardIOConcurrency` may still help but gains will be smaller. Continue to Step 3 with caution — monitor DB metrics closely after each increment.
+- **Elevated or rising (> 50ms p99):** the DB is the bottleneck, not the semaphore. Raising `shardIOConcurrency` adds more concurrent writers to an already-stressed DB and will make things worse. **Do not raise it.** Fix the DB first — connection pool sizing, query performance, DB instance capacity.
 
 **The key comparison:** semaphore latency high + persistence latency low = serialization bottleneck. Both high = DB saturation. Only the first case is solved by `shardIOConcurrency`.
 
@@ -103,6 +104,8 @@ This panel shows `persistence_sql_max_open_conn{db_kind="main"} / numshards_gaug
 | ≥ 2 | Meaningful headroom. You can increment. Use the lowest value across all pods as your ceiling. |
 
 **This is an upper bound, not a target.** The DB throughput ceiling — where adding more concurrency stops helping — is almost always reached well before the pool ceiling. Your metrics will show you where to stop.
+
+If pods show different ceiling values (e.g., during a rolling restart or shard rebalancing), always use the lowest value across all pods as your ceiling.
 
 ---
 
