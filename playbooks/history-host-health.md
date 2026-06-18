@@ -1,4 +1,4 @@
-# Temporal History Host Health — Monitoring Runbook
+# Temporal History Host Health — Monitoring Playbook
 
 ## References
 
