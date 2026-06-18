@@ -501,3 +501,5 @@ ENTRYPOINT ["/poller"]
 | **0b-critical** — >50% pods `host_health == 2` | critical | Initiate failover for all global namespaces immediately — graceful if cluster still responding, forced if not (see section 7) |
 | **0a** — pod stopped emitting `host_health` | critical | Check Kubernetes pod status — if multiple pods disappeared treat as 0b-critical |
 | **0c** — metric stale >120s | critical | Poller is down or frontend unreachable — check frontend pods first, then treat as 0b-critical if frontend is down |
+
+> **Failover procedures** (graceful namespace handover and forced failover) will be covered in dedicated playbooks — coming soon.
