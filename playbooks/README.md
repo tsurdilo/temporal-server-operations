@@ -44,6 +44,7 @@ and back.
 
 ## Index
 
-| Playbook | Scenarios | Dashboard Version | Alerts |
-|---------|-----------|-------------------|--------|
-| [Dual Visibility](./dual-visibility.md) | Primary failure, secondary failure, both fail — SQL-backed only (ES TBD) | v2.5.0+ | 059a, 059b, 059c |
+| Playbook | Scenarios | Dashboard | Alerts |
+|---------|-----------|-----------|--------|
+| [Dual Visibility](./dual-visibility.md) | Primary failure, secondary failure, both fail — SQL-backed only (ES TBD) | [Temporal Server](../metrics/dashboards/server/temporal-server-readme.md) v2.5.0+ | 059a, 059b, 059c |
+| [Shard IO Concurrency](./shard-io-concurrency.md) | Should I raise `history.shardIOConcurrency`? — SQL only (PostgreSQL / MySQL) | [Shard IO Concurrency](../metrics/dashboards/server/shard-io-concurrency-readme.md) v1.1.0 | 034j, 034f |

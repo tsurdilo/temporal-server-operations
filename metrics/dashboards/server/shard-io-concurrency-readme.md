@@ -94,7 +94,15 @@ These panels show the health of the per-shard IO semaphore that gates concurrent
 | Non-zero, low rate | Semaphore is occasionally saturated under burst load. Monitor. |
 | Non-zero, sustained or growing | Active work is being dropped. The queue depth is deep enough that callers time out before getting a slot. Treat as urgent alongside elevated semaphore latency. |
 
-A non-zero `semaphore_failures` rate combined with elevated `semaphore_latency` is a stronger signal than either alone. Callers are not just waiting longer — they are giving up.
+A non-zero `semaphore_failures` rate combined with elevated `semaphore_latency` is a stronger signal than either alone. Callers are not just waiting longer — they are giving up. This changes both the urgency and the decision:
+
+| `semaphore_latency` | `semaphore_failures` | What it means | Urgency |
+|---|---|---|---|
+| Elevated | Zero | Writes queuing but getting through. No work dropped. | Monitor — schedule change at low-traffic time |
+| Elevated | Non-zero, low | Some callers timing out. Work is being dropped and retried. | Urgent — raise `shardIOConcurrency` soon if DB is healthy |
+| Elevated | Non-zero, sustained/growing | Queue depth is deep enough to consistently drop work. | Very urgent — act now |
+| Approaching 20s | Non-zero | Approaching alert 34j threshold. | Pre-incident — act immediately on root cause |
+| At/above 40s | Any | Deadlock detector threshold reached — alert 34f fires. | Incident — pod restart, not a tuning problem |
 
 ---
 
@@ -102,17 +110,22 @@ A non-zero `semaphore_failures` rate combined with elevated `semaphore_latency` 
 
 #### Panel: Max Safe shardIOConcurrency Per Pod
 
-**Metric:** `persistence_sql_max_open_conn / on(instance) group_left() numshards_gauge{operation="ShardController"}`  
+**Metric:** `persistence_sql_max_open_conn{db_kind="main"} / on(instance) group_left() numshards_gauge{operation="ShardController"}`  
 **Type:** Time series — one line per history pod (by `instance` label)
 
 **What it shows:** The maximum value `history.shardIOConcurrency` can safely be set to on each pod, calculated as the SQL connection pool size divided by the number of shards that pod currently owns. Beyond this value, every shard having its maximum number of writes in-flight simultaneously would exhaust the connection pool.
 
 **How to interpret:**
 
-- Read this panel before deciding what value to set. It tells you the hard ceiling for your cluster right now.
-- If pods own different numbers of shards (e.g., during a rolling restart or shard rebalancing), lines will diverge temporarily — use the lowest value as your ceiling.
-- A ceiling of 4 means setting `shardIOConcurrency=8` risks pool exhaustion under burst. A ceiling of 20 means you have more room — but never treat this panel as a target to reach. It is a hard upper bound, not a recommended value.
-- The right stopping point is determined by your metrics, not by this panel. Stop incrementing when `semaphore_latency` stops improving between steps or when `persistence_latency` starts rising — those signals tell you the DB throughput ceiling has been reached. That ceiling is cluster-specific and cannot be read from this panel alone.
+| Panel value | Meaning | Action |
+|---|---|---|
+| < 1 | Connection pool is undersized relative to shard count. The default of `1` is already the maximum safe value. | Do not raise `shardIOConcurrency`. Raising it risks pool exhaustion. If `semaphore_latency` is elevated, the fix is increasing the SQL connection pool size or reducing shards per pod — not raising this config. |
+| ≥ 1 and < 2 | Marginal headroom. Raising to `2` is borderline. | Only attempt if `semaphore_latency` is clearly elevated and `persistence_latency` is healthy. Monitor pool utilization (Row 3) closely after the restart. |
+| ≥ 2 | Meaningful headroom exists. You can increment safely. | Follow the step-by-step procedure in the Decision Guide. Use this value as your hard upper bound — stop incrementing when `semaphore_latency` stops improving, which will happen before you reach this ceiling. |
+
+**This panel is a hard upper bound, not a recommendation.** Seeing a ceiling of `8` does not mean you should set `shardIOConcurrency=8`. It means `8` is the maximum that won't exhaust the pool. The DB throughput ceiling — the point where adding more concurrency stops helping — is almost always reached well before the pool ceiling. Your metrics (Row 1 semaphore latency, Row 3 persistence latency) tell you where that real stopping point is.
+
+If pods own different numbers of shards (e.g., during a rolling restart or shard rebalancing), lines will diverge temporarily — always use the lowest value across pods as your ceiling.
 
 ---
 
@@ -203,6 +216,12 @@ max safe value ≈ persistence_sql_max_open_conn / shards_per_pod
 ```
 
 This value is displayed directly in the **"Max Safe shardIOConcurrency Per Pod"** panel (Row 2 of this dashboard), calculated per pod using the `instance` label that both metrics share. Read it there — no manual math needed. In practice stop well below the ceiling: the DB throughput ceiling is usually hit before pool exhaustion, which is why values above 8 rarely help.
+
+**Before incrementing — check the ceiling panel first:**
+
+If the **"Max Safe shardIOConcurrency Per Pod"** panel (Row 2) shows a value **below 1**, stop here. Your SQL connection pool is too small relative to the number of shards per pod. Raising `shardIOConcurrency` will exhaust the pool. The fix is increasing `persistence_sql_max_open_conn` (SQL pool size) or adding more history pods to reduce shards per pod — not raising this config. Come back to this guide after the pool is resized.
+
+If the panel shows **1 or above**, continue.
 
 **How to increment:**
 
