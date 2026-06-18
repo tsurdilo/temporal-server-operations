@@ -16,6 +16,7 @@ Community feedback and contributions are always welcome — if something doesn't
     - [Server Overview Dashboard](metrics/dashboards/server/temporal-server-readme.md) — cluster health, throughput, persistence, and service metrics
     - [Standby Cluster Dashboard](metrics/dashboards/server/temporal-standby-readme.md) — replication health, lag, and failover readiness for standby clusters
     - [History Host Health Dashboard](metrics/dashboards/server/history-health-dashboard-readme.md) — per-pod `host_health` gauge, NOT_SERVING detection, and fleet-level aggregation
+    - [Shard IO Concurrency Dashboard](metrics/dashboards/server/shard-io-concurrency-readme.md) — shard IO semaphore health, DB prerequisite check, and decision guide for tuning `history.shardIOConcurrency` (SQL backends only)
 - [SDK Dashboards](metrics/dashboards/sdk/README.md) — Grafana dashboards for monitoring Temporal SDK clients and workers (Java, Go, TypeScript, Python, .NET, Ruby).
 - [Troubleshooting Dashboards](metrics/dashboards/troubleshooting/README.md) — Grafana dashboards focused on troubleshooting specific Temporal operational issues.
 
