@@ -493,65 +493,11 @@ ENTRYPOINT ["/poller"]
 
 ## 9. Quick reference — what to check when `host_health` alerts
 
-```
-Alert 0b WARNING fires (any pod host_health == 2)
-│   Cluster still functional — graceful failover window is open
-│
-├── Step 1: Open History Host Health Dashboard
-│   ├── Which pods flipped? When?
-│   ├── Persistence Health row — latency/errors spike at same timestamp?
-│   │   └── Yes → database issue — investigate DB and connection pool
-│   ├── History RPC Health row — latency/errors spike without DB spike?
-│   │   └── Yes → RPC issue — check shard acquisition, membership change events
-│   └── No spike in either row → degenerate pod failure — investigate pod directly
-│
-├── Step 2: Check frontend WARN logs if dashboard doesn't show clear cause
-│   ├── "failed to ping deep health check" → frontend cannot reach that pod
-│   ├── "health check exceeded host failure percentage threshold" → ≥50% pods unhealthy
-│   └── "health check exceeded host declined serving proportion threshold" → ≥5% pods DECLINED_SERVING
-│
-└── Infrastructure issue confirmed AND not recovering?
-    └── Initiate graceful failover (handover) for ALL global namespaces NOW
-        before this escalates to 0b-critical and forced failover
+**First action for any alert: open the [History Host Health Dashboard](../metrics/dashboards/server/history-health-dashboard.json).** The dashboard tells you which pods are affected, when it happened, and which row (Persistence Health, History RPC Health, Shard Acquisition) shows the cause. Sections 6 and 7 of this playbook have the full diagnosis and failover guidance.
 
-─────────────────────────────────────────────────────────────
-
-Alert 0b-critical fires (>50% of pods host_health == 2)
-│   Cluster severely degraded — act immediately
-│
-├── Cluster still partially responding?
-│   ├── Yes → attempt graceful failover for all global namespaces immediately
-│   └── No  → forced failover only — some replication tasks may be lost
-│
-└── See section 7 for full failover decision guidance
-
-─────────────────────────────────────────────────────────────
-
-host_health == 3 (DECLINED_SERVING) on N pods
-│   (pod marked itself not ready — startup, shutdown, or stuck shard acquisition)
-│
-├── Rolling restart / deploy in progress?
-│   └── Yes → expected, monitor until pods return to 1
-│
-├── Pods newly started?
-│   └── Yes → shard acquisition in progress, normal until InitialShardsAcquired + 5s
-│
-└── Pods stuck at 3 for > few minutes, no deploy in progress?
-    ├── Check Kubernetes pod restart count → increasing = crashloop
-    ├── Check pod logs for panic / shard acquisition errors
-    ├── Check for membership ring issues causing shard acquisition to stall
-    └── Majority affected AND not recovering → see section 7 (failover)
-
-─────────────────────────────────────────────────────────────
-
-Alert 0a fires (pod disappeared — stopped emitting host_health)
-│   Pod crashed or was killed — does not show as NOT_SERVING
-└── Check Kubernetes pod status and logs directly
-    └── Multiple pods disappeared → treat as 0b-critical, see section 7
-
-─────────────────────────────────────────────────────────────
-
-Alert 0c fires (metric freshness stale — no host_health update in 120s)
-└── Poller cannot reach frontend, or frontend is down
-    └── Check frontend pods first — then see section 7 for failover guidance
-```
+| Alert | Severity | Immediate action |
+|---|---|---|
+| **0b** — any pod `host_health == 2` | warning | Open dashboard → identify cause row → if infrastructure confirmed and not recovering, initiate graceful failover for all global namespaces now (see section 7) |
+| **0b-critical** — >50% pods `host_health == 2` | critical | Initiate failover for all global namespaces immediately — graceful if cluster still responding, forced if not (see section 7) |
+| **0a** — pod stopped emitting `host_health` | critical | Check Kubernetes pod status — if multiple pods disappeared treat as 0b-critical |
+| **0c** — metric stale >120s | critical | Poller is down or frontend unreachable — check frontend pods first, then treat as 0b-critical if frontend is down |
