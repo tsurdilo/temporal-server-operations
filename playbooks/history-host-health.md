@@ -36,6 +36,10 @@
 
 ---
 
+> **⚠️ Scope of this playbook.** Everything here assumes you can reach your cluster and its metrics. If the outage is severe enough that the region itself is unavailable, `host_health` will go stale and this playbook cannot help — you will not have visibility into the signals it relies on. Detecting and responding to that class of outage is outside the scope of this playbook; operators are responsible for putting the appropriate external detection in place and deciding when to act on it.
+
+---
+
 ## Table of Contents
 
 - [1. What `host_health` actually is](#1-what-host_health-actually-is)
