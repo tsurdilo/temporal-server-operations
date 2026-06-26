@@ -116,7 +116,7 @@ Multi-cluster replication only. All five alerts link to the [Namespace Failover 
 | FAILOVER-PRE-05 | Receiver Backlog Near Flow Control Limit | Pre-flight | warning | 2m |
 | FAILOVER-PRE-06 | Standby Task Discards Detected | Pre-flight | warning | 2m |
 | FAILOVER-HANDOVER-01 | HANDOVER Drain Stalled | Drain (Steps 4–5) | critical | 20s |
-| FAILOVER-POST-01 | Forwarding FailedPrecondition Errors (Update Gap) | Post-handover | warning | 2m |
+| FAILOVER-POST-01 | Forwarding FailedPrecondition Errors | Post-handover | warning | 2m |
 
 > **Note:** `FAILOVER-HANDOVER-01` hardcodes `2048` as total shard count in its PromQL expression. Update this to match your cluster's `numHistoryShards` before deploying.
 
