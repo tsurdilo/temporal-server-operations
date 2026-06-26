@@ -17,12 +17,13 @@ Community feedback and contributions are always welcome — if something doesn't
     - [Standby Cluster Dashboard](metrics/dashboards/server/temporal-standby-readme.md) — replication health, lag, and failover readiness for standby clusters
     - [History Host Health Dashboard](metrics/dashboards/server/history-health-dashboard-readme.md) — per-pod `host_health` gauge, NOT_SERVING detection, and fleet-level aggregation
     - [Shard IO Concurrency Dashboard](metrics/dashboards/server/shard-io-concurrency-readme.md) — shard IO semaphore health, DB prerequisite check, and decision guide for tuning `history.shardIOConcurrency` (SQL backends only)
+    - [Namespace Failover — Graceful Handover Dashboard](metrics/dashboards/server/namespace-failover-graceful-handover-readme.md) — pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, flip confirmation, and post-handover health panels for `namespace-handover-v2`
 - [SDK Dashboards](metrics/dashboards/sdk/README.md) — Grafana dashboards for monitoring Temporal SDK clients and workers (Java, Go, TypeScript, Python, .NET, Ruby).
 - [Troubleshooting Dashboards](metrics/dashboards/troubleshooting/README.md) — Grafana dashboards focused on troubleshooting specific Temporal operational issues.
 
 ### Alerts
 
-- [Server Alerts](metrics/alerts/server/README.md) — Grafana alerting provisioning rules for a self-hosted Temporal Server cluster. Covers the essential alert set plus dual visibility store alerts. Each alert links to a runbook with diagnosis and recovery steps.
+- [Server Alerts](metrics/alerts/server/README.md) — Grafana alerting provisioning rules for a self-hosted Temporal Server cluster. Covers the essential alert set, dual visibility store alerts, and namespace failover graceful handover alerts. Each alert links to the relevant dashboard panel and playbook section.
 - [SDK Alerts](metrics/alerts/sdk/README.md) — Grafana alerting provisioning rules for Temporal SDK clients and workers. One YAML per SDK reporter (Java Micrometer, Java OTel, Go, Core). Each alert links to a runbook with diagnosis and recovery steps.
 
 ### References

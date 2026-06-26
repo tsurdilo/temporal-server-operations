@@ -290,6 +290,7 @@ Operators who want focused coverage without implementing the full alert inventor
 | 45 | Workflow History Event Count Critical | 🔴 Critical | Workflow History Event Count | p99 event count exceeds 30,720 for any namespace |
 | 46 | Mutable State Size Warning | ⚠️ Warning | Mutable State Size | p99 mutable state size exceeds 2MB for any namespace |
 | 47 | Mutable State Size Critical | 🔴 Critical | Mutable State Size | p99 mutable state size exceeds 10MB for any namespace |
+| 75 | ReadHistoryBranch Latency High | ⚠️ Warning | Persistence Latency by Operation | p99 `ReadHistoryBranch` latency exceeds 5s — approaching the 10s `RecordWorkflowTaskStarted` context deadline; WFT dispatch will begin failing before latency reaches 10s. Alert 12 covers persistence broadly at 1s; this alert is operation-specific and fires at the threshold where WFT dispatch is at risk. Cross-check `complete_workflow_task_sticky_disabled_count` (alert 77): if sticky eviction is also elevated, full-history reads from slow workers are driving the pressure. |
 
 ---
 
@@ -316,6 +317,8 @@ Operators who want focused coverage without implementing the full alert inventor
 | 54 | Activity StartToClose Timeout | ⚠️ Warning | Activity StartToClose Timeout | Any sustained activity start-to-close timeouts |
 | 55 | Activity Heartbeat Timeout | ⚠️ Warning | Activity Heartbeat Timeout | Any sustained heartbeat timeouts — workers crashing during long activities |
 | 56 | Workflow Task Timeout (Sticky) | ⚠️ Warning | Workflow Task StartToClose Timeouts | Any sustained workflow task timeouts on sticky task queues |
+| 76 | Workflow Task ScheduleToStart Timeout | ⚠️ Warning | Schedule to Start Latencies | Any sustained `schedule_to_start_timeout` on workflow tasks — tasks expired in matching before a worker polled. Lagging confirmation that WFTs are stuck; by the time this fires, tasks have already been waiting longer than the S2S timeout. Cross-check alert 75 (ReadHistoryBranch latency) and alert 77 (sticky eviction) to determine whether the root cause is DB pressure or worker throughput. |
+| 77 | Sticky Task Queue Not Being Used | ⚠️ Warning | Workflow Task Sticky Completion Rate | `complete_workflow_task_sticky_disabled_count` rising relative to `complete_workflow_task_sticky_enabled_count` — workers are not setting or maintaining sticky task queues. These metrics are emitted on WFT completion based on whether the SDK included `StickyAttributes` in the response; they are not a direct server-side eviction counter (the actual sticky→non-sticky fallback when matching returns `StickyWorkerUnavailable` has no dedicated metric). When sticky is not in use, every WFT dispatch triggers a full `ReadHistoryBranch` read instead of a partial one — a significant DB impact for long-running workflows. Leading indicator for alert 75. |
 
 ---
 
@@ -390,8 +393,8 @@ Runbook: `runbooks/59a-visibility-store-write-errors.md`
 | Severity | Count |
 |---|---|
 | 🔴 Critical | 45 |
-| ⚠️ Warning | 46 |
-| **Total** | **91** |
+| ⚠️ Warning | 49 |
+| **Total** | **94** |
 
 > Counts include dual visibility store alerts 59a–59c (implemented 2026-06-11).
 

@@ -2,7 +2,14 @@
 
 Grafana alerting provisioning rules for a self-hosted Temporal Server cluster.
 
-> **Current scope:** Essential Alert Set — 15 alerts covering the most impactful failure modes, plus 3 dual visibility store alerts (59a–59c). See [planning.md](./planning.md) for the full alert inventory (92 alerts) and the roadmap for future additions.
+## Alert Files
+
+| File | When to use |
+|---|---|
+| [`temporal-server-alerts.yaml`](./temporal-server-alerts.yaml) | All deployments — 18 implemented alerts covering core server health, persistence, shard queues, visibility, and pollers |
+| [`temporal-failover-alerts.yaml`](./temporal-failover-alerts.yaml) | Multi-cluster replication only — 8 implemented alerts for graceful handover pre-flight, drain, and post-flip health. Drop alongside the core file if you run global namespaces with active-standby replication. Single-cluster deployments can skip it. |
+
+See [alerts-index.md](./alerts-index.md) for the full planned inventory and design decisions.
 
 ---
 
@@ -13,16 +20,20 @@ Grafana alerting provisioning rules for a self-hosted Temporal Server cluster.
 - Temporal Server v1.20+ emitting Prometheus metrics
 - Grafana 9.0+ with a Prometheus datasource named **`Prometheus`**
 - [temporal-server.json](../../dashboards/server/temporal-server.json) dashboard imported — dashboard panel links in alert notifications will not resolve without it
+- *(Failover alerts only)** [namespace-failover-graceful-handover.json](../../dashboards/server/namespace-failover-graceful-handover.json) dashboard imported
 
-### 2. Drop the file into Grafana provisioning
+### 2. Drop the file(s) into Grafana provisioning
 
-Copy `temporal-server-alerts.yaml` into your Grafana provisioning directory:
+Copy the relevant file(s) into your Grafana provisioning directory:
 
 ```
 <grafana-root>/provisioning/alerting/temporal-server-alerts.yaml
+
+# Multi-cluster only:
+<grafana-root>/provisioning/alerting/temporal-failover-alerts.yaml
 ```
 
-Restart Grafana (or wait for the hot-reload interval). The alerts will appear under **Alerting → Alert rules → Temporal Server**.
+Restart Grafana (or wait for the hot-reload interval). Core alerts appear under **Alerting → Alert rules → Temporal Server**. Failover alerts appear under **Temporal Failover**.
 
 ### 3. Set the datasource UID
 
@@ -41,10 +52,16 @@ Find the entry for your Prometheus datasource and copy its `uid` value (e.g. `P7
 
 ```bash
 GRAFANA_DS_UID="<your-uid-here>"
+PROVISIONING_DIR="/path/to/grafana/provisioning/alerting"
 
 sed "s/datasourceUid: Prometheus/datasourceUid: ${GRAFANA_DS_UID}/g" \
   temporal-server-alerts.yaml \
-  > /path/to/grafana/provisioning/alerting/temporal-server-alerts.yaml
+  > "${PROVISIONING_DIR}/temporal-server-alerts.yaml"
+
+# Multi-cluster only:
+sed "s/datasourceUid: Prometheus/datasourceUid: ${GRAFANA_DS_UID}/g" \
+  temporal-failover-alerts.yaml \
+  > "${PROVISIONING_DIR}/temporal-failover-alerts.yaml"
 ```
 
 The UID is stable for the lifetime of the Grafana instance. Re-run this command only if you wipe Grafana's database and recreate the datasource from scratch.
@@ -83,6 +100,25 @@ component: <frontend | history | persistence | server | matching>
 | 59a | [Visibility Store Write Errors (Warning)](./runbooks/59a-visibility-store-write-errors.md) | history | [Visibility Write Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 2m |
 | 59b | [Visibility Store Write Errors (Critical)](./runbooks/59a-visibility-store-write-errors.md) | history | [Visibility Write Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 1m |
 | 59c | [Visibility Store Write Latency High](./runbooks/59a-visibility-store-write-errors.md) | history | [Visibility Write Latency per Store](../../dashboards/server/temporal-server-readme.md) | 5m |
+
+---
+
+## Failover Alert Set — `temporal-failover-alerts.yaml`
+
+Multi-cluster replication only. All five alerts link to the [Namespace Failover — Graceful Handover dashboard](../../dashboards/server/namespace-failover-graceful-handover.json) and [playbook](../../playbooks/namespace-failover-graceful-handover.md).
+
+| UID | Alert | Phase | Severity | `for` |
+|---|---|---|---|---|
+| FAILOVER-PRE-01 | Replication Stream Stuck | Pre-flight | critical | 2m |
+| FAILOVER-PRE-02 | Replication DLQ Enqueue Failing | Pre-flight | critical | 2m |
+| FAILOVER-PRE-03 | Replication Stream Errors Sustained | Pre-flight | critical | 2m |
+| FAILOVER-PRE-04 | Receiver Backlog At Flow Control Limit | Pre-flight | critical | 1m |
+| FAILOVER-PRE-05 | Receiver Backlog Near Flow Control Limit | Pre-flight | warning | 2m |
+| FAILOVER-PRE-06 | Standby Task Discards Detected | Pre-flight | warning | 2m |
+| FAILOVER-HANDOVER-01 | HANDOVER Drain Stalled | Drain (Steps 4–5) | critical | 20s |
+| FAILOVER-POST-01 | Forwarding FailedPrecondition Errors (Update Gap) | Post-handover | warning | 2m |
+
+> **Note:** `FAILOVER-HANDOVER-01` hardcodes `2048` as total shard count in its PromQL expression. Update this to match your cluster's `numHistoryShards` before deploying.
 
 ---
 

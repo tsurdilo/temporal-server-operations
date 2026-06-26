@@ -1,8 +1,17 @@
 # Temporal Server — Full Alert Index
 
-Complete reference for all 92 server alert definitions across 19 sections. Includes both the Essential Set (implemented in `temporal-server-alerts.yaml`) and the full planned inventory.
+Complete reference for all server alert definitions. Includes both implemented and planned alerts.
 
-> **Essential Set:** A curated subset of 18 alerts has been selected for deployment. See [README.md](./README.md) for setup instructions and runbook links.
+## Alert Files
+
+| File | Scope | Drop in if… |
+|---|---|---|
+| [`temporal-server-alerts.yaml`](./temporal-server-alerts.yaml) | Single and multi-cluster — core server health, persistence, shard queues, visibility, pollers | All deployments |
+| [`temporal-failover-alerts.yaml`](./temporal-failover-alerts.yaml) | Multi-cluster replication only — graceful handover pre-flight, drain, and post-flip | You run global namespaces with active-standby replication |
+
+Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in `temporal-failover-alerts.yaml`.
+
+> **Essential Set:** A curated subset of 18 alerts has been selected for deployment from `temporal-server-alerts.yaml`. See [README.md](./README.md) for setup instructions and runbook links.
 > **Planning document:** See [planning.md](./planning.md) for design decisions and the full working notes.
 
 > **Tuning note:** All thresholds and `for` durations documented here are baselines — calibrated starting points that should work well for most production deployments. Different workloads, cluster sizes, and SLO requirements will need different values. The `for` duration controls how long a condition must hold continuously before the alert fires: shorter values catch problems faster at the cost of more noise from transient spikes; longer values reduce false positives but delay detection. Treat every value here as a starting point and adjust to your environment.
@@ -30,13 +39,14 @@ Complete reference for all 92 server alert definitions across 19 sections. Inclu
 - [Section 9 — Shard Queue Health](#section-9--shard-queue-health) (#34a–#34j)
 - [Section 10 — History Timer Task Info](#section-10--history-timer-task-info) (#35–#39)
 - [Section 11 — Workflow Stats](#section-11--workflow-stats) (#40–#41)
-- [Section 12 — Workflow Execution History Info](#section-12--workflow-execution-history-info) (#42–#47)
+- [Section 12 — Workflow Execution History Info](#section-12--workflow-execution-history-info) (#42–#47, #75)
 - [Section 13 — Matching Task Queue Info](#section-13--matching-task-queue-info) (#74)
-- [Section 14 — SDK Workers Info](#section-14--sdk-workers-info) (#48–#56)
+- [Section 14 — SDK Workers Info](#section-14--sdk-workers-info) (#48–#56, #76–#77)
 - [Section 15 — Pollers](#section-15--pollers) (#57–#58)
 - [Section 16 — Visibility](#section-16--visibility) (#59–#63, #59a–#59c)
 - [Section 18 — Cluster Replication](#section-18--cluster-replication) (#64–#71)
 - [Section 19 — Authorization](#section-19--authorization) (#72–#73)
+- [Section 20 — Namespace Failover: Graceful Handover](#section-20--dr-graceful-handover) (#FAILOVER-PRE-01–#FAILOVER-POST-03)
 
 ---
 
@@ -1003,6 +1013,33 @@ Timer task scheduling lag has exceeded 30 seconds. Workflow timers, scheduled ac
 
 ---
 
+### Alert 75 — ReadHistoryBranch Latency High
+
+| Field | Value |
+|---|---|
+| Status | 📋 Planned |
+| Severity | warning |
+| Panel | Persistence Latencies (71) |
+
+**Condition:**
+```promql
+histogram_quantile(0.99, sum by (le) (
+  rate(persistence_latency_bucket{operation="ReadHistoryBranch"}[5m])
+)) > 5
+```
+
+**Threshold:** p99 > 5s
+
+`ReadHistoryBranch` is called in the hot path of every workflow task dispatch — `RecordWorkflowTaskStarted` must read and bundle history events into the poll response before returning to the SDK worker. The context deadline on that call is **10 seconds** (1 second for sync-matched tasks). At 5s p99, dispatch is at risk; above ~8s, timeouts are near-certain under normal load variance.
+
+Alert 12 covers `ReadHistoryBranch` as part of a broad multi-operation persistence rule at 1s — too low a threshold to be operation-specific and too generic to trigger dispatch-focused response. This alert is operation-specific and fires at the threshold where WFT dispatch degradation is imminent.
+
+**Dispatch impact:** When `ReadHistoryBranch` exceeds the context deadline, `context.Canceled` is returned to the matching service, which falls into the default error case in the poll loop and retries indefinitely. Tasks appear stuck at `WorkflowTaskScheduled` with no forward progress until DB pressure eases or matching is restarted.
+
+**Cross-reference:** Check alert 77 (Sticky Task Queue Eviction Rate High) — if sticky eviction is also elevated, slow workers are forcing full history reads on every dispatch, compounding DB load. Check alert 12 (Persistence Latency Critical) to see if pressure is broad across operations or isolated to reads.
+
+---
+
 ## Section 13 — Matching Task Queue Info
 
 > **Dashboard panels:** Sync Throttle Count (panel 403)
@@ -1141,6 +1178,57 @@ The matching service sync dispatch limit is being hit for a namespace and task t
 | Panel | Workflow Task StartToClose Timeouts |
 
 **Condition:** Any sustained workflow task timeouts on sticky task queues.
+
+---
+
+### Alert 76 — Workflow Task ScheduleToStart Timeout
+
+| Field | Value |
+|---|---|
+| Status | 📋 Planned |
+| Severity | warning |
+| Panel | Schedule to Start Latencies |
+
+**Condition:**
+```promql
+sum by (namespace, task_type) (
+  rate(schedule_to_start_timeout{task_type="workflow"}[5m])
+) > 0
+```
+
+Any sustained `schedule_to_start_timeout` on workflow tasks. This fires when a task expires in the matching service before any worker polled for it — the task was successfully scheduled and delivered to matching, but no poller arrived within the `ScheduleToStartTimeout` window.
+
+This is a lagging indicator: by the time it fires, tasks have already been waiting longer than the configured timeout and have been rescheduled. It confirms user-visible impact — workflows that appeared stuck have already missed at least one dispatch opportunity.
+
+**Triage path:** Cross-check alert 75 (ReadHistoryBranch Latency High) and alert 77 (Sticky Eviction Rate High). If 75 is also firing, the cause is DB pressure stalling `RecordWorkflowTaskStarted` in the matching poll loop — tasks are in matching but cannot be delivered. If 57 (All Pollers Disconnected) is firing, workers are absent. If neither, investigate worker throughput and task queue partitioning.
+
+---
+
+### Alert 77 — Sticky Task Queue Not Being Used
+
+| Field | Value |
+|---|---|
+| Status | 📋 Planned |
+| Severity | warning |
+| Panel | Workflow Task Sticky Completion Rate |
+
+**Condition:**
+```promql
+rate(complete_workflow_task_sticky_disabled_count[5m])
+/
+(
+  rate(complete_workflow_task_sticky_disabled_count[5m])
+  + rate(complete_workflow_task_sticky_enabled_count[5m])
+) > 0.5
+```
+
+More than 50% of workflow task completions have `StickyAttributes` absent — workers are not setting or maintaining a sticky task queue. These metrics are emitted in `RespondWorkflowTaskCompleted` based on whether the SDK worker included `StickyAttributes` in its response: `sticky_enabled` means the worker registered a sticky queue for the next WFT; `sticky_disabled` means it did not.
+
+**Important:** this is not a direct server-side eviction counter. The actual sticky→non-sticky fallback — where matching returns `StickyWorkerUnavailable` because the worker hasn't polled within the 10-second window and history retries on the normal queue — has no dedicated metric. `complete_workflow_task_sticky_disabled_count` rising is an indirect signal that sticky is not in use, which has the same DB impact: each WFT dispatched on the normal queue triggers a full `ReadHistoryBranch` read (all events from the start of the workflow) rather than the partial read a sticky dispatch would produce (events since the last completed WFT only).
+
+**DB impact:** For long-running workflows, the difference between sticky (partial read, typically tens of events) and non-sticky (full read, potentially thousands of events) is orders of magnitude in DB rows read per dispatch. Sustained non-sticky dispatch at scale drives `ReadHistoryBranch` latency up, which can push `RecordWorkflowTaskStarted` past its 10s deadline and cause tasks to get stuck at `WorkflowTaskScheduled`.
+
+**This is a leading indicator for alert 75.** Causes include: SDK not configured for sticky execution, workers too slow to poll within the 10-second window, or recent worker restarts that cleared sticky state. Fixing worker throughput or ensuring sticky is enabled in the SDK resolves the DB pressure.
 
 ---
 
@@ -1443,16 +1531,216 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 
 ---
 
+## Section 20 — Namespace Failover: Graceful Handover
+
+> **File:** [`temporal-failover-alerts.yaml`](./temporal-failover-alerts.yaml) — drop this in addition to `temporal-server-alerts.yaml` if you run multi-cluster replication. Single-cluster deployments can skip it entirely.
+> **Dashboard:** [Temporal DR — Graceful Handover](../../dashboards/server/namespace-failover-graceful-handover.json) (`namespace-failover-graceful-handover.json`)
+> **Playbook:** [namespace-failover-graceful-handover.md](../../playbooks/namespace-failover-graceful-handover.md)
+> **Metrics:** `replication_stream_stuck`, `replication_dlq_enqueue_failed`, `replication_tasks_recv_backlog`, `handover_ready_shard_count`, `client_redirection_errors`, `task_errors_version_mismatch`, `workflow_task_schedule_to_start_latency`
+> **Component:** history, frontend
+> **Note:** Only meaningful on multi-cluster deployments. All alerts scope to a specific `$standby_cluster` and `$active_cluster` label pair.
+
+### Alert FAILOVER-PRE-01 — Replication Stream Stuck (Pre-Handover)
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-pre-01` |
+| Severity | critical |
+| `for` | 2m |
+| `noDataState` | NoData |
+
+**Condition:** `sum(rate(replication_stream_stuck{}[5m])) > 0`
+
+**Dashboard panel:** [Stream Stuck](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) (Row 1 — Pre-Flight)
+
+**Playbook:** [section 1.2 — Is the replication stream between clusters healthy?](../../../playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy)
+
+---
+
+### Alert FAILOVER-PRE-02 — Replication DLQ Enqueue Failing
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-pre-02` |
+| Severity | critical |
+| `for` | 2m |
+| `noDataState` | NoData |
+
+**Condition:** `sum(rate(replication_dlq_enqueue_failed{}[5m])) > 0`
+
+**Dashboard panel:** [DLQ Enqueue Failed](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-dlq-enqueue-failed-stat) (Row 1 — Pre-Flight)
+
+**Playbook:** [section 1.2 — Is the replication stream between clusters healthy?](../../../playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy)
+
+---
+
+### Alert FAILOVER-PRE-03 — Replication Stream Errors Sustained
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-pre-03` |
+| Severity | critical |
+| `for` | 2m |
+| `noDataState` | OK |
+
+**Condition:** `sum(rate(replication_stream_error{}[5m])) > 0`
+
+`noDataState: OK` — absence of this metric is healthy (no errors).
+
+**Dashboard panel:** [Stream Errors — gRPC](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) (Row 1 — Pre-Flight)
+
+**Playbook:** [section 1.2 — Is the replication stream between clusters healthy?](../../../playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy)
+
+---
+
+### Alert FAILOVER-PRE-05 — Receiver Backlog Near Limit
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-pre-05` |
+| Severity | warning |
+| `for` | 2m |
+| `noDataState` | OK |
+
+**Condition:** `max(histogram_quantile(0.99, rate(replication_tasks_recv_backlog_bucket{}[5m]))) >= 400`
+
+**Dashboard panel:** [Receiver Backlog Depth](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) (Row 1 — Pre-Flight)
+
+**Playbook:** [section 1.5 — Is the standby keeping up with incoming replication tasks?](../../../playbooks/namespace-failover-graceful-handover.md#15-is-the-standby-keeping-up-with-incoming-replication-tasks)
+
+---
+
+### Alert FAILOVER-PRE-04 — Receiver Backlog At Flow Control Limit
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-pre-04` |
+| Severity | critical |
+| `for` | 1m |
+| `noDataState` | NoData |
+
+**Condition:** `max(histogram_quantile(0.99, rate(replication_tasks_recv_backlog_bucket{}[5m]))) >= 500`
+
+**Dashboard panel:** [Receiver Backlog Depth](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) (Row 1 — Pre-Flight)
+
+**Playbook:** [section 1.5 — Is the standby keeping up with incoming replication tasks?](../../../playbooks/namespace-failover-graceful-handover.md#15-is-the-standby-keeping-up-with-incoming-replication-tasks)
+
+---
+
+### Alert FAILOVER-PRE-06 — Standby Task Discards Detected
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-pre-06` |
+| Severity | warning |
+| `for` | 2m |
+| `noDataState` | OK |
+
+**Condition:** `sum(rate(task_errors_discarded{}[5m])) > 0`
+
+**Dashboard panel:** [Standby Task Discards](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat) (Row 1 — Pre-Flight)
+
+**Playbook:** [section 1.6 — Are there workflow executions on the standby that will be stuck after the flip?](../../../playbooks/namespace-failover-graceful-handover.md#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip)
+
+---
+
+### Alert FAILOVER-HANDOVER-01 — HANDOVER Drain Stalled
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-handover-01` |
+| Severity | critical |
+| `for` | 20s |
+| `noDataState` | NoData |
+
+**Condition:** `increase(handover_ready_shard_count{}[30s]) == 0 and handover_ready_shard_count{} > 0 and handover_ready_shard_count{} < <total_shards>`
+
+**Dashboard panel:** [HANDOVER Drain Progress %](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-drain-progress--gauge) (Row 2b — HANDOVER Drain)
+
+**Playbook:** [section 2b — Namespace is in HANDOVER — monitor the drain window (Steps 4–5)](../../../playbooks/namespace-failover-graceful-handover.md#2b-namespace-is-in-handover--monitor-the-drain-window-steps-45)
+
+---
+
+### Alert FAILOVER-HANDOVER-02 — Automatic Handover Rollback
+
+| Field | Value |
+|---|---|
+| Status | 📋 Planned |
+| Severity | warning |
+
+**Condition:** `changes(handover_ready_shard_count{}[2m]) > 0 and handover_ready_shard_count{} == 0`
+
+**Dashboard panel:** [HANDOVER Drain Progress %](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-drain-progress--gauge) (Row 2b — HANDOVER Drain)
+
+**Playbook:** [section 2b — Namespace is in HANDOVER — monitor the drain window (Steps 4–5)](../../../playbooks/namespace-failover-graceful-handover.md#2b-namespace-is-in-handover--monitor-the-drain-window-steps-45)
+
+---
+
+### Alert FAILOVER-POST-01 — Forwarding FailedPrecondition Errors
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-post-01` |
+| Severity | warning |
+| `for` | 2m |
+| `noDataState` | NoData |
+
+**Condition:** `sum(rate(client_redirection_errors{error_type="FailedPrecondition"}[5m])) > 0`
+
+**Dashboard panel:** [Forwarding Error Rate by Type](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series) (Row 4 — Post-Handover Health)
+
+**Playbook:** [section 4 — Monitor the new active cluster after the handover](../../../playbooks/namespace-failover-graceful-handover.md#4-monitor-the-new-active-cluster-after-the-handover)
+
+---
+
+### Alert FAILOVER-POST-02 — WFT Schedule-to-Start Elevated Post-Flip
+
+| Field | Value |
+|---|---|
+| Status | 📋 Planned |
+| Severity | warning |
+
+**Condition:** `histogram_quantile(0.99, sum(rate(workflow_task_schedule_to_start_latency_bucket{}[5m])) by (le)) > 5` sustained for 3 minutes post-flip
+
+**Dashboard panel:** [WFT Schedule-to-Start (New Active)](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) (Row 4 — Post-Handover Health)
+
+**Playbook:** [section 4 — Monitor the new active cluster after the handover](../../../playbooks/namespace-failover-graceful-handover.md#4-monitor-the-new-active-cluster-after-the-handover)
+
+---
+
+### Alert FAILOVER-POST-03 — Version Mismatch Not Decaying
+
+| Field | Value |
+|---|---|
+| Status | 📋 Planned |
+| Severity | warning |
+
+**Condition:** `sum(rate(task_errors_version_mismatch{}[5m])) > 0` sustained > 5 minutes post-flip
+
+**Dashboard panel:** [Version Mismatch Decay](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-mismatch-decay-time-series) (Row 4 — Post-Handover Health)
+
+**Playbook:** [section 4 — Monitor the new active cluster after the handover](../../../playbooks/namespace-failover-graceful-handover.md#4-monitor-the-new-active-cluster-after-the-handover)
+
+---
+
 ## Implementation Summary
 
 | Status | Count |
 |---|---|
-| ✅ Implemented | 17 |
-| 📋 Planned | 74 |
-| **Total** | **91** |
+| ✅ Implemented | 22 |
+| 📋 Planned | 81 |
+| **Total** | **103** |
 
 | Severity | Implemented | Planned | Total |
 |---|---|---|---|
-| 🔴 Critical | 14 | 31 | 45 |
-| ⚠️ Warning | 4 | 43 | 47 |
-| **Total** | **18** | **74** | **92** |
+| 🔴 Critical | 18 | 33 | 51 |
+| ⚠️ Warning | 5 | 48 | 53 |
+| **Total** | **23** | **81** | **104** |

@@ -1,0 +1,509 @@
+# Temporal — Namespace Failover Alert Set
+#
+# Grafana alerting provisioning file for multi-cluster active-standby deployments.
+# Drop into provisioning/alerting/ alongside temporal-server-alerts.yaml.
+#
+# These alerts are ONLY meaningful if you run multi-cluster replication with
+# global namespaces. Single-cluster deployments can ignore this file entirely.
+#
+# Prerequisites:
+#   - Temporal Server v1.20+ with multi-cluster replication configured
+#   - A Grafana datasource named exactly "Prometheus"
+#     If your datasource has a different name, replace the datasourceUid value
+#     on the lines marked DATASOURCE below.
+#   - dr-graceful-handover.json dashboard imported (UID: temporal-ns-failover-handover)
+#   - Both clusters scraped into the same Prometheus instance with a `cluster` label
+#
+# Coverage: 6 implemented alerts across 3 phases (pre-flight, drain, post-handover)
+# See metrics/alerts/server/alerts-index.md Section 20 for the full alert inventory
+# including 2 additional planned alerts not yet implemented here.
+#
+# Playbook: playbooks/namespace-failover-graceful-handover.md
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: temporal-failover
+    folder: Temporal Failover
+    interval: 30s
+    rules:
+
+      # ---------------------------------------------------------------------------
+      # PRE-FLIGHT BLOCKERS
+      # These must all be green before triggering namespace-handover-v2.
+      # ---------------------------------------------------------------------------
+
+      # FAILOVER-PRE-01 — Replication Stream Stuck
+      - uid: temporal-alert-failover-pre-01
+        title: "Temporal Failover: Replication Stream Stuck"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(replication_stream_stuck{}[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+          area: dr-handover
+        annotations:
+          __dashboardUid__: temporal-ns-failover-handover
+          __panelId__: 101
+          summary: "Temporal Failover: replication stream stuck"
+          description: |
+            Dashboard panel: Stream Stuck (Row 1 — Pre-Flight)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat
+
+            Playbook: section 1.2 — Is the replication stream between clusters healthy?
+            https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy
+        isPaused: false
+
+      # FAILOVER-PRE-02 — Replication DLQ Enqueue Failing (stream path)
+      - uid: temporal-alert-failover-pre-02
+        title: "Temporal Failover: Replication DLQ Enqueue Failing"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(replication_dlq_enqueue_failed{}[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+          area: dr-handover
+        annotations:
+          __dashboardUid__: temporal-ns-failover-handover
+          __panelId__: 102
+          summary: "Temporal Failover: replication DLQ enqueue failing"
+          description: |
+            Dashboard panel: DLQ Enqueue Failed (Row 1 — Pre-Flight)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-dlq-enqueue-failed-stat
+
+            Playbook: section 1.2 — Is the replication stream between clusters healthy?
+            https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy
+        isPaused: false
+
+      # FAILOVER-PRE-03 — Replication Stream Errors Sustained
+      - uid: temporal-alert-failover-pre-03
+        title: "Temporal Failover: Replication Stream Errors Sustained"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(replication_stream_error{}[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+          area: dr-handover
+        annotations:
+          __dashboardUid__: temporal-ns-failover-handover
+          __panelId__: 104
+          summary: "Temporal Failover: replication stream errors sustained"
+          description: |
+            Dashboard panel: Stream Errors — gRPC (Row 1 — Pre-Flight)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat
+
+            Playbook: section 1.2 — Is the replication stream between clusters healthy?
+            https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy
+        isPaused: false
+
+      # FAILOVER-PRE-04 — Receiver Backlog At Flow Control Limit
+      - uid: temporal-alert-failover-pre-04
+        title: "Temporal Failover: Receiver Backlog At Flow Control Limit"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "max(histogram_quantile(0.99, sum(rate(replication_tasks_recv_backlog_bucket{}[5m])) by (le)))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [500]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+          area: dr-handover
+        annotations:
+          __dashboardUid__: temporal-ns-failover-handover
+          __panelId__: 103
+          summary: "Temporal Failover: receiver backlog at flow control limit ({{ $value }} tasks)"
+          description: |
+            Dashboard panel: Receiver Backlog Depth (Row 1 — Pre-Flight)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat
+
+            Playbook: section 1.5 — Is the standby keeping up with incoming replication tasks?
+            https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#15-is-the-standby-keeping-up-with-incoming-replication-tasks
+        isPaused: false
+
+      # FAILOVER-PRE-05 — Receiver Backlog Near Limit
+      - uid: temporal-alert-failover-pre-05
+        title: "Temporal Failover: Receiver Backlog Near Flow Control Limit"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "max(histogram_quantile(0.99, sum(rate(replication_tasks_recv_backlog_bucket{}[5m])) by (le)))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [400]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: warning
+          service: temporal
+          component: history
+          area: dr-handover
+        annotations:
+          __dashboardUid__: temporal-ns-failover-handover
+          __panelId__: 103
+          summary: "Temporal Failover: receiver backlog approaching flow control limit ({{ $value }} tasks)"
+          description: |
+            Dashboard panel: Receiver Backlog Depth (Row 1 — Pre-Flight)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat
+
+            Playbook: section 1.5 — Is the standby keeping up with incoming replication tasks?
+            https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#15-is-the-standby-keeping-up-with-incoming-replication-tasks
+        isPaused: false
+
+      # FAILOVER-PRE-06 — Standby Task Discards
+      - uid: temporal-alert-failover-pre-06
+        title: "Temporal Failover: Standby Task Discards Detected"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(task_errors_discarded{}[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: warning
+          service: temporal
+          component: history
+          area: dr-handover
+        annotations:
+          __dashboardUid__: temporal-ns-failover-handover
+          __panelId__: 114
+          summary: "Temporal Failover: standby task discards detected"
+          description: |
+            Dashboard panel: Standby Task Discards (Row 1 — Pre-Flight)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat
+
+            Playbook: section 1.6 — Are there workflow executions on the standby that will be stuck after the flip?
+            https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # HANDOVER DRAIN
+      # ---------------------------------------------------------------------------
+
+      # FAILOVER-HANDOVER-01 — HANDOVER Drain Stalled
+      # IMPORTANT: The expr hardcodes 2048 as total shard count. Update this to
+      # match your cluster's numHistoryShards (check clusterMetadata in server config).
+      - uid: temporal-alert-failover-handover-01
+        title: "Temporal Failover: HANDOVER Drain Stalled"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(handover_ready_shard_count{}) > 0 and sum(handover_ready_shard_count{}) < 2048 and increase(sum(handover_ready_shard_count{})[30s:5s]) == 0"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Error
+        for: 20s
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+          area: dr-handover
+        annotations:
+          __dashboardUid__: temporal-ns-failover-handover
+          __panelId__: 301
+          summary: "Temporal Failover: HANDOVER drain stalled"
+          description: |
+            Dashboard panel: HANDOVER Drain Progress % (Row 2b — HANDOVER Drain)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-drain-progress--gauge
+
+            Playbook: section 2b — Namespace is in HANDOVER — monitor the drain window (Steps 4–5)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#2b-namespace-is-in-handover--monitor-the-drain-window-steps-45
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # POST-HANDOVER HEALTH
+      # ---------------------------------------------------------------------------
+
+      # FAILOVER-POST-01 — Forwarding FailedPrecondition Errors (Update forwarding gap)
+      - uid: temporal-alert-failover-post-01
+        title: "Temporal Failover: Forwarding FailedPrecondition Errors"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(client_redirection_errors{error_type=\"FailedPrecondition\"}[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: warning
+          service: temporal
+          component: frontend
+          area: dr-handover
+        annotations:
+          __dashboardUid__: temporal-ns-failover-handover
+          __panelId__: 502
+          summary: "Temporal Failover: forwarding FailedPrecondition errors"
+          description: |
+            Dashboard panel: Forwarding Error Rate by Type (Row 4 — Post-Handover Health)
+            https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series
+
+            Playbook: section 4 — Monitor the new active cluster after the handover
+            https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#4-monitor-the-new-active-cluster-after-the-handover
+        isPaused: false
