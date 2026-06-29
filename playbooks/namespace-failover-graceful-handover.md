@@ -289,7 +289,7 @@ Once enabled, the key metric to watch after handover is `schedule_invariants_sca
 
 ### Archival
 
-Temporal can archive closed workflow history to external storage (S3 or compatible). **If you are not using archival in this namespace, skip this section.**
+Temporal can archive closed workflow execution history and visibility records to external storage (S3 or compatible). **If you are not using archival in this namespace, skip this section.**
 
 Both clusters archive independently. When a workflow closes, each cluster generates and processes its own archival task — there is no active/passive gate on the archival path. If both clusters point to the same storage bucket, both attempt to upload the same workflow history. The second cluster checks whether the blob already exists and skips the upload if it does — so you get one copy, not two. However, both clusters make API calls to storage for every workflow close, including the existence check. Under sustained high load this can double the storage API request volume to S3.
 
@@ -301,13 +301,16 @@ Metrics to watch on both clusters:
 - `history_archiver_blob_exists` — non-zero on either cluster means it found a blob already uploaded by the other; a sustained high rate on either side means existence checks are adding meaningful S3 request volume
 - `history_archiver_archive_transient_error` — rate of retryable S3 failures (throttling, timeouts); a rising rate means S3 is under pressure
 
+If visibility archival is also enabled, each cluster makes an additional 4 S3 PutObject calls per workflow close for index creation — no existence check is performed before each write, so under a shared bucket both clusters write the same 4 indexes independently. Watch `visibility_archiver_archive_transient_error` on both clusters for visibility-specific S3 failures. If both history and visibility archival are enabled and the transient error metrics above are rising, note that `history.archivalBackendMaxRPS` covers both types combined — you may need to raise it on both clusters to account for the higher combined request volume.
+
 If S3 starts returning errors, archival tasks fail and retry with backoff. Retrying tasks accumulate in memory on history pods — the archival queue is separate from replication and WFT processing so it does not block workflow execution or replication tasks, but sustained S3 failures under high load can cause memory pressure on history pods over time.
 
 If you are seeing rising values in the metrics above, options to reduce S3 pressure:
 - Lower `history.archivalBackendMaxRPS` on the standby (dynamic config, default 10,000) — limits how fast the standby sends requests to S3
 - Increase `history.archivalProcessorArchiveDelay` on the standby (dynamic config, default 5 minutes) — spreads standby archival tasks over a longer window, reducing burst volume; after a handover, lower it on the new active and raise it on the new standby (dynamic config, no restart needed)
 - Switch to separate buckets — eliminates the double-write entirely; this is a larger configuration change that requires reconfiguring storage on both clusters — consider if the tuning options above are not sufficient
-- Disable archival on the standby — removes the standby's archival path entirely; only consider this if other options have not resolved the pressure, as it requires a server restart
+
+> **Do not disable archival to address S3 pressure.** Archival configuration is part of namespace metadata and replicates between clusters — disabling it on one side propagates the change to the other and removes archival on both clusters.
 
 #### During handover
 
