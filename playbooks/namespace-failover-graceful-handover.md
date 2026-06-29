@@ -12,6 +12,7 @@
 - [Dynamic config](#dynamic-config)
 - [Alerts](#alerts)
 - [Temporal Schedules](#temporal-schedules)
+- [Archival](#archival)
 - [Starting the Handover Workflow](#starting-the-handover-workflow)
 
 ---
@@ -283,6 +284,42 @@ These are visibility queries (not live state) — they confirm presence and paus
 The server includes scanner workflows that periodically check all schedules in a namespace for health issues and emit metrics when problems are found. They are disabled by default and controlled via `worker.scheduleInvariantsScannerOptions` (global dynamic config, not per-namespace — enabling it applies to all namespaces on the cluster).
 
 Once enabled, the key metric to watch after handover is `schedule_invariants_scanner_overdue_next_action_time` — tagged by `namespace`, so you can filter to just the namespace you failed over. A non-zero value means one or more schedules are overdue and not firing when they should be.
+
+---
+
+### Archival
+
+Temporal can archive closed workflow history to external storage (S3 or compatible). **If you are not using archival in this namespace, skip this section.**
+
+Both clusters archive independently. When a workflow closes, each cluster generates and processes its own archival task — there is no active/passive gate on the archival path. If both clusters point to the same storage bucket, both attempt to upload the same workflow history. The second cluster checks whether the blob already exists and skips the upload if it does — so you get one copy, not two. However, both clusters make API calls to storage for every workflow close, including the existence check. Under sustained high load this can double the storage API request volume to S3.
+
+**Shared bucket (both clusters point to the same storage):**
+
+Both clusters independently generate archival tasks for every workflow close and send requests to S3 — one copy of the archive is written, but both clusters make API calls (an existence check plus upload on the first to arrive, an existence check only on the second). Under high throughput this can put significant pressure on S3.
+
+Metrics to watch on both clusters:
+- `history_archiver_blob_exists` — non-zero on either cluster means it found a blob already uploaded by the other; a sustained high rate on either side means existence checks are adding meaningful S3 request volume
+- `history_archiver_archive_transient_error` — rate of retryable S3 failures (throttling, timeouts); a rising rate means S3 is under pressure
+
+If S3 starts returning errors, archival tasks fail and retry with backoff. Retrying tasks accumulate in memory on history pods — the archival queue is separate from replication and WFT processing so it does not block workflow execution or replication tasks, but sustained S3 failures under high load can cause memory pressure on history pods over time.
+
+If you are seeing rising values in the metrics above, options to reduce S3 pressure:
+- Lower `history.archivalBackendMaxRPS` on the standby (dynamic config, default 10,000) — limits how fast the standby sends requests to S3
+- Increase `history.archivalProcessorArchiveDelay` on the standby (dynamic config, default 5 minutes) — spreads standby archival tasks over a longer window, reducing burst volume; after a handover, lower it on the new active and raise it on the new standby (dynamic config, no restart needed)
+- Switch to separate buckets — eliminates the double-write entirely; this is a larger configuration change that requires reconfiguring storage on both clusters — consider if the tuning options above are not sufficient
+- Disable archival on the standby — removes the standby's archival path entirely; only consider this if other options have not resolved the pressure, as it requires a server restart
+
+#### During handover
+
+The namespace handover does not affect archival of closed workflow executions — workflows that close during this phase are archived normally.
+
+#### After handover
+
+If you tuned `history.archivalBackendMaxRPS` or `history.archivalProcessorArchiveDelay` on the standby before the handover, swap them after the flip — raise `history.archivalBackendMaxRPS` on the new active and lower it on the new standby; apply the same swap to `history.archivalProcessorArchiveDelay` if you changed it. Both are dynamic config, no restart needed.
+
+Watch `history_archiver_blob_exists` and `history_archiver_archive_transient_error` on both clusters to confirm S3 pressure has normalized.
+
+If you are on separate buckets, the new active writes to its own bucket from this point — verify your retrieval tooling accounts for the split.
 
 ---
 
