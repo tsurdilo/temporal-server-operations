@@ -11,6 +11,7 @@
 - [Forwarding policy reference](#forwarding-policy-reference)
 - [Dynamic config](#dynamic-config)
 - [Alerts](#alerts)
+- [Temporal Schedules](#temporal-schedules)
 - [Starting the Handover Workflow](#starting-the-handover-workflow)
 
 ---
@@ -29,6 +30,8 @@ Quick reference — all recommendations below are explained in detail in the sec
 - Use `AllowedLaggingSeconds: 10`, `AllowedLaggingTasks: 500`, `HandoverTimeoutSeconds: 30` as starting values. Tune `AllowedLaggingTasks` up on high-throughput clusters if WaitReplication stalls.
 - Use a consistent workflow ID convention — `handover-<namespace>` — so running handovers are easy to spot before starting a new one.
 - Use `system.forceNamespaceSelectedAPIAutoForwarding` (namespace-scoped dynamic config, no restart) to control which cluster's workers actively participate in workflow execution before and after a handover — see [Forwarding policy reference](#forwarding-policy-reference).
+- If you use Schedules, confirm `worker.enableScheduler` is `true` (or not explicitly set to `false`) on the cluster you are failing over to — if `false`, schedules will not fire after the handover. See [Temporal Schedules — Pre-handover](#pre-handover).
+- If you use Schedules, ensure each schedule's `catchup_window` (a per-schedule spec field, default 365 days) is longer than the expected handover duration — fires outside that window are not backfilled after the handover.
 
 ### Dashboard and workflow steps
 
@@ -178,6 +181,96 @@ All alerts below link to the [Namespace Failover: Graceful Handover dashboard](.
 | `FAILOVER-PRE-06` — Standby Task Discards Detected | warning | Pre-flight (before Step 1) | Row 1 | `task_errors_discarded` non-zero — stuck workflows will exist post-flip |
 | `FAILOVER-HANDOVER-01` — HANDOVER Drain Stalled | critical | Step 5 (`WaitHandover`) | Row 2b | `handover_ready_shard_count` not progressing during drain — 30s rollback clock running |
 | `FAILOVER-POST-01` — Forwarding FailedPrecondition Errors | warning | Post Step 6 | Row 4 | `FailedPrecondition` errors on old active — workers or clients hitting non-forwarded APIs (Respond\*, Update, ExecuteMultiOperation) while still pointed at old active |
+
+---
+
+### Temporal Schedules
+
+Schedules are a Temporal feature for running workflows on a recurring basis. **If you are not using Schedules in this namespace, skip this section — return to it if you adopt the feature later.**
+
+- [Pre-handover](#pre-handover)
+- [During handover (Steps 4–5)](#during-handover-steps-45--handover-drain)
+- [After handover (Step 6+)](#after-handover-step-6-and-beyond)
+
+Each Schedule is a durable workflow execution (`temporal-sys-scheduler-workflow`) running in the user namespace on task queue `temporal-sys-per-ns-tq`. It is replicated to the standby cluster and handled across a handover exactly like any other workflow in the namespace — no special treatment exists for schedule workflows at the replication or failover layer.
+
+#### Pre-handover
+
+Schedule workflows are replicated to the standby like any other workflow in the namespace. The standby does not start per-namespace SDK workers for inactive namespaces, so the scheduler never runs there — no schedule workflow tasks execute and no triggered workflow executions are started on the standby. Only the active fires schedules.
+
+**Before running the handover workflow:**
+
+- Confirm `worker.enableScheduler` is `true` on the new active — if `false`, schedules will not fire after the handover (see [Recommendations](#recommendations)).
+- Align schedule-related dynamic configs between clusters, particularly `worker.schedulerNamespaceStartWorkflowRPS` (default 30/s per namespace). If these differ, catchup rate after handover will behave differently than on the old active.
+- Ensure the worker service on the new active is scaled to match the old active. If the new active has fewer worker pods, each pod carries proportionally more scheduler load after the flip — scale up before running the handover if needed.
+
+#### During handover (Steps 4–5 — HANDOVER drain)
+
+During the HANDOVER drain, the scheduler workflow cannot fire new executions.
+
+- **Scheduled fires are delayed, not lost.** Any fire due during the drain is held and retried — it will execute on the new active once the handover completes.
+- **In-progress workflow starts are retried automatically.** If the scheduler was in the middle of starting a triggered workflow execution, the call is retried and will complete after the flip.
+
+**RPC operations during drain:**
+- `ListSchedules` — allowed.
+- `CreateSchedule`, `UpdateSchedule`, `DeleteSchedule`, `PatchSchedule`, `DescribeSchedule` — blocked, return `Unavailable`. The SDK client retries these automatically and they will resolve once the drain completes. If you need to pause a schedule, do it before starting the handover workflow and unpause on the new active once the handover completes.
+
+#### After handover (Step 6 and beyond)
+
+**On the old active (now standby):** Per-namespace scheduler workers shut down gracefully.
+
+**On the new active (formerly standby):** Per-namespace scheduler workers start and begin processing schedules.
+
+Once started, the per-namespace scheduler workers resume schedule operations from where they left off — they do not restart from scratch.
+
+**Catchup.** When the scheduler resumes on the new active, it backfills any fires that were due during the standby period and the handover drain. For a handover completing in seconds to low minutes, this is a small number of fires and completes quickly. By default the catchup window is 365 days — no fires are dropped for a normal handover.
+
+The only gap where fires can be missed is Steps 4–5 (the HANDOVER drain), which is at most 30 seconds. With the default `catchup_window` of 365 days this is never an issue. It only becomes relevant if you have explicitly set a very short `catchup_window` on a schedule — shorter than the drain duration.
+
+**Paused schedules** remain paused on the new active after the handover.
+
+#### Verifying schedule health after handover
+
+**Live state — `temporal schedule describe`**
+
+The most direct check. `temporal schedule describe` issues a live query to the scheduler workflow execution — it returns real-time state from the running workflow, not a cached visibility entry. Run it on the **new active** cluster:
+
+```bash
+temporal schedule describe \
+  --schedule-id <schedule-id> \
+  --namespace <namespace> \
+  --address <new-active-frontend>
+```
+
+Key fields to read from the output:
+
+| Field | What to look for |
+|---|---|
+| `RecentActions` | Should contain recent fire timestamps — confirms the scheduler is executing |
+| `FutureActionTimes` | Should contain upcoming fire times — confirms the timer is running |
+| `MissedCatchupWindow` | Should be zero for a normal handover |
+| `RunningWorkflows` | Lists currently executing triggered workflow runs |
+
+If `FutureActionTimes` shows times that are all in the past and `RecentActions` is not advancing, the scheduler is not making progress. Check dynamic config (`worker.enableScheduler`) and worker service health on the new active.
+
+**`temporal schedule list` showing schedules as `Running` is not confirmation they are making progress** — use `temporal schedule describe` to confirm a schedule is actually firing.
+
+**Useful metrics to monitor after handover on the new active**
+
+| Metric | What to expect |
+|---|---|
+| `schedule_action_delay` | Should return to normal shortly after schedules resume |
+| `schedule_action_e2e_delay` | May be temporarily elevated if many fires are being caught up |
+| `schedule_action_errors` | Should be zero — any errors are worth investigating |
+| `schedule_missed_catchup_window` | Should be zero for a normal handover |
+| `schedule_rate_limited` | May spike briefly during catchup — if sustained, raise `worker.schedulerNamespaceStartWorkflowRPS` |
+| `schedule_buffer_overruns` | Should be zero — non-zero means fires were dropped during catchup |
+
+**Scanner workflows (optional, disabled by default)**
+
+The server includes scanner workflows that periodically check all schedules in a namespace for health issues and emit metrics when problems are found. They are disabled by default and controlled via `worker.scheduleInvariantsScannerOptions` (global dynamic config, not per-namespace — enabling it applies to all namespaces on the cluster).
+
+Once enabled, the key metric to watch after handover is `schedule_invariants_scanner_overdue_next_action_time` — tagged by `namespace`, so you can filter to just the namespace you failed over. A non-zero value means one or more schedules are overdue and not firing when they should be.
 
 ---
 
