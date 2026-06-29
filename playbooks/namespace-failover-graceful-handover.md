@@ -255,6 +255,18 @@ If `FutureActionTimes` shows times that are all in the past and `RecentActions` 
 
 **`temporal schedule list` showing schedules as `Running` is not confirmation they are making progress** — use `temporal schedule describe` to confirm a schedule is actually firing.
 
+**Visibility queries** can give a quick namespace-level view. Run these against the new active:
+
+```
+# All running, unpaused schedules
+TemporalNamespaceDivision = 'TemporalScheduler' AND TemporalSchedulePaused = false AND ExecutionStatus = 'Running'
+
+# All paused schedules — confirm schedules paused on the old active are still paused
+TemporalNamespaceDivision = 'TemporalScheduler' AND TemporalSchedulePaused = true
+```
+
+These are visibility queries (not live state) — they confirm presence and pause state but not whether the scheduler is actively firing. Use `temporal schedule describe` for live health.
+
 **Useful metrics to monitor after handover on the new active**
 
 | Metric | What to expect |
