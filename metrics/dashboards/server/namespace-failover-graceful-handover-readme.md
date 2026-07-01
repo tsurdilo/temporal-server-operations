@@ -237,6 +237,17 @@ See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handov
 
 See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed) for interpretation and go/no-go guidance.
 
+### Panel: Replication Latency p99 (time series)
+
+**Metric:** `histogram_quantile(0.99, sum(rate(replication_latency_bucket{source_cluster="$active_cluster"}[$__rate_interval])) by (le))`  
+**Cluster:** standby  
+**Thresholds:** green < 10s, orange ≥ 10s, red ≥ 20s  
+p99 end-to-end replication latency — time from task creation on the active to task application on the standby. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window and the handover is guaranteed to roll back.
+
+**Alert:** [FAILOVER-PRE-07](../../../metrics/alerts/server/alerts-index.md#alert-failover-pre-07--replication-latency-too-high-for-safe-handover) — fires at p99 ≥ 20s, severity critical.
+
+See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed) for interpretation and go/no-go guidance.
+
 ---
 
 ## Row 2a — WaitReplication (Steps 1–3) — No Client Impact

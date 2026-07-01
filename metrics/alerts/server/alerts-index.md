@@ -1650,6 +1650,24 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 
 ---
 
+### Alert FAILOVER-PRE-07 — Replication Latency Too High for Safe Handover
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-failover-pre-07` |
+| Severity | critical |
+| `for` | 2m |
+| `noDataState` | OK |
+
+**Condition:** `histogram_quantile(0.99, sum(rate(replication_latency_bucket{}[5m])) by (le)) > 20`
+
+**Dashboard panel:** [Replication Latency p99](../../../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-latency-p99-time-series) (Row 1 — Pre-Flight)
+
+**Playbook:** [section 1.3 — Is replication lag low enough to proceed?](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed)
+
+---
+
 ### Alert FAILOVER-HANDOVER-01 — HANDOVER Drain Stalled
 
 | Field | Value |

@@ -283,7 +283,7 @@ Focuses on matching task queue latencies and throttling. Can be useful among oth
 |---|---|
 | **Async Match Latency** | Time from task creation to worker pickup for tasks that could not be sync-matched and had to wait in the queue. High values with healthy workers indicate matching is the bottleneck — consider increasing task queue partitions. If workers are unhealthy, fix worker provisioning first. |
 | **Sync Match Latency** | Latency for tasks that were directly matched to a waiting poller within the sync match window. Low sync match latency alongside high async match latency indicates workers are present but matching partitions are overwhelmed. |
-| **Sync Throttle Count** | Rate of tasks being throttled by the matching service. The default limit is 1,000 tasks/s per partition. Any non-zero sustained rate means you are hitting the per-partition limit. Increasing task queue partitions can help, but rule out worker shortage first by checking Async Match Latency and Schedule to Start Latencies. |
+| **Sync Throttle Count** | Rate of sync match dispatch attempts rejected by the per-partition rate limiter. This metric fires only on the sync match path — when a new task arrives and tries to pair directly with a waiting poller without writing to the database. The effective default limit is 1,000/s per partition per task queue, set by `admin.matchingNamespaceTaskqueueToPartitionDispatchRate` (default 1,000); there is also a namespace-level cap via `admin.matchingNamespaceToPartitionDispatchRate` (default 10,000). Any non-zero sustained rate means the per-partition rate limit is actively rejecting sync match attempts. Important: when a backlog older than `matching.backlogNegligibleAge` (default 5s) is present, sync match is bypassed entirely and this metric goes silent even if the partition is saturated — in that state, use Tasks Persisted to DB and Approximate Task Backlog instead. If workers are present and sync throttle is non-zero, increasing task queue partitions distributes load across more rate-limit buckets. Rule out worker shortage first by checking Async Match Latency and Schedule to Start Latencies. |
 | **Task Write Throttle Count** | Rate of matching falling behind writing tasks to persistence. This is often caused by insufficient workers (low sync match rate) rather than partition count — check Schedule to Start Latencies and worker health first before increasing partitions. |
 
 ---
@@ -454,7 +454,7 @@ The following panels have threshold reference lines configured:
 | Panel | Orange | Red | Notes |
 |---|---|---|---|
 | **Async Match Latency** | 500ms | 2s | High values with healthy workers indicate matching partitions are the bottleneck. See the Task Queue Partitions Operator Guide. |
-| **Sync Throttle Count** | — | 1 (any) | Any non-zero rate means the per-partition limit (1,000/s default) is being hit. No orange — throttling is binary. |
+| **Sync Throttle Count** | — | 1 (any) | Any non-zero rate means the rate limiter is actively rejecting sync match attempts. Default limit: 1,000/s per partition per task queue (`admin.matchingNamespaceTaskqueueToPartitionDispatchRate`); namespace-level cap: 10,000/s (`admin.matchingNamespaceToPartitionDispatchRate`). Metric is silent when backlog age exceeds `matching.backlogNegligibleAge` (5s default) — pair with Tasks Persisted and Approximate Task Backlog for the full picture. |
 | **Task Write Throttle Count** | — | 1 (any) | Any non-zero rate warrants investigation. Rule out worker shortage before adjusting partitions. |
 
 ### SDK Workers Info

@@ -24,7 +24,7 @@ Quick reference — all recommendations below are explained in detail in the sec
 - Think carefully about `dcRedirectionPolicy` — it is a static YAML setting that requires a restart and controls how each cluster handles traffic when it is not the active. Get it right before the first handover. See [Setting dcRedirectionPolicy](#setting-dcredirectionpolicy).
 - Verify `numHistoryShards` is a clean multiple between clusters (e.g. 512 and 1024 is valid; 512 and 768 is not). A non-multiple ratio causes the replication stream to fail at connection time with no recovery path — this must be correct when replication is first configured.
 - Never run two handover workflows for the same namespace at the same time.
-- Set `history.EnableReplicationTaskTieredProcessing: true` on **both clusters**. Dynamic config, no restart needed. Required for the handover workflow to function correctly.
+- Set `history.EnableReplicationTaskTieredProcessing: true` on **both clusters**. Dynamic config, no restart needed. Required for the handover workflow to function correctly. Both clusters must be on v1.25.0 or later before enabling — enabling it when either cluster is on an older version can cause the replication stream to get stuck.
 - Set `system.enableNamespaceHandoverWait: true` on **both clusters**. Dynamic config, no restart needed. Eliminates the `Unavailable` error during the HANDOVER drain window — clients see latency instead.
 - Confirm `system.enableNamespaceNotActiveAutoForwarding` is `true` on both clusters (it is the default). If it was ever set to `false`, forwarding is disabled regardless of `dcRedirectionPolicy`.
 - Do not lower `history.standbyTaskMissingEventsDiscardDelay` below its default (15m) on the standby — lower values increase the risk of workflows getting stuck post-flip.
@@ -164,7 +164,7 @@ These must be set on a running cluster before the first handover — no restart 
 | `history.EnableReplicationTaskTieredProcessing` | Both | **`true`** | If `false`, a LOW force-replication backlog can block WaitHandover and trigger the 30s rollback; also prevents namespace-filtered progress tracking |
 | `history.standbyTaskMissingEventsDiscardDelay` | Standby | Default (15m) or higher | Lower values increase discard risk during elevated lag |
 
-**`history.EnableReplicationTaskTieredProcessing` is safe to enable on a running cluster** — the sender detects the change and triggers a controlled stream reconnect (~1s re-send window). Set it on **both clusters** before the handover: after the flip the standby becomes the new active and immediately starts sending its own replication stream — it needs tiered processing already on. Do not toggle it back off once enabled.
+**`history.EnableReplicationTaskTieredProcessing` is safe to enable on a running cluster** — the sender detects the change and triggers a controlled stream reconnect (~1s re-send window). Set it on **both clusters** before the handover: after the flip the standby becomes the new active and immediately starts sending its own replication stream — it needs tiered processing already on. Do not toggle it back off once enabled. Both clusters must be on v1.25.0 or later before enabling — enabling it when either cluster is on an older version can cause the replication stream to get stuck.
 
 ### Alerts
 
@@ -180,6 +180,7 @@ All alerts below link to the [Namespace Failover: Graceful Handover dashboard](.
 | `FAILOVER-PRE-04` — Receiver Backlog At Flow Control Limit | critical | Pre-flight (before Step 1) | Row 1 | Receiver backlog p99 ≥ 500 — flow control active, hard blocker |
 | `FAILOVER-PRE-05` — Receiver Backlog Near Flow Control Limit | warning | Pre-flight (before Step 1) | Row 1 | Receiver backlog p99 ≥ 400 — approaching flow control ceiling, advisory |
 | `FAILOVER-PRE-06` — Standby Task Discards Detected | warning | Pre-flight (before Step 1) | Row 1 | `task_errors_discarded` non-zero — stuck workflows will exist post-flip |
+| `FAILOVER-PRE-07` — Replication Latency Too High | critical | Pre-flight (before Step 1) | Row 1 | `replication_latency` p99 ≥ 20s on standby — tasks taking too long to replicate; handover drain will fail |
 | `FAILOVER-HANDOVER-01` — HANDOVER Drain Stalled | critical | Step 5 (`WaitHandover`) | Row 2b | `handover_ready_shard_count` not progressing during drain — 30s rollback clock running |
 | `FAILOVER-POST-01` — Forwarding FailedPrecondition Errors | warning | Post Step 6 | Row 4 | `FailedPrecondition` errors on old active — workers or clients hitting non-forwarded APIs (Respond\*, Update, ExecuteMultiOperation) while still pointed at old active |
 
@@ -461,7 +462,7 @@ Wait for the workflow to complete before starting the handover workflow.
 
 #### 1.2. Is the replication stream between clusters healthy?
 
-Alerts [`FAILOVER-PRE-01` through `FAILOVER-PRE-06`](../metrics/alerts/server/alerts-index.md) fire on the blockers covered here. If any are already firing, you have your answer before opening the dashboard — but check the dashboard anyway. Alerts tell you something is wrong; the dashboard panels below tell you how bad it is, whether it is recovering, and what to do about it.
+Alerts [`FAILOVER-PRE-01` through `FAILOVER-PRE-07`](../metrics/alerts/server/alerts-index.md) fire on the blockers covered here. If any are already firing, you have your answer before opening the dashboard — but check the dashboard anyway. Alerts tell you something is wrong; the dashboard panels below tell you how bad it is, whether it is recovering, and what to do about it.
 
 Open [Row 1 — Pre-Flight](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#row-1--pre-flight-go--no-go) in the dashboard.
 
@@ -505,6 +506,8 @@ When lag looks good and you are ready to proceed, use what you observed here to 
 | Thousands of tasks, not converging | Do not start — setting a high value just to proceed will likely cause the handover to roll back. WaitReplication will exit the moment the threshold is met, but the 30-second drain window must then clear all remaining tasks. If thousands are still in flight when HANDOVER starts, the drain times out and no flip occurs. |
 
 > If lag is rising or flat at a large value, do not proceed. Wait for the trend to reverse and lag to stabilize near zero before continuing to section 1.4.
+
+**Replication latency — the time-based signal.** The panels above measure task count — how many tasks are pending. Also check the [Replication Latency p99 panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-latency-p99-time-series) (Row 1, standby cluster). This measures how long each task takes end-to-end from generation on the active to application on the standby. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window — the handover is guaranteed to roll back regardless of task count. Alert `FAILOVER-PRE-07` fires when p99 exceeds 20s.
 
 #### 1.4. Is the standby making extra round-trips to fetch missing history?
 
@@ -691,6 +694,8 @@ If `Replication State` shows `Handover` briefly after the workflow completed, th
 
 If `Replication State` shows `Handover` and does not clear after 5–10 seconds, the reset did not propagate cleanly. Check the workflow execution history to see whether Step 6 (`UpdateActiveCluster`) completed — if it did, the flip happened and the state will resolve on its own. If it did not complete, the flip did not occur and the namespace will return to `Normal` automatically via the workflow's built-in rollback — no manual intervention needed.
 
+If the two clusters disagree — one shows the new active cluster as `Active Cluster` and the other still shows the old active cluster — the namespace is in a passive-passive state. The handover completed successfully, but the namespace metadata change did not replicate to the other cluster. The namespace is live on the new active — this does not require re-running the handover. **Resolve this immediately** — in a passive-passive state both clusters treat the namespace as standby, so workers get empty polls on both sides and workflow execution stalls. See [passive-passive recovery](#the-handover-completed-but-the-namespace-is-in-a-passive-passive-state) in section 5 to resync the standby's view.
+
 ---
 
 ## 4. Monitor the new active cluster after the handover
@@ -775,7 +780,7 @@ Here is a summary of the config changes to make and when:
 
 This section is a reference for situations where something did not go as expected. Each scenario below describes what you will see, why it happened, and what to do. Earlier sections in this playbook point here when they detect a problem.
 
-In all cases: **the namespace is safe**. The handover workflow is designed so that if anything goes wrong before the flip completes, the namespace is automatically returned to its original state. No flip means no data loss and no stuck active cluster.
+In most cases: **the namespace is safe**. The handover workflow is designed so that if anything goes wrong before the flip completes, the namespace is automatically returned to its original state. No flip means no data loss and no stuck active cluster. There is one rare exception — see [passive-passive state](#the-handover-completed-but-the-namespace-is-in-a-passive-passive-state) below.
 
 ---
 
@@ -840,3 +845,24 @@ After a forced failover, some workflow executions may be stuck — tasks that we
 ```bash
 tctl admin workflow refresh-workflow-tasks --namespace <ns>
 ```
+
+---
+
+#### The handover completed but the namespace is in a passive-passive state
+
+**What you see:** the handover workflow completed successfully, but when you run `temporal operator namespace describe` against both clusters, the two disagree — one shows the new active cluster as `Active Cluster` and the other still shows the old active cluster. Neither cluster is treating itself as active.
+
+**Why it happened:** namespace updates and namespace replication are not atomic. The handover workflow completed Step 6 (`UpdateActiveCluster`) on the active cluster, but the replication of that change to the standby failed at that moment — leaving the standby unaware of the flip.
+
+**Impact:** both clusters treat the namespace as standby. Worker polls return empty on both sides, write APIs bounce between clusters or return errors, and workflow execution stalls. Resolve this immediately — the fix is a single command.
+
+**How to recover:** run the following against the **new active cluster's** frontend to explicitly set the active cluster:
+
+```bash
+temporal operator namespace update \
+  --namespace <namespace> \
+  --active-cluster <new-active-cluster-name> \
+  --address <new-active-cluster-frontend>
+```
+
+After running this, verify both clusters agree by re-running `temporal operator namespace describe` on both frontends. Both should show the same `Active Cluster` value.
