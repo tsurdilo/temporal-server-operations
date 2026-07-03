@@ -2337,6 +2337,50 @@
               "refId": "A"
             }
           ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 25
+          },
+          "id": 2120,
+          "title": "Owned Shards (Total)",
+          "description": "Sum of numshards_gauge across all history pods. Should equal the configured total shard count at all times.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(numshards_gauge{service_name=\"history\"})",
+              "legendFormat": "owned shards",
+              "refId": "A"
+            }
+          ]
         }
       ]
     },
@@ -6647,8 +6691,8 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.5.0",
+  "title": "Temporal Server Dashboard v2.6.0",
   "uid": "temporal-overview-v1",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

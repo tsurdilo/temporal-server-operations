@@ -11,7 +11,7 @@ Complete reference for all server alert definitions. Includes both implemented a
 
 Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in `temporal-failover-alerts.yaml`.
 
-> **Essential Set:** A curated subset of 18 alerts has been selected for deployment from `temporal-server-alerts.yaml`. See [README.md](./README.md) for setup instructions and runbook links.
+> **Essential Set:** A curated subset of 20 alerts has been selected for deployment from `temporal-server-alerts.yaml`. See [README.md](./README.md) for setup instructions and runbook links.
 > **Planning document:** See [planning.md](./planning.md) for design decisions and the full working notes.
 
 > **Tuning note:** All thresholds and `for` durations documented here are baselines — calibrated starting points that should work well for most production deployments. Different workloads, cluster sizes, and SLO requirements will need different values. The `for` duration controls how long a condition must hold continuously before the alert fires: shorter values catch problems faster at the cost of more noise from transient spikes; longer values reduce false positives but delay detection. Treat every value here as a starting point and adjust to your environment.
@@ -35,7 +35,7 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 5 — Service Requests and Errors](#section-5--service-requests-and-errors) (#25–#28)
 - [Section 6 — Throttling and Limits](#section-6--throttling-and-limits) (#29–#30)
 - [Section 7 — Busy Workflow Throttling](#section-7--busy-workflow-throttling) (#31–#33)
-- [Section 8 — Shard Movement](#section-8--shard-movement) (#34)
+- [Section 8 — Shard Movement](#section-8--shard-movement) (#34, #78, #79)
 - [Section 9 — Shard Queue Health](#section-9--shard-queue-health) (#34a–#34j)
 - [Section 10 — History Timer Task Info](#section-10--history-timer-task-info) (#35–#39)
 - [Section 11 — Workflow Stats](#section-11--workflow-stats) (#40–#41)
@@ -640,8 +640,8 @@ Resource exhausted errors with cause `SYSTEM_OVERLOADED` or `CIRCUIT_BREAKER_OPE
 
 ## Section 8 — Shard Movement
 
-> **Dashboard panels:** Shards Created/Removed/Closed (panel 60), Service Restarts (panel 63)
-> **Metrics:** `sharditem_created_count`, `sharditem_removed_count`, `shard_closed_count`, `restarts`
+> **Dashboard panels:** Shards Created/Removed/Closed (panel 60), Service Restarts (panel 63), Owned Shards (Total) (panel 2120)
+> **Metrics:** `sharditem_created_count`, `sharditem_removed_count`, `shard_closed_count`, `restarts`, `numshards_gauge`, `persistence_error_with_type`
 > **Component:** history
 
 ### Alert 34 — Unexpected Shard Movement
@@ -669,6 +669,54 @@ unless (sum(increase(restarts{service_name="history"}[8m])) > 0)
 Shard churn detected without a corresponding history pod restart in the last 8 minutes. Shard movement during planned restarts or scaling is expected and filtered. Unexpected movement indicates DB pressure causing ownership loss, membership instability, or a history pod unable to maintain shard leases.
 
 **Runbook:** [34-unexpected-shard-movement.md](./runbooks/34-unexpected-shard-movement.md)
+
+---
+
+### Alert 78 — Shard Fleet Deficit
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-078` |
+| Severity | critical |
+| Panel | 2120 |
+| `for` | 15m |
+| `noDataState` | NoData |
+
+**Condition:**
+```promql
+sum(numshards_gauge{service_name="history"}) < 2048
+```
+
+> **IMPORTANT:** `2048` is a placeholder for this cluster's configured `NumberOfShards`. Update it to match your deployment before enabling.
+
+Sum of shards currently owned across the entire history fleet has stayed below the cluster's configured total shard count for 15 minutes straight — a genuinely unowned shard, not just a slow one. Alert 34 (shard churn) can miss this case: a permanently stuck shard often stops churning entirely once acquisition attempts settle into an identical, repeating CAS failure, rather than continuing to generate create/remove/close events. `numshards_gauge` catches the coverage gap directly regardless of whether churn is still happening.
+
+If Cassandra persistence is used, a common root cause is a `range_id` divergence — the shard row's `range_id` column and the `RangeId` embedded in its serialized blob get out of sync, most often from a prior non-atomic manual repair, a backup/restore from an inconsistent snapshot, or legacy server code. Every acquisition attempt then fails an identical CAS check forever; no automatic self-healing is possible.
+
+**Runbook:** [78-shard-fleet-deficit.md](./runbooks/78-shard-fleet-deficit.md)
+
+---
+
+### Alert 79 — Shard Ownership Loss Persisting
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-079` |
+| Severity | critical |
+| Panel | 77 |
+| `for` | 10m |
+| `noDataState` | NoData |
+
+**Condition:**
+```promql
+sum(rate(persistence_error_with_type{service_name="history",operation="UpdateShard",error_type="persistence.ShardOwnershipLostError"}[5m])) > 0
+```
+
+`UpdateShard` is failing its conditional write with `ShardOwnershipLostError` continuously for at least 10 minutes. A single occurrence during a normal ownership handoff (rolling restart, rebalance) is expected and self-resolves within seconds — this error type is deliberately excluded from the generic `persistence_errors` counter for exactly that reason, so this alert queries `persistence_error_with_type` directly with the specific `operation`/`error_type` label pair instead of relying on the generic error rate. A sustained rate means at least one shard is permanently unable to complete its CAS check on acquisition; this typically fires alongside Alert 78 (Shard Fleet Deficit).
+
+**Runbook:** [79-shard-ownership-loss-persisting.md](./runbooks/79-shard-ownership-loss-persisting.md)
 
 ---
 

@@ -11,7 +11,7 @@
 #   - temporal-server.json dashboard imported (UID: temporal-overview-v1)
 #     Dashboard panel links will not resolve without it.
 #
-# This file covers the Essential Alert Set (12 alerts).
+# This file covers the Essential Alert Set (20 alerts).
 # See planning.md for the full alert inventory and design decisions.
 
 apiVersion: 1
@@ -1135,6 +1135,120 @@ groups:
             (requires history host rolling restart).
 
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/34j-shard-io-semaphore-deadlock-approaching.md
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # Alert 78 — Shard Fleet Deficit
+      # IMPORTANT: The expr hardcodes 2048 as total shard count. Update this to
+      # match your cluster's configured NumberOfShards.
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-078
+        title: "Temporal: Shard Fleet Deficit"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(numshards_gauge{service_name=\"history\"}) < 2048"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Error
+        for: 15m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+        annotations:
+          __dashboardUid__: temporal-overview-v1
+          __panelId__: "2120"
+          summary: "Temporal: shard fleet deficit — {{ $value | printf \"%.0f\" }} shards owned, below configured total"
+          description: |
+            Total owned shards across the history fleet has stayed below the cluster's configured shard count for 15 minutes — a genuinely unowned shard, not just a slow one.
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/78-shard-fleet-deficit.md
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # Alert 79 — Shard Ownership Loss Persisting
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-079
+        title: "Temporal: Shard Ownership Loss Persisting"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(persistence_error_with_type{service_name=\"history\",operation=\"UpdateShard\",error_type=\"persistence.ShardOwnershipLostError\"}[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+        annotations:
+          __dashboardUid__: temporal-overview-v1
+          __panelId__: "77"
+          summary: "Temporal: shard ownership CAS failures persisting for 10+ minutes ({{ $value | printf \"%.2f\" }} errors/s)"
+          description: |
+            UpdateShard is failing with ShardOwnershipLostError continuously for at least 10 minutes — a single occurrence during a normal ownership handoff is expected, a sustained rate is not.
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/79-shard-ownership-loss-persisting.md
         isPaused: false
 
       - uid: temporal-alert-059c

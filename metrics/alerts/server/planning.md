@@ -235,8 +235,10 @@ Operators who want focused coverage without implementing the full alert inventor
 | # | Alert Name | Severity | Panel | Condition |
 |---|---|---|---|---|
 | 34 | Unexpected Shard Movement | 🔴 Critical | Shards Created/Removed/Closed + Service Restarts | Shard churn rate is elevated AND service restarts == 0 in the same window — shard movement without a restart indicates DB pressure, history host crash, or membership instability |
+| 78 | Shard Fleet Deficit | 🔴 Critical | Owned Shards (Total) | `sum(numshards_gauge) < <total_shards>` sustained 15m — a genuinely unowned shard, distinct from alert 34's churn-rate signal. A permanently stuck shard (e.g. Cassandra `range_id` divergence) often stops generating churn once it settles into a repeating identical CAS failure, so 34 can go quiet while the shard is still unowned; this catches the coverage gap directly. |
+| 79 | Shard Ownership Loss Persisting | 🔴 Critical | Persistence Errors Total by Operation | `sum(rate(persistence_error_with_type{operation="UpdateShard",error_type="persistence.ShardOwnershipLostError"}[5m])) > 0` sustained 10m. `ShardOwnershipLostError` is deliberately excluded from the generic `persistence_errors` counter (routine on every normal ownership handoff), so this alert queries the typed error metric directly rather than relying on the generic error-rate signal. Typically co-fires with 78. |
 
-> **Note:** Shard movement during a planned restart or scaling event is expected and not alertable. This alert uses a compound condition to filter out the expected case.
+> **Note:** Shard movement during a planned restart or scaling event is expected and not alertable. This alert uses a compound condition to filter out the expected case. Alerts 78/79 added after a production incident where a shard's `range_id` column and its blob-embedded `RangeId` diverged by 1, leaving the shard permanently unacquirable with no self-healing path and no existing alert coverage — see [shard-range-id-divergence-stuck-child-workflows.md](https://github.com/tsurdilo/temporal-metrics/blob/main/tmp/shard-range-id-divergence-stuck-child-workflows.md).
 
 ---
 

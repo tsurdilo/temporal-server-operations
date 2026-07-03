@@ -1,5 +1,10 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.6.0 — 2026-07-02
+
+### Added
+- **Shard Movement** group: new **Owned Shards (Total)** panel — `sum(numshards_gauge{service_name="history"})`. Should equal the cluster's configured total shard count at all times; a sustained deficit means a shard has no owner. Backs new essential alerts 78/79.
+
 ## v2.5.0 — 2026-06-11
 
 ### Added

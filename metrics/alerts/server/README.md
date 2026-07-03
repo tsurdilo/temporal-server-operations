@@ -6,7 +6,7 @@ Grafana alerting provisioning rules for a self-hosted Temporal Server cluster.
 
 | File | When to use |
 |---|---|
-| [`temporal-server-alerts.yaml`](./temporal-server-alerts.yaml) | All deployments — 18 implemented alerts covering core server health, persistence, shard queues, visibility, and pollers |
+| [`temporal-server-alerts.yaml`](./temporal-server-alerts.yaml) | All deployments — 20 implemented alerts covering core server health, persistence, shard queues, visibility, and pollers |
 | [`temporal-failover-alerts.yaml`](./temporal-failover-alerts.yaml) | Multi-cluster replication only — 8 implemented alerts for graceful handover pre-flight, drain, and post-flip health. Drop alongside the core file if you run global namespaces with active-standby replication. Single-cluster deployments can skip it. |
 
 See [alerts-index.md](./alerts-index.md) for the full planned inventory and design decisions.
@@ -95,6 +95,8 @@ component: <frontend | history | persistence | server | matching>
 | 34f | [Shard Deadlock Detected](./runbooks/34f-shard-deadlock-detected.md) | history | [Suspected Deadlocks per Pod](../../dashboards/server/temporal-server-readme.md) | 1m |
 | 34j | [Shard IO Semaphore Deadlock Approaching](./runbooks/34j-shard-io-semaphore-deadlock-approaching.md) | history | [Shard IO Concurrency Dashboard](../../dashboards/server/shard-io-concurrency-readme.md) | 5m |
 | 38 | [Timer Task Scheduling Lag Critical](./runbooks/38-timer-scheduling-lag-critical.md) | history | [Timer Task Scheduling Latency](../../dashboards/server/temporal-server-readme.md) | 5m |
+| 78 | [Shard Fleet Deficit](./runbooks/78-shard-fleet-deficit.md) | history | [Owned Shards (Total)](../../dashboards/server/temporal-server-readme.md) | 15m |
+| 79 | [Shard Ownership Loss Persisting](./runbooks/79-shard-ownership-loss-persisting.md) | history | [Persistence Errors Total by Operation](../../dashboards/server/temporal-server-readme.md) | 10m |
 | 57 | [All Pollers Disconnected](./runbooks/57-all-pollers-disconnected.md) | frontend | [Total Concurrent Pollers](../../dashboards/server/temporal-server-readme.md) | 1m |
 | 74 | [Matching Partition Sync Throttle Active](./runbooks/74-matching-sync-throttle-active.md) | matching | [Sync Throttle Count](../../dashboards/server/temporal-server-readme.md) | 1m |
 | 59a | [Visibility Store Write Errors (Warning)](./runbooks/59a-visibility-store-write-errors.md) | history | [Visibility Write Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 2m |

@@ -205,6 +205,7 @@ Tracks history service shard creation, removal, and closing. Shard movement most
 | **Shards Removed** | Rate of shard items being removed. Combined with Shards Created, gives a picture of shard rebalancing activity. |
 | **Shards Closed** | Rate of shard items being closed. Shards are closed when a history host loses ownership, typically during a restart or scale-down event. |
 | **Service Restarts** | Rate of service restarts across all Temporal services broken down by service name. Frequent restarts of the History service in particular can cause repeated shard movement and elevated latencies. |
+| **Owned Shards (Total)** | Sum of shards currently owned across all history pods (`numshards_gauge`). Should equal the cluster's configured total shard count at all times. Unlike the other three panels in this group, which only show *rate* of churn, this shows the actual coverage — a sustained deficit here means at least one shard has no owner at all, which churn-rate panels can miss if the stuck shard stopped churning (e.g. because repeated acquisition attempts fail identically instead of cycling). A common cause is a Cassandra `range_id` divergence between the shard row's `range_id` column and the value embedded in its serialized blob, which makes the shard permanently unacquirable without a manual Cassandra repair. |
 
 ---
 
