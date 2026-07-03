@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.4.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.6.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
