@@ -50,7 +50,7 @@ customer's own logs and metrics and ruled them out:
 | Considered | Ruled out because |
 |---|---|
 | Workers were down or not polling | Workers were **up and polling** the task queue during the window. |
-| Matching being the bottleneck (overloaded, or pollers unable to keep up) | Matching was **not rate-limited** and pollers were up with **idle capacity**, so a *deliverable* task would have been dispatched at once. Whether the stuck tasks reached matching at all — or sat in a backlog it could not surface — is a separate **open** question (see [Section 4](#4-investigating-why-a-small-number-stayed-stuck)). |
+| Matching being *overloaded or rate-limited* | Matching was **not rate-limited** and pollers had spare capacity. **A matching-side *delivery* problem is not ruled out, though** — [Section 4](#4-investigating-why-a-small-number-stayed-stuck) shows a stuck task that reached matching and then sat in a partition-4 backlog undelivered for ~8h. |
 | Task-queue partition misconfiguration | Read and write partition counts match (**12 / 12**); the read==write invariant holds and no partition was orphaned. |
 | Fairness / new matcher behavior | Both are **off** (classic matcher, the 1.29.6 default), consistent with the logs — neither feature was in play. |
 
@@ -257,7 +257,7 @@ workflows and API calls responsive, at the cost of delaying background dispatch.
 incident logs actually show — low-priority dispatch rejected and high-priority work served, at the
 same time.
 
-**Dispatch was being rejected.** For stuck workflow `01KVYNFQTR8F8WNX3146B9J1TM-execute` at 22:30:04:
+**Dispatch was being rejected.** For workflow `01KVYNFQTR8F8WNX3146B9J1TM-execute` (call it **8F8W**) at 22:30:04:
 
 - Its dispatch task `TransferActivityTask` ("move this activity to matching") failed to process:
   `context deadline exceeded`.
@@ -312,8 +312,9 @@ starvation from Section 3 was *intermittent* — it bit only in the moments dema
 the vast majority of the ~170K activities dispatched and completed normally; only ~70 were left
 behind — a tiny fraction of the batch.
 
-The event history of one stuck workflow shows this precisely. At **22:30:03 UTC** it scheduled
-**three activities in parallel** within the same workflow execution:
+The event history of one stuck workflow — `01KVYNFQTR6D9K66YV981H6TF6` (call it **6D9**) — shows this
+precisely. At **22:30:03 UTC** it scheduled **three activities in parallel** within the same workflow
+execution:
 
 | Activity | Outcome |
 |---|---|
@@ -326,62 +327,90 @@ even though all three were scheduled at the same moment on the same task queue. 
 task-queue partitions the two completed activities were dispatched from.) So the stall affected
 individual activities, not the task queue as a whole.
 
-A worker-side latency metric corroborates the broad delay. The customer's p99 activity
-schedule-to-start latency (`temporal_activity_schedule_to_start_latency_seconds`, Java/Micrometer) ran
-with a tail of **≥30 seconds across the whole incident window** — a large share of activities waited
-tens of seconds to be picked up, then were. Two caveats keep this as *corroboration only*, not proof
-about the stuck ones: p99 is the slowest ~1%, but the ~70 stranded activities are ~0.04% of the batch —
-far past p99 — and the histogram saturates at its top bucket (~30s), so the multi-hour stragglers are
-absorbed into it rather than shown. This metric confirms dispatch was broadly delayed; it cannot
-isolate the stranded subset. For those, the event history above is the reliable evidence.
+A worker-side metric — p99 activity schedule-to-start latency
+(`temporal_activity_schedule_to_start_latency_seconds`, Java/Micrometer) — corroborates the *broad*
+delay, but cannot resolve the stuck subset:
 
-### 4c. Why did the stranded ones not self-recover?
-
-The one thing the data lets us state with confidence: **the stranded activity was never delivered to
-a worker, even though workers were available.** The reasoning, step by step:
-
-| What we observe | What it tells us |
+| What the metric shows | What it means |
 |---|---|
-| Between bursts the ActivityWorker had free slots and was long-polling, returning empty (~40–50/sec timeouts, 4a) | Idle poll capacity was available on the task queue |
-| The stuck `VERIFY: Payment Instrument` activity sat for **~8 hours** | Had it been in matching's deliverable queue, an idle poller would have picked it up in milliseconds |
-| → So the activity was **not available to matching's pollers** | It was stranded **upstream** — the Section 3 dispatch step (`TransferActivityTask`) never completed, seen from the worker's side |
-| A failed `TransferActivityTask` is normally **retried, not dropped**, and load eased by ~23:40 UTC | The retry should have completed and dispatched the activity on its own |
-| ~70 executions did **not** recover — they sat until an operator intervened, ~7 hours after load cleared | **Why they stopped retrying is the central open question** (see 4d) |
-| `ScheduleToStart` was effectively inherited as **36 hours** (see [Recommendations](#5-recommendations)) | No near-term timeout fired, so the stuck activity never failed and the workflow got no signal to act on — it simply sat for the workflow's 36-hour lifetime |
+| p99 ran with a **≥30s tail across the whole incident window** | a large share of activities waited tens of seconds to be picked up — then were → dispatch was **broadly delayed** |
+| p99 is the slowest ~1%; the ~70 stuck activities are **~0.04%** of the batch | the stuck ones sit far past p99 — this metric **can't "see" them** |
+| the histogram **saturates at its top bucket (~30s)** | multi-hour waits are absorbed into "≥30s", **not shown** as their real value |
+
+So it confirms dispatch was broadly delayed, but for the stuck subset the **event history above is the
+reliable evidence**, not this metric.
+
+### 4c. What the stuck activity actually did — it reached matching, then sat
+
+We can trace 6D9's `VERIFY: Payment Instrument` activity (event 5, scheduled 22:30:03) end to end. A
+single matching-engine log, written **~8 hours later at 06:44:06 UTC**, tells us where the task
+actually was:
+
+> `Activity task not found` · `component: matching-engine` ·
+> `wf-task-queue-name: /_sys/taskQueue_billPay_IT/4` · `queue-task-id: 11225972` ·
+> `queue-task-visibility-timestamp: 2026-06-30T22:30:03.513Z` · `wf-history-event-id: 5` ·
+> `error: workflow execution already completed`
+
+| Field | What it tells us |
+|---|---|
+| `queue-task-id` + `visibility-timestamp 22:30:03` | matching **had a real task** for this activity, written **at schedule time** — so the dispatch (history→matching hand-off) **succeeded** |
+| `wf-task-queue-name …/4` | the task sat on **partition 4** |
+| logged at `06:44:06` (~8h later) | matching only processed this original task **~8 hours after it was written** |
+| `error: workflow execution already completed` | by the time it was processed, the workflow had already finished, so the task was stale |
+
+So the dispatch (history→matching) **succeeded** — the task **reached matching at 22:30:03** and then
+sat in the partition-4 backlog, undelivered, for ~8 hours. By the time that original task was finally
+processed (the 06:44 log), the activity had already been recovered: the customer's **pause/unpause** had
+created a **fresh** activity task that dispatched and let the workflow complete. The original stuck task
+was then handed out, found the workflow already completed, and produced the `Activity task not found`.
+
+This reconciles the poller signal from 4a: the pollers returned empty not because there was no task,
+but because the backlogged partition-4 task **was never surfaced to them** — it stayed in the persisted
+backlog rather than the in-memory queue pollers are served from. Idle pollers plus a task dormant in a
+partition backlog is exactly the "workers waiting, nothing delivered" picture we saw.
+
+**What this leaves open** is *why* matching left that partition-4 backlog undelivered for ~8 hours while
+pollers were idle (see 4d and 4e). And the reason nothing forced a recovery on its own: `ScheduleToStart`
+was effectively **36 hours** (inherited from the run timeout — see [Recommendations](#5-recommendations)),
+so no near-term timeout ever fired to reschedule the activity; it simply sat until an operator intervened.
 
 ### 4d. What is confirmed and what is still open
 
 | Point | Status |
 |---|---|
 | Workers were up, polling, and dispatching the bulk of the workload | **Confirmed** (poll + slot metrics) |
-| The stuck activities were scheduled at the saturation peak (~22:30 UTC) and never delivered to a worker | **Confirmed** (event history + poll metrics) |
-| The stall was *upstream* of matching's pollers — not "sitting in the queue while workers were busy" | **Confirmed** — pollers were idle and available, yet the task sat ~8h |
-| Whether the task never reached matching, or reached a backlog matching could not surface | **Open** — both look the same from the poller side (idle pollers, no task); needs more data (the schedule-to-start latencies and the 23:15 UTC logs) |
-| Why the stranded transfer tasks stopped retrying for ~8h | **Open** — the key remaining question; not explained by load alone, since load eased by ~23:40 UTC |
+| For the traced workflow 6D9, dispatch **succeeded** — the task reached matching at 22:30:03, on partition 4 | **Confirmed** (matching `Activity task not found` log: `queue-task-id` + `visibility-timestamp 22:30:03`) |
+| That task then sat in the partition-4 backlog **undelivered for ~8 hours**; when it was finally processed (06:44), the workflow had already been recovered via pause/unpause | **Confirmed** (same log) |
+| So the 8-hour stall was **matching-side** — a backlogged task not surfaced to idle pollers — **not** the Section 3 dispatch starvation | **Confirmed** for 6D9 |
+| *Why* matching left the partition-4 backlog undelivered for ~8h while pollers were idle | **Open** — the core remaining question (idle-unload / task-reader stall / partition dormancy — not yet pinned down) |
+| Whether workflow 8F8W (whose `TransferActivityTask` *failed*, §3d) also reached matching later or stayed upstream | **Open** — no matching-side log traced for it |
 
-### 4e. One observation that may be useful for further investigation
+### 4e. Partition 4 — where the stuck task actually sat
 
-Both of the two stuck workflows we were able to trace had their activity task later dispatched from
-**task-queue partition 4** specifically (of 12 partitions). This is a very small sample and is most
-likely coincidence — partition 4 is an ordinary, valid, polled partition, and nothing in the
-configuration singles it out. We note it only because it is a real pattern in the little data we have,
-and it may be worth investigating whether a single partition can lag this way while the others drain.
+The stuck activity we traced end to end (6D9's `VERIFY`) sat on **task-queue partition 4**
+(`/_sys/taskQueue_billPay_IT/4`), and the `Activity task not found` samples we have are on that same
+partition. So partition 4 is not an incidental detail — it is where the
+documented stall happened: a task in that partition's backlog went undelivered for ~8 hours while the
+queue as a whole kept delivering the bulk of the workload. With only one or two traced samples we
+cannot say partition 4 is *special* versus simply the partition these tasks happened to land on — but
+**"why did one partition's backlog sit undrained for hours while pollers were idle"** is the concrete
+question worth investigating.
 
 ---
 
 ## 5. Recommendations
 
 These recommendations address the parts of the incident we were able to **confirm** (Sections 1–3).
-The remaining question — why the ~70 stranded activities did not retry on their own — is **still under
+The remaining question — why the ~70 stuck activities did not recover on their own — is **still under
 investigation** (Section 4). Recommendation 2 is important regardless of how that open question
-resolves: it lets the **workflow itself** detect and recover a stranded activity instead of relying on
+resolves: it lets the **workflow itself** detect and recover a stuck activity instead of relying on
 manual pause/unpause — though, as the note below it explains, it requires a small change in workflow
 code, not just a config value.
 
 | # | Recommendation | Why it helps |
 |---|---|---|
 | **1** | **Smooth the batch — the primary fix for billPay.** Spread the ~170K workflow progressions over time instead of releasing them in the same few seconds. | Removes billPay's contribution to the load spike that saturated the persistence rate limiter and starved activity dispatch. Necessary — but note the saturation was cluster-wide (Recommendation 3), so this is not sufficient on its own if other namespaces can spike at the same time. |
-| **2** | **Set a short `ScheduleToStart` timeout — and handle it in workflow code** (see the note below this table). | Today `ScheduleToStart` is effectively inherited as **36h** from the workflow run timeout (not set explicitly), so a stranded activity never times out and the workflow gets no signal — which is why manual pause/unpause was needed. A short `ScheduleToStart` surfaces the stall to the workflow quickly. **It does not auto-recover on its own** — see the note. |
+| **2** | **Set a short `ScheduleToStart` timeout — and handle it in workflow code** (see the note below this table). | Today `ScheduleToStart` is effectively inherited as **36h** from the workflow run timeout (not set explicitly), so a stuck activity never times out and the workflow gets no signal — which is why manual pause/unpause was needed. A short `ScheduleToStart` surfaces the stall to the workflow quickly. **It does not auto-recover on its own** — see the note. |
 | **3** | **Assess cluster and database capacity for concurrent peak load — this incident was cluster-wide, not just billPay.** Multiple namespaces hit the shared persistence cap at the same moment (`8576ffb0…` harder than `IT` — see [Section 1](#1-environment--configuration)). Revisit `history.persistenceGlobalMaxQPS` = 8,000 only *alongside* database / RDS-Proxy / CoreDNS headroom. | The 8,000 cap is **shared across all namespaces** and is **below the sum of the per-namespace caps (10,000)** — so namespaces already contend at the global level. If several can spike together, the cluster and database need headroom for the *aggregate* peak; raising the cap alone, without matching DB and connection-layer capacity, just moves the bottleneck. |
 
 > ⚠️ **This is a situational suggestion, not a general best practice.** We do **not** normally
