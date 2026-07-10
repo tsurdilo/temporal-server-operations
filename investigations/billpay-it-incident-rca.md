@@ -50,7 +50,7 @@ customer's own logs and metrics and ruled them out:
 | Considered | Ruled out because |
 |---|---|
 | Workers were down or not polling | Workers were **up and polling** the task queue during the window. |
-| A matching-service bug | For the workflows we traced, the activity **never reached matching** — the history→matching hand-off failed first, so the stall did not originate in matching. *(One subset did reach matching and is tracked as an open item, in the "why a subset did not recover" section below.)* |
+| Matching being the bottleneck (overloaded, or pollers unable to keep up) | Matching was **not rate-limited** and pollers were up with **idle capacity**, so a *deliverable* task would have been dispatched at once. Whether the stuck tasks reached matching at all — or sat in a backlog it could not surface — is a separate **open** question (see [Section 4](#4-investigating-why-a-small-number-stayed-stuck)). |
 | Task-queue partition misconfiguration | Read and write partition counts match (**12 / 12**); the read==write invariant holds and no partition was orphaned. |
 | Fairness / new matcher behavior | Both are **off** (classic matcher, the 1.29.6 default), consistent with the logs — neither feature was in play. |
 
