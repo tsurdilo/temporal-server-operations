@@ -385,13 +385,13 @@ open part of the investigation.
 | Candidate | Why we don't think it's the cause |
 |---|---|
 | **Read-level "gap-skip"** — the backlog reader advances its read level past a task and never re-reads it | **Considered and set aside.** In 1.29.6 the write path advances `maxReadLevel` *even when the write fails*, and a failed task **bounces back to history and retries with a new task id** (`db.go` `CreateTasks`); the writer is a **single in-order goroutine**; and a *committed* task is always in a range the reader reads. 6D9's task **is** committed (`queue-task-id 11225972`), so it can't have been orphaned below the read level this way. |
-| **Idle-unload** — partition 4 unloaded while dormant, its backlog sat, then reloaded ~06:44 | Fits the *shape* (dormant → reload → drain → NotFound), but we have **no** Activity-partition load/unload events in the logs to confirm it (only the **Nexus** partitions show idle-unload churn). This is the one we're actively testing — see below. |
+| **Idle-unload** — partition 4 unloaded while dormant, its backlog sat, then reloaded ~06:44 | **Refuted.** A query over the last 2 weeks for `Started/Stopped physicalTaskQueueManager` on the billPay **Activity** partitions returns **no lifecycle events at all** — the Activity partitions stayed **continuously loaded** (only the **Nexus** partitions idle-unload). So partition 4 never unloaded/reloaded; the task sat in a *loaded, reading* partition. |
 | **Reader stalled on a loaded partition** | Doesn't hold on its own: the backlog reader **retries reads and dispatch indefinitely** (`task_reader.go`), and the throttling subsided ~23:40 UTC — so a loaded, reading partition should have drained the backlog by ~23:40, not held it to 06:44. |
 
-**What would settle it:** the matching `Started/Stopped physicalTaskQueueManager` events for the
-**Activity** partitions of `taskQueue_billPay_IT` across 21:00–08:00 UTC. If partition 4 shows a
-`Stopped (cause=Idle)` after 22:30 and a `Started` near 06:44, idle-unload is confirmed; if it stayed
-loaded, this is a matching-internals question for the server team.
+So all three candidates are eliminated. What remains is the plain, unexplained fact: a **committed
+task** sat in a **loaded, continuously-reading** partition's backlog, with idle pollers available, and
+was not delivered for ~8 hours. That should not happen in the classic matcher as we understand it — so
+resolving *why* is a matching-internals question best answered by the server team.
 
 ### 4e. What is confirmed and what is still open
 
@@ -401,7 +401,7 @@ loaded, this is a matching-internals question for the server team.
 | For the traced workflow 6D9, dispatch **succeeded** — the task reached matching at 22:30:03, on partition 4 | **Confirmed** (matching `Activity task not found` log: `queue-task-id` + `visibility-timestamp 22:30:03`) |
 | That task then sat in the partition-4 backlog **undelivered for ~8 hours**; when it was finally processed (06:44), the workflow had already been recovered via pause/unpause | **Confirmed** (same log) |
 | So the 8-hour stall was **matching-side** — a backlogged task not surfaced to idle pollers — **not** the Section 3 dispatch starvation | **Confirmed** for 6D9 |
-| *Why* the task sat undelivered for ~8h after reaching matching | **Open — no confirmed mechanism.** Candidates examined in 4d: read-level gap-skip is contradicted by the source, reader-stall by the reader's forever-retry, and idle-unload is unconfirmed (no Activity-partition load/unload events yet). |
+| *Why* the task sat undelivered for ~8h after reaching matching | **Open — no confirmed mechanism; all three candidates eliminated.** Read-level gap-skip contradicted by the source; reader-stall by the reader's forever-retry; idle-unload **refuted** by a 2-week query (the Activity partitions stayed loaded). A committed task undelivered on a loaded, reading partition for 8h is unexplained — a matching-internals question. |
 | Whether workflow 8F8W (whose `TransferActivityTask` *failed*, §3d) also reached matching later or stayed upstream | **Open** — no matching-side log traced for it |
 
 ### 4f. Partition 4 — where the stuck task actually sat
