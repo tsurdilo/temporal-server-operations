@@ -391,7 +391,7 @@ open part of the investigation.
 **What would settle it:** the matching `Started/Stopped physicalTaskQueueManager` events for the
 **Activity** partitions of `taskQueue_billPay_IT` across 21:00–08:00 UTC. If partition 4 shows a
 `Stopped (cause=Idle)` after 22:30 and a `Started` near 06:44, idle-unload is confirmed; if it stayed
-loaded, this is a matching-internals question for the server team. (Query sent to the customer.)
+loaded, this is a matching-internals question for the server team.
 
 ### 4e. What is confirmed and what is still open
 
@@ -401,7 +401,7 @@ loaded, this is a matching-internals question for the server team. (Query sent t
 | For the traced workflow 6D9, dispatch **succeeded** — the task reached matching at 22:30:03, on partition 4 | **Confirmed** (matching `Activity task not found` log: `queue-task-id` + `visibility-timestamp 22:30:03`) |
 | That task then sat in the partition-4 backlog **undelivered for ~8 hours**; when it was finally processed (06:44), the workflow had already been recovered via pause/unpause | **Confirmed** (same log) |
 | So the 8-hour stall was **matching-side** — a backlogged task not surfaced to idle pollers — **not** the Section 3 dispatch starvation | **Confirmed** for 6D9 |
-| *Why* the task sat undelivered for ~8h after reaching matching | **Open — no confirmed mechanism.** Candidates examined in 4d: read-level gap-skip is contradicted by the source, reader-stall by the reader's forever-retry, and idle-unload is unconfirmed (no Activity-partition load/unload events yet). A targeted query is out to the customer to test idle-unload. |
+| *Why* the task sat undelivered for ~8h after reaching matching | **Open — no confirmed mechanism.** Candidates examined in 4d: read-level gap-skip is contradicted by the source, reader-stall by the reader's forever-retry, and idle-unload is unconfirmed (no Activity-partition load/unload events yet). |
 | Whether workflow 8F8W (whose `TransferActivityTask` *failed*, §3d) also reached matching later or stayed upstream | **Open** — no matching-side log traced for it |
 
 ### 4f. Partition 4 — where the stuck task actually sat
