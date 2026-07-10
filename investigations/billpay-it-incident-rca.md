@@ -369,12 +369,31 @@ but because the backlogged partition-4 task **was never surfaced to them** — i
 backlog rather than the in-memory queue pollers are served from. Idle pollers plus a task dormant in a
 partition backlog is exactly the "workers waiting, nothing delivered" picture we saw.
 
-**What this leaves open** is *why* matching left that partition-4 backlog undelivered for ~8 hours while
-pollers were idle (see 4d and 4e). And the reason nothing forced a recovery on its own: `ScheduleToStart`
-was effectively **36 hours** (inherited from the run timeout — see [Recommendations](#5-recommendations)),
-so no near-term timeout ever fired to reschedule the activity; it simply sat until an operator intervened.
+That raises the question this section set out to answer: why did a task that had already reached
+matching's partition-4 backlog sit undelivered for ~8 hours? We examined several candidates (4d) and
+do **not** yet have a confirmed answer. (Separately, nothing forced a recovery on its own:
+`ScheduleToStart` was effectively **36 hours** — inherited from the run timeout, see
+[Recommendations](#5-recommendations) — so no near-term timeout ever fired to reschedule the activity;
+it simply sat until pause/unpause.)
 
-### 4d. What is confirmed and what is still open
+### 4d. Why it sat undelivered — candidates we considered (none confirmed)
+
+We looked at several ways a task that had reached matching could sit undelivered for ~8 hours. **None
+holds up cleanly** against the source or the data, so we are *not* claiming a mechanism — this is the
+open part of the investigation.
+
+| Candidate | Why we don't think it's the cause |
+|---|---|
+| **Read-level "gap-skip"** — the backlog reader advances its read level past a task and never re-reads it | **Considered and set aside.** In 1.29.6 the write path advances `maxReadLevel` *even when the write fails*, and a failed task **bounces back to history and retries with a new task id** (`db.go` `CreateTasks`); the writer is a **single in-order goroutine**; and a *committed* task is always in a range the reader reads. 6D9's task **is** committed (`queue-task-id 11225972`), so it can't have been orphaned below the read level this way. |
+| **Idle-unload** — partition 4 unloaded while dormant, its backlog sat, then reloaded ~06:44 | Fits the *shape* (dormant → reload → drain → NotFound), but we have **no** Activity-partition load/unload events in the logs to confirm it (only the **Nexus** partitions show idle-unload churn). This is the one we're actively testing — see below. |
+| **Reader stalled on a loaded partition** | Doesn't hold on its own: the backlog reader **retries reads and dispatch indefinitely** (`task_reader.go`), and the throttling subsided ~23:40 UTC — so a loaded, reading partition should have drained the backlog by ~23:40, not held it to 06:44. |
+
+**What would settle it:** the matching `Started/Stopped physicalTaskQueueManager` events for the
+**Activity** partitions of `taskQueue_billPay_IT` across 21:00–08:00 UTC. If partition 4 shows a
+`Stopped (cause=Idle)` after 22:30 and a `Started` near 06:44, idle-unload is confirmed; if it stayed
+loaded, this is a matching-internals question for the server team. (Query sent to the customer.)
+
+### 4e. What is confirmed and what is still open
 
 | Point | Status |
 |---|---|
@@ -382,10 +401,10 @@ so no near-term timeout ever fired to reschedule the activity; it simply sat unt
 | For the traced workflow 6D9, dispatch **succeeded** — the task reached matching at 22:30:03, on partition 4 | **Confirmed** (matching `Activity task not found` log: `queue-task-id` + `visibility-timestamp 22:30:03`) |
 | That task then sat in the partition-4 backlog **undelivered for ~8 hours**; when it was finally processed (06:44), the workflow had already been recovered via pause/unpause | **Confirmed** (same log) |
 | So the 8-hour stall was **matching-side** — a backlogged task not surfaced to idle pollers — **not** the Section 3 dispatch starvation | **Confirmed** for 6D9 |
-| *Why* matching left the partition-4 backlog undelivered for ~8h while pollers were idle | **Open** — the core remaining question (idle-unload / task-reader stall / partition dormancy — not yet pinned down) |
+| *Why* the task sat undelivered for ~8h after reaching matching | **Open — no confirmed mechanism.** Candidates examined in 4d: read-level gap-skip is contradicted by the source, reader-stall by the reader's forever-retry, and idle-unload is unconfirmed (no Activity-partition load/unload events yet). A targeted query is out to the customer to test idle-unload. |
 | Whether workflow 8F8W (whose `TransferActivityTask` *failed*, §3d) also reached matching later or stayed upstream | **Open** — no matching-side log traced for it |
 
-### 4e. Partition 4 — where the stuck task actually sat
+### 4f. Partition 4 — where the stuck task actually sat
 
 The stuck activity we traced end to end (6D9's `VERIFY`) sat on **task-queue partition 4**
 (`/_sys/taskQueue_billPay_IT/4`), and the `Activity task not found` samples we have are on that same
