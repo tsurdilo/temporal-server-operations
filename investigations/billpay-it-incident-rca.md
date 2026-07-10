@@ -64,7 +64,7 @@ customer's own logs and metrics and ruled them out:
 | **Server version** | **Temporal `1.29.6`** — from the container image `docker.io/temporalio/server:1.29.6` on every pod. (Note: the k8s label `app.kubernetes.io/version: 1.27.2` is a stale Helm-chart label; the running image is 1.29.6.) |
 | **Web UI** | `2.48.1` |
 | **Deployment** | EKS; Helm chart `temporal-0.62.0`; ArgoCD-managed; k8s namespace `temporal` |
-| **Database** | **Aurora PostgreSQL**, reached via an **RDS Proxy** (`aexp-bank-e3-rds-proxy.proxy-cbw8qugmxztm.us-east-1.rds.amazonaws.com`, port 5432, db `temporaldatabase`, user `temporldb_app`, SCRAM/SASL auth) |
+| **Database** | **Aurora PostgreSQL**, reached via an **RDS Proxy** (port 5432, SCRAM/SASL auth) |
 | **Matcher mode** (from matching logs) | **Classic matcher** (`backlog: classic`) — this is the 1.29.6 default (`matching.useNewMatcher` defaults `false` in 1.29.6). **Fairness OFF**, **priority matcher OFF**. |
 
 ### Dynamic configuration (from ConfigMap `temporalmonitoring-dynamic-config`)
@@ -145,9 +145,9 @@ When demand exceeded the cap, Temporal **rejected its own operations before they
 database.** *(This is Temporal throttling itself — not a database failure.)*
 
 **2 — Connection failures.** The history pods **could not reach the database.** Two forms:
-DNS timeouts resolving the RDS-Proxy hostname (the in-cluster DNS, CoreDNS at `10.100.0.10`, timing
-out — e.g. `dial udp 10.100.0.10:53: i/o timeout`), and connection/authentication timeouts to the
-RDS Proxy itself.
+DNS timeouts resolving the RDS-Proxy hostname (the in-cluster CoreDNS resolver timing out — e.g.
+`dial udp <coredns-ip>:53: i/o timeout`), and connection/authentication timeouts to the RDS Proxy
+itself.
 
 **3 — Database-operation timeouts** (`context deadline exceeded`) — the database was reachable but
 too slow to finish the operation. The specific operations we saw time out in the logs:
