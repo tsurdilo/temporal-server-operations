@@ -389,14 +389,10 @@ open part of the investigation.
 | **Reader stalled on a loaded partition** | Doesn't hold on its own: the backlog reader **retries reads and dispatch indefinitely** (`task_reader.go`), and the throttling subsided ~23:40 UTC — so a loaded, reading partition should have drained the backlog by ~23:40, not held it to 06:44. |
 | **Re-cycle loop** — matching can't get the task *started*, so it keeps re-queuing it | **Checked and refuted.** The idea: matching hands the task to a worker, calls `RecordActivityTaskStarted`, gets a non-drop error, and rewrites the task to the back of the queue (`task_rewrites`) over and over until the workflow closes. It's a real 1.29.6 path and the only one consistent with a loaded partition — but the customer's **`task_rewrites` metric for this task queue is flat (~0) across the whole window**, with only a ~10-event blip at the 22:00 batch launch. A sustained 8-hour loop would show a sustained non-zero rate; it doesn't. So the task was **not** being re-cycled. |
 
-So all four candidates are now ruled out or refuted. The `task_rewrites` result adds one more fact:
-because the task was **not** being re-cycled, it was **dormant in the backlog — not being read at all**
-during the 8 hours (a re-cycle loop would have shown a sustained `task_rewrites` rate; it was flat). So
-the delivery gap is on the **read side** — the backlog reader never surfaced the task — not the start
-side. What stays solid is the core fact: a committed task sat in a loaded, continuously-reading
-partition's backlog, workers idle, undelivered for ~8 hours. The **why** remains open, now narrowed to
-*why the reader never read a committed task that was sitting in its own backlog* — a matching-internals
-question for the server team.
+So all four candidates are ruled out or refuted. And because `task_rewrites` was flat, the task was
+**not looping** — it simply sat in the backlog, untouched, for the ~8 hours. The core fact is solid: a
+committed task, on a loaded and actively-polled partition, went undelivered for ~8 hours. But **we have
+not yet identified the root cause**, and are continuing to investigate it together with the customer.
 
 ### 4e. What is confirmed and what is still open
 
