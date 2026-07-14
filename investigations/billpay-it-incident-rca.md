@@ -308,7 +308,7 @@ capacity on this task queue.
 
 Those same signals show that, for the bulk of the workload, dispatch **kept working.** The slot metric
 shows the ActivityWorker executing burst after burst for the hours following the batch, and the
-starvation from Section 3 was *intermittent* — it bit only in the moments demand exceeded the cap. So
+starvation from [Section 3](#3-our-analysis--part-1-history-side-the-activity-dispatch-step-was-starved) was *intermittent* — it bit only in the moments demand exceeded the cap. So
 the vast majority of the ~170K activities dispatched and completed normally; only ~70 were left
 behind — a tiny fraction of the batch.
 
@@ -370,7 +370,7 @@ backlog rather than the in-memory queue pollers are served from. Idle pollers pl
 partition backlog is exactly the "workers waiting, nothing delivered" picture we saw.
 
 That raises the question this section set out to answer: why did a task that had already reached
-matching's partition-4 backlog sit undelivered for ~8 hours? We examined several candidates (4d) and
+matching's partition-4 backlog sit undelivered for ~8 hours? We examined several candidates ([4d](#4d-why-it-sat-undelivered--candidates-we-considered-none-confirmed)) and
 do **not** yet have a confirmed answer. (Separately, nothing forced a recovery on its own:
 `ScheduleToStart` was effectively **36 hours** — inherited from the run timeout, see
 [Recommendations](#5-recommendations) — so no near-term timeout ever fired to reschedule the activity;
@@ -387,11 +387,16 @@ open part of the investigation.
 | **Read-level "gap-skip"** — the backlog reader advances its read level past a task and never re-reads it | **Considered and set aside.** In 1.29.6 the write path advances `maxReadLevel` *even when the write fails*, and a failed task **bounces back to history and retries with a new task id** (`db.go` `CreateTasks`); the writer is a **single in-order goroutine**; and a *committed* task is always in a range the reader reads. 6D9's task **is** committed (`queue-task-id 11225972`), so it can't have been orphaned below the read level this way. |
 | **Idle-unload** — partition 4 unloaded while dormant, its backlog sat, then reloaded ~06:44 | **Refuted.** A query over the last 2 weeks for `Started/Stopped physicalTaskQueueManager` on the billPay **Activity** partitions returns **no lifecycle events at all** — the Activity partitions stayed **continuously loaded** (only the **Nexus** partitions idle-unload). So partition 4 never unloaded/reloaded; the task sat in a *loaded, reading* partition. |
 | **Reader stalled on a loaded partition** | Doesn't hold on its own: the backlog reader **retries reads and dispatch indefinitely** (`task_reader.go`), and the throttling subsided ~23:40 UTC — so a loaded, reading partition should have drained the backlog by ~23:40, not held it to 06:44. |
+| **Re-cycle loop** — matching can't get the task *started*, so it keeps re-queuing it | **Checked and refuted.** The idea: matching hands the task to a worker, calls `RecordActivityTaskStarted`, gets a non-drop error, and rewrites the task to the back of the queue (`task_rewrites`) over and over until the workflow closes. It's a real 1.29.6 path and the only one consistent with a loaded partition — but the customer's **`task_rewrites` metric for this task queue is flat (~0) across the whole window**, with only a ~10-event blip at the 22:00 batch launch. A sustained 8-hour loop would show a sustained non-zero rate; it doesn't. So the task was **not** being re-cycled. |
 
-So all three candidates are eliminated. What remains is the plain, unexplained fact: a **committed
-task** sat in a **loaded, continuously-reading** partition's backlog, with idle pollers available, and
-was not delivered for ~8 hours. That should not happen in the classic matcher as we understand it — so
-resolving *why* is a matching-internals question best answered by the server team.
+So all four candidates are now ruled out or refuted. The `task_rewrites` result adds one more fact:
+because the task was **not** being re-cycled, it was **dormant in the backlog — not being read at all**
+during the 8 hours (a re-cycle loop would have shown a sustained `task_rewrites` rate; it was flat). So
+the delivery gap is on the **read side** — the backlog reader never surfaced the task — not the start
+side. What stays solid is the core fact: a committed task sat in a loaded, continuously-reading
+partition's backlog, workers idle, undelivered for ~8 hours. The **why** remains open, now narrowed to
+*why the reader never read a committed task that was sitting in its own backlog* — a matching-internals
+question for the server team.
 
 ### 4e. What is confirmed and what is still open
 
@@ -400,9 +405,9 @@ resolving *why* is a matching-internals question best answered by the server tea
 | Workers were up, polling, and dispatching the bulk of the workload | **Confirmed** (poll + slot metrics) |
 | For the traced workflow 6D9, dispatch **succeeded** — the task reached matching at 22:30:03, on partition 4 | **Confirmed** (matching `Activity task not found` log: `queue-task-id` + `visibility-timestamp 22:30:03`) |
 | That task then sat in the partition-4 backlog **undelivered for ~8 hours**; when it was finally processed (06:44), the workflow had already been recovered via pause/unpause | **Confirmed** (same log) |
-| So the 8-hour stall was **matching-side** — a backlogged task not surfaced to idle pollers — **not** the Section 3 dispatch starvation | **Confirmed** for 6D9 |
-| *Why* the task sat undelivered for ~8h after reaching matching | **Open — no confirmed mechanism; all three candidates eliminated.** Read-level gap-skip contradicted by the source; reader-stall by the reader's forever-retry; idle-unload **refuted** by a 2-week query (the Activity partitions stayed loaded). A committed task undelivered on a loaded, reading partition for 8h is unexplained — a matching-internals question. |
-| Whether workflow 8F8W (whose `TransferActivityTask` *failed*, §3d) also reached matching later or stayed upstream | **Open** — no matching-side log traced for it |
+| So the 8-hour stall was **matching-side** — a backlogged task not surfaced to idle pollers — **not** the [Section 3](#3-our-analysis--part-1-history-side-the-activity-dispatch-step-was-starved) dispatch starvation | **Confirmed** for 6D9 |
+| *Why* the task sat undelivered for ~8h after reaching matching | **Open — no confirmed mechanism; all four candidates in [4d](#4d-why-it-sat-undelivered--candidates-we-considered-none-confirmed) are ruled out or refuted** (re-cycle refuted by a flat `task_rewrites` metric). That metric also shows the task was **dormant, not looping** — so the gap is on the **read side** (the backlog reader never surfaced the committed task), which is where the open question now sits. |
+| Whether workflow 8F8W (whose `TransferActivityTask` *failed*, [3d](#3d-what-we-saw-in-the-logs--the-evidence-everything-above-points-to)) also reached matching later or stayed upstream | **Open** — no matching-side log traced for it |
 
 ### 4f. Partition 4 — where the stuck task actually sat
 
@@ -421,21 +426,23 @@ question worth investigating.
 
 These recommendations address the parts of the incident we were able to **confirm** (Sections 1–3).
 The remaining question — why the ~70 stuck activities did not recover on their own — is **still under
-investigation** (Section 4). Recommendation 2 is important regardless of how that open question
+investigation** ([Section 4](#4-investigating-why-a-small-number-stayed-stuck)). Recommendation 2 is important regardless of how that open question
 resolves: it lets the **workflow itself** detect and recover a stuck activity instead of relying on
-manual pause/unpause — though, as the note below it explains, it requires a small change in workflow
-code, not just a config value.
+manual pause/unpause — though, as the [Notes on Recommendation 2](#notes-on-recommendation-2-scheduletostart) explain, it requires a small change in
+workflow code, not just a config value.
 
 | # | Recommendation | Why it helps |
 |---|---|---|
 | **1** | **Smooth the batch — the primary fix for billPay.** Spread the ~170K workflow progressions over time instead of releasing them in the same few seconds. | Removes billPay's contribution to the load spike that saturated the persistence rate limiter and starved activity dispatch. Necessary — but note the saturation was cluster-wide (Recommendation 3), so this is not sufficient on its own if other namespaces can spike at the same time. |
-| **2** | **Set a short `ScheduleToStart` timeout — and handle it in workflow code** (see the note below this table). | Today `ScheduleToStart` is effectively inherited as **36h** from the workflow run timeout (not set explicitly), so a stuck activity never times out and the workflow gets no signal — which is why manual pause/unpause was needed. A short `ScheduleToStart` surfaces the stall to the workflow quickly. **It does not auto-recover on its own** — see the note. |
+| **2** | **Set a short `ScheduleToStart` timeout — and handle it in workflow code** (see [Notes on Recommendation 2](#notes-on-recommendation-2-scheduletostart) below). | Today `ScheduleToStart` is effectively inherited as **36h** from the workflow run timeout (not set explicitly), so a stuck activity never times out and the workflow gets no signal — which is why manual pause/unpause was needed. A short `ScheduleToStart` surfaces the stall to the workflow quickly. **It does not auto-recover on its own, and the value must be sized to their own peak burst latency — not an arbitrary number** (see [Notes on Recommendation 2](#notes-on-recommendation-2-scheduletostart)). |
 | **3** | **Assess cluster and database capacity for concurrent peak load — this incident was cluster-wide, not just billPay.** Multiple namespaces hit the shared persistence cap at the same moment (`8576ffb0…` harder than `IT` — see [Section 1](#1-environment--configuration)). Revisit `history.persistenceGlobalMaxQPS` = 8,000 only *alongside* database / RDS-Proxy / CoreDNS headroom. | The 8,000 cap is **shared across all namespaces** and is **below the sum of the per-namespace caps (10,000)** — so namespaces already contend at the global level. If several can spike together, the cluster and database need headroom for the *aggregate* peak; raising the cap alone, without matching DB and connection-layer capacity, just moves the bottleneck. |
+
+### Notes on Recommendation 2 (`ScheduleToStart`)
 
 > ⚠️ **This is a situational suggestion, not a general best practice.** We do **not** normally
 > recommend setting a `ScheduleToStart` timeout on activities — most workloads are better off without
 > it. We raise it here only as a defensive mitigation for *this specific situation*, where a small
-> number of activity tasks got stuck on scheduled and **we do not yet fully understand why** (Section 4
+> number of activity tasks got stuck on scheduled and **we do not yet fully understand why** ([Section 4](#4-investigating-why-a-small-number-stayed-stuck)
 > is still open). If the underlying cause is resolved, this mitigation may not be needed. Treat it as a
 > safety net to consider while that investigation continues, not a default to apply broadly.
 
@@ -444,6 +451,13 @@ server: when it fires, the activity fails and the workflow receives an `Activity
 is a `TimeoutFailure` of type `ScheduleToStart`. Setting the timeout alone therefore does **not** recover
 the activity — the **workflow code must catch the `ActivityFailure`, confirm the cause is a
 `ScheduleToStart` `TimeoutFailure`, and re-invoke the activity.** Applied *without*
-that handling it only makes things worse (the activity fails instead of continuing to wait). Value: we
-cannot prescribe it — observed schedule-to-start latencies were already 30s+, so keep it in the
-**minutes** range (~2 min as a rough starting point), tuned not to fire under normal load bursts.
+that handling it only makes things worse (the activity fails instead of continuing to wait).
+
+**Choosing the value — this is the important part, don't pick an arbitrary number.** The timeout has to
+sit *above* their own **peak schedule-to-start latency under load**, or it will fire during normal
+burst backlog and fail activities that were about to run fine. They should measure
+`temporal_activity_schedule_to_start_latency` for this task queue **across their workload bursts**, take
+the **peak**, and set `ScheduleToStart` comfortably above it — so it only ever trips when an activity is
+genuinely stuck, never during expected burst queueing. (In this incident that latency was already 30s+,
+so in practice the value would land in the **minutes**, but the number must come from *their* measured
+peak, not a guess.)
