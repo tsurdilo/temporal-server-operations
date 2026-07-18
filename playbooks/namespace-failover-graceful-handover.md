@@ -13,6 +13,7 @@
 - [Alerts](#alerts)
 - [Temporal Schedules](#temporal-schedules)
 - [Workflow Deletion](#workflow-deletion)
+- [Namespace Deletion](#namespace-deletion)
 - [Archival](#archival)
 - [Starting the Handover Workflow](#starting-the-handover-workflow)
 
@@ -342,6 +343,85 @@ What changes with the version is whether you have to repeat the delete after a h
 
 - **Replication on** (v1.31.x with the flag enabled, or v1.32.0+): one run on the active cluster removes the workflows from both clusters. Nothing to repeat.
 - **Replication off or unavailable** (v1.30.x and earlier, or the flag left off): the delete only affects the active cluster. After a handover, run it again on the new active cluster if those workflows still need to be removed.
+
+---
+
+### Namespace Deletion
+
+This section describes namespace deletion for global (replicated) namespaces — for example, deleting one with the CLI:
+
+```bash
+temporal operator namespace delete --namespace <ns>
+```
+
+#### What namespace deletion does
+
+Deleting a namespace starts a background system workflow that:
+
+1. Deletes every workflow execution in the namespace — both running and closed.
+2. Removes the namespace record itself.
+
+It must be run on the **active** cluster. On a passive cluster it is rejected:
+
+> namespace X is passive in current cluster Y: remove cluster Y from cluster list or make namespace active in this cluster and retry
+
+#### What reaches the passive cluster — and what does not
+
+Two different things happen, and they replicate differently:
+
+- **The namespace record is never replicated.** Deleting the namespace only removes it on the active cluster. The passive keeps its own copy of the namespace record — always, on every version.
+- **The per-execution deletes follow the normal workflow-delete rule.** Each execution the background workflow deletes is a regular `DeleteWorkflowExecution`, so it replicates to the passive only when delete replication is enabled (same version and flag as [Workflow Deletion](#workflow-deletion)).
+
+So the namespace itself always survives on the passive. Whether its workflows also survive there depends on your version and the flag.
+
+#### What happens by version
+
+The table below shows the state you are left with **if you only run `namespace delete` on the active and do nothing else** — this is what motivates the full procedure that follows.
+
+| Version / config | Active cluster | Passive cluster is left with |
+|---|---|---|
+| **Before v1.31.0** | Namespace and all executions deleted | The namespace **and all its executions** |
+| **v1.31.x, flag off** (default) | Namespace and all executions deleted | The namespace **and all its executions** (the flag does nothing until you turn it on) |
+| **v1.31.x, flag on** | Namespace and all executions deleted | The namespace, now **empty** — its executions were deleted via replication |
+| **v1.32.0 and later** | Namespace and all executions deleted | The namespace, now **empty** — replication is always on |
+
+The flag is `history.enableDeleteWorkflowExecutionReplication` (see [Dynamic config](#dynamic-config)).
+
+In every case the namespace record itself survives on the passive. If you leave it there, it comes back on an unplanned failover. So to fully remove a global namespace, follow the procedure below — it is the same regardless of version.
+
+#### How to fully delete a global namespace
+
+Delete it on both clusters. **Do the steps in this order — disconnect first, before either delete.** Two reasons: you cannot delete on the passive until it is out of the cluster list, and you cannot change the cluster list once the namespace is deleted on the active (there is nothing left to update). So disconnect must come before both deletes.
+
+**Step 1 — On the active cluster, shrink the cluster list to just the active cluster:**
+
+```bash
+temporal operator namespace update \
+  --namespace <ns> \
+  --cluster <active-cluster> \
+  --address <active-frontend>
+```
+
+`--cluster` replaces the whole list, so passing only the active cluster removes the standby. The active cluster must stay in the list. This stops replicating the namespace to the standby; the standby keeps its (now orphaned) copy.
+
+**Step 2 — Delete on the active cluster:**
+
+```bash
+temporal operator namespace delete --namespace <ns> --address <active-frontend>
+```
+
+**Step 3 — Delete the leftover copy on the standby.** This is now allowed, because Step 1 removed that cluster from the list:
+
+```bash
+temporal operator namespace delete --namespace <ns> --address <standby-frontend>
+```
+
+Confirm with `temporal operator namespace describe` against each cluster — both should return not found.
+
+#### Notes
+
+- This is a namespace-level change, not a cluster-level one. Do **not** use `operator cluster remove` — that disconnects every namespace between the two clusters.
+- Removing a cluster from the list does not clean up the standby on its own. The standby stops receiving updates but keeps the namespace, which is why Step 3 is needed.
 
 ---
 
