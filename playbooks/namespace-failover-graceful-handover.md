@@ -12,6 +12,7 @@
 - [Dynamic config](#dynamic-config)
 - [Alerts](#alerts)
 - [Temporal Schedules](#temporal-schedules)
+- [Workflow Deletion](#workflow-deletion)
 - [Archival](#archival)
 - [Starting the Handover Workflow](#starting-the-handover-workflow)
 
@@ -24,7 +25,7 @@ Quick reference — all recommendations below are explained in detail in the sec
 - Think carefully about `dcRedirectionPolicy` — it is a static YAML setting that requires a restart and controls how each cluster handles traffic when it is not the active. Get it right before the first handover. See [Setting dcRedirectionPolicy](#setting-dcredirectionpolicy).
 - Verify `numHistoryShards` is a clean multiple between clusters (e.g. 512 and 1024 is valid; 512 and 768 is not). A non-multiple ratio causes the replication stream to fail at connection time with no recovery path — this must be correct when replication is first configured.
 - Never run two handover workflows for the same namespace at the same time.
-- Set `history.EnableReplicationTaskTieredProcessing: true` on **both clusters**. Dynamic config, no restart needed. Required for the handover workflow to function correctly. Both clusters must be on v1.25.0 or later before enabling — enabling it when either cluster is on an older version can cause the replication stream to get stuck.
+- Set `history.EnableReplicationTaskTieredProcessing: true` on **both clusters**. Dynamic config, no restart needed. Strongly recommended for handover — without it, a low-priority replication backlog can stall the drain and trigger rollback. Set it the **same on both** (both `true`, both on v1.25.0+); a mismatch makes the replication stream loop-restart.
 - Set `system.enableNamespaceHandoverWait: true` on **both clusters**. Dynamic config, no restart needed. Eliminates the `Unavailable` error during the HANDOVER drain window — clients see latency instead.
 - Confirm `system.enableNamespaceNotActiveAutoForwarding` is `true` on both clusters (it is the default). If it was ever set to `false`, forwarding is disabled regardless of `dcRedirectionPolicy`.
 - Do not lower `history.standbyTaskMissingEventsDiscardDelay` below its default (15m) on the standby — lower values increase the risk of workflows getting stuck post-flip.
@@ -129,6 +130,8 @@ DeleteActivityExecution
 
 Everything else — polls, Respond*, heartbeats, Update, ExecuteMultiOperation — is not forwarded and will be served locally by the standby (which means no work for workers, and errors for anything that requires the active).
 
+**Batch operations are not in the whitelist.** `StartBatchOperation` — which covers every batch job (batch delete, terminate, signal, cancel, reset) — is not whitelisted. So under `selected-apis-forwarding` (and the default no-forwarding setup) a batch command sent to the standby is not forwarded and fails with `NamespaceNotActive`. Only `all-apis-forwarding` forwards it. Either way, the safe practice is to run batch operations against the active cluster. This matters for cleanup jobs like batch delete — see [Workflow Deletion](#workflow-deletion).
+
 > `UpdateWorkflowExecution` and `ExecuteMultiOperation` are not in the whitelist as of the current server version. A server issue has been filed to add them. Until then, Update calls to a cluster running `selected-apis-forwarding` while it is not the active will fail with `NamespaceNotActive`.
 
 How `system.forceNamespaceSelectedAPIAutoForwarding` interacts with the static policy:
@@ -163,8 +166,9 @@ These must be set on a running cluster before the first handover — no restart 
 | `system.enableNamespaceNotActiveAutoForwarding` | Both | `true` (default) | Confirm nobody set it `false` — if `false`, forwarding is disabled regardless of static policy |
 | `history.EnableReplicationTaskTieredProcessing` | Both | **`true`** | If `false`, a LOW force-replication backlog can block WaitHandover and trigger the 30s rollback; also prevents namespace-filtered progress tracking |
 | `history.standbyTaskMissingEventsDiscardDelay` | Standby | Default (15m) or higher | Lower values increase discard risk during elevated lag |
+| `history.enableDeleteWorkflowExecutionReplication` | Both | **`true`** (v1.31.x only; default `false`) | Turns on delete replication so deletions on the active reach the standby. On v1.32.0+ it is always on — nothing to set. On v1.30.x and earlier the feature does not exist. See [Workflow Deletion](#workflow-deletion). |
 
-**`history.EnableReplicationTaskTieredProcessing` is safe to enable on a running cluster** — the sender detects the change and triggers a controlled stream reconnect (~1s re-send window). Set it on **both clusters** before the handover: after the flip the standby becomes the new active and immediately starts sending its own replication stream — it needs tiered processing already on. Do not toggle it back off once enabled. Both clusters must be on v1.25.0 or later before enabling — enabling it when either cluster is on an older version can cause the replication stream to get stuck.
+**`history.EnableReplicationTaskTieredProcessing` is safe to enable on a running cluster** — the sender detects the change and triggers a controlled stream reconnect (~1s re-send window). Set it on **both clusters** before the handover: after the flip the standby becomes the new active and immediately starts sending its own replication stream — it needs tiered processing already on. Do not toggle it back off once enabled. Both clusters must have it set the same and be on v1.25.0+ — a mismatch (or a pre-1.25 peer that can't support it) makes the stream loop-restart.
 
 ### Alerts
 
@@ -285,6 +289,59 @@ These are visibility queries (not live state) — they confirm presence and paus
 The server includes scanner workflows that periodically check all schedules in a namespace for health issues and emit metrics when problems are found. They are disabled by default and controlled via `worker.scheduleInvariantsScannerOptions` (global dynamic config, not per-namespace — enabling it applies to all namespaces on the cluster).
 
 Once enabled, the key metric to watch after handover is `schedule_invariants_scanner_overdue_next_action_time` — tagged by `namespace`, so you can filter to just the namespace you failed over. A non-zero value means one or more schedules are overdue and not firing when they should be.
+
+---
+
+### Workflow Deletion
+
+This describes how workflow deletion works for a namespace that is replicated across clusters.
+
+#### How workflows get deleted
+
+Deleting a workflow execution removes it from both the primary store (its history and state) and the visibility store (the record you see in the UI and in list queries). There are three ways to do it:
+
+| Operation | How you run it | What it is for |
+|---|---|---|
+| `DeleteWorkflowExecution` | `temporal workflow delete --workflow-id <id>` | Delete one execution by ID. |
+| Batch delete | `temporal workflow delete --query <query>` | Delete every execution matching a visibility query. Runs as a batch job. |
+| Force delete (admin) | `tdbg workflow delete` | Last-resort removal that bypasses the normal path. Only for support or recovery situations. |
+
+Deleting workflows is not a routine operation. Most workflows are cleaned up automatically by retention once they close. Explicit delete is for special cases — clearing out bad or stuck runs, or removing large batches of old executions ahead of time.
+
+#### Workflow deletion for a global namespace
+
+For a global namespace, delete operations are cluster-specific by default — a delete runs only on the cluster you run it against and is not copied to the other cluster. This can be turned on (and becomes the default in v1.32); see [How to enable replication for workflow delete operations](#how-to-enable-replication-for-workflow-delete-operations) below.
+
+**When delete replication is enabled**, an explicit delete on the active cluster is copied to the standby, so both clusters stay in sync. This covers both ways of running an explicit delete:
+
+- Single-workflow delete (`temporal workflow delete --workflow-id`).
+- Batch delete (`temporal workflow delete --query`). A batch job deletes each matched workflow one at a time, so every one of those deletions is replicated the same way.
+
+**These are never replicated, regardless of the flag:**
+
+- Retention cleanup — each cluster expires closed workflows on its own schedule, so both sides clean up on their own. No action needed and no resurrection risk.
+- The `tdbg` admin force-delete — it bypasses the normal delete path.
+
+**When delete replication is off** (the default today, or v1.30.x where the feature does not exist), a workflow you delete on the active cluster still exists on the standby. After a failover the standby becomes active and those workflows reappear. This is called **resurrection**.
+
+#### How to enable replication for workflow delete operations
+
+Whether you can turn on delete replication depends on your server version:
+
+| Server version | What to do |
+|---|---|
+| v1.30.x and earlier | Feature does not exist. Deletes never replicate. Nothing you can set. |
+| **v1.31.0 – v1.31.x** | Set `history.enableDeleteWorkflowExecutionReplication` to `true` on **both** clusters. Off by default. |
+| v1.32.0 and later | Always on. Nothing to set. |
+
+#### Where to run delete operations
+
+Always run delete operations against the currently active cluster for the namespace. This holds for every version. On v1.31.0+ the deletion is replicated to the standby, but the command itself still runs on the active — batch delete in particular runs as a workflow, which only runs on the active cluster.
+
+What changes with the version is whether you have to repeat the delete after a handover:
+
+- **Replication on** (v1.31.x with the flag enabled, or v1.32.0+): one run on the active cluster removes the workflows from both clusters. Nothing to repeat.
+- **Replication off or unavailable** (v1.30.x and earlier, or the flag left off): the delete only affects the active cluster. After a handover, run it again on the new active cluster if those workflows still need to be removed.
 
 ---
 
