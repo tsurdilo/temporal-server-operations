@@ -4685,6 +4685,50 @@
             "defaults": {
               "unit": "short",
               "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 0,
+            "y": 43
+          },
+          "id": 2121,
+          "title": "Workflow Task Schedule-to-Start Timeouts (sticky fallback)",
+          "description": "Rate of Workflow Task ScheduleToStart timeout timers firing. A workflow task placed on a sticky task queue that no sticky worker picks up within the sticky ScheduleToStart timeout (server default 5s) fires this timer and is rescheduled onto the workflow's normal task queue. Sustained non-zero values mean sticky workers are absent, restarting, or too slow to poll — pairs with rising Schedule to Start Latencies. Uses operation TimerActiveTaskWorkflowTaskTimeout; normal-queue workflow tasks carry no ScheduleToStart timeout, so this isolates the sticky fallback. Note: the separate matching-side fast path (StickyWorkerUnavailable, returned after ~10s with no sticky poller) has no dedicated counter.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(schedule_to_start_timeout{operation=\"TimerActiveTaskWorkflowTaskTimeout\",namespace=\"$namespace\"}[$__rate_interval])) by (namespace, operation)",
+              "legendFormat": "{{namespace}} - {{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
                 "lineWidth": 2,
                 "thresholdsStyle": {
                   "mode": "dashed"
@@ -4716,7 +4760,7 @@
             "h": 7,
             "w": 24,
             "x": 0,
-            "y": 43
+            "y": 50
           },
           "id": 135,
           "title": "Approximate Task Backlog",
@@ -6691,7 +6735,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.6.0",
+  "title": "Temporal Server Dashboard v2.7.0",
   "uid": "temporal-overview-v1",
   "version": 4,
   "weekStart": ""

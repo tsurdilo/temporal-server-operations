@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.6.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.7.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -278,7 +278,7 @@ Tracks the size of workflow execution history, event counts, mutable state, and 
 
 ### 13. Matching Task Queue Info
 
-Focuses on matching task queue latencies and throttling. Can be useful among other things for managing task queue partitions if needed. For a detailed guide on when and how to adjust partitions, see the [Task Queue Partitions Operator Guide](../../dynamic_config/guides/change-task-queue-partitions.md).
+Focuses on matching task queue latencies and throttling. Can be useful among other things for managing task queue partitions if needed. For a detailed guide on when and how to adjust partitions, see the [Changing Task Queue Partitions playbook](../../../playbooks/change-task-queue-partitions.md).
 
 | Panel | Description |
 |---|---|
@@ -302,6 +302,7 @@ Tracks many metrics useful for troubleshooting SDK workers, including task dispa
 | **Activity ScheduleToStart Timeout** | Rate of activity executions that exceeded their `ScheduleToStart` timeout. A high rate is a strong signal that workers are not polling fast enough to pick up activity tasks in time. |
 | **Activity Heartbeat Timeout** | Rate of activity executions that exceeded their heartbeat timeout. Typically indicates workers crashing or hanging during long-running activities. |
 | **Workflow Task StartToClose Timeouts (sticky tq)** | Rate of workflow task `StartToClose` timeouts on sticky task queues. Typically indicates sticky workers restarting or being overwhelmed. |
+| **Workflow Task Schedule-to-Start Timeouts (sticky fallback)** | Rate of workflow task `ScheduleToStart` timeout timers firing (metric `schedule_to_start_timeout`, operation `TimerActiveTaskWorkflowTaskTimeout`). A workflow task placed on a sticky task queue that no sticky worker picks up within the sticky ScheduleToStart timeout — server default **5s** — fires this timer and is rescheduled onto the workflow's normal task queue. Normal-queue workflow tasks carry no ScheduleToStart timeout, so this isolates the sticky fallback. Sustained non-zero values mean sticky workers are absent, restarting, or too slow to poll; read alongside **Schedule to Start Latencies**. Note: the separate matching-side fast path (`StickyWorkerUnavailable`, returned after the ~10s `stickyPollerUnavailableWindow` with no sticky poller) has no dedicated counter, so it is not directly graphable. |
 | **Approximate Task Backlog** | Approximate number of tasks waiting in the Matching service queue, by namespace and task type. A growing backlog is a key signal for worker scaling decisions. |
 
 ---
@@ -454,7 +455,7 @@ The following panels have threshold reference lines configured:
 
 | Panel | Orange | Red | Notes |
 |---|---|---|---|
-| **Async Match Latency** | 500ms | 2s | High values with healthy workers indicate matching partitions are the bottleneck. See the Task Queue Partitions Operator Guide. |
+| **Async Match Latency** | 500ms | 2s | High values with healthy workers indicate matching partitions are the bottleneck. See the [Changing Task Queue Partitions playbook](../../../playbooks/change-task-queue-partitions.md). |
 | **Sync Throttle Count** | — | 1 (any) | Any non-zero rate means the rate limiter is actively rejecting sync match attempts. Default limit: 1,000/s per partition per task queue (`admin.matchingNamespaceTaskqueueToPartitionDispatchRate`); namespace-level cap: 10,000/s (`admin.matchingNamespaceToPartitionDispatchRate`). Metric is silent when backlog age exceeds `matching.backlogNegligibleAge` (5s default) — pair with Tasks Persisted and Approximate Task Backlog for the full picture. |
 | **Task Write Throttle Count** | — | 1 (any) | Any non-zero rate warrants investigation. Rule out worker shortage before adjusting partitions. |
 
