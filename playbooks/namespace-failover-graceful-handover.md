@@ -14,6 +14,7 @@
 - [Temporal Schedules](#temporal-schedules)
 - [Workflow Deletion](#workflow-deletion)
 - [Namespace Deletion](#namespace-deletion)
+- [Search Attributes](#search-attributes)
 - [Archival](#archival)
 - [Starting the Handover Workflow](#starting-the-handover-workflow)
 
@@ -422,6 +423,24 @@ Confirm with `temporal operator namespace describe` against each cluster — bot
 
 - This is a namespace-level change, not a cluster-level one. Do **not** use `operator cluster remove` — that disconnects every namespace between the two clusters.
 - Removing a cluster from the list does not clean up the standby on its own. The standby stops receiving updates but keeps the namespace, which is why Step 3 is needed.
+
+---
+
+### Search Attributes
+
+Custom search attributes must exist on every cluster in the replication group. Whether a change on the active reaches the passive depends on the visibility store.
+
+| Visibility store | SA changes on the active reach the passive? | What you must do |
+|---|---|---|
+| SQL (MySQL / PostgreSQL) | **Yes** — the SA is stored as a namespace-config alias, which replicates | Add it on the active; it replicates to the passive. |
+| Elasticsearch | **No** — the SA lives in each cluster's own metadata and ES index | Add it on **every** cluster. |
+
+The same applies when you promote a namespace to global after it already has search attributes:
+
+- **SQL:** the existing aliases are part of the namespace config, which replicates in full when the namespace is first replicated. Nothing to do — they come along.
+- **Elasticsearch:** the existing search attributes are not replicated. **Add them all on the passive's Elasticsearch before the handover.** Otherwise, after the flip, workflows that use them will fail visibility upserts on the new active.
+
+**Recommendation:** use the same visibility store type on every cluster in a replication group. A mixed setup — for example SQL on the active and Elasticsearch on the passive — is not a supported or validated configuration; search attributes are stored differently in each and will not stay consistent.
 
 ---
 
