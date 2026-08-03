@@ -166,7 +166,7 @@ You skip the in-between **patch** releases, but not the in-between **minor** (v1
 
 The schema tool applies every intermediate schema version in one run — you don't run it once per version, and it always steps through each migration in order no matter how far you jump.
 
-Still upgrade the **binary** one minor version at a time. The risk in skipping minors is not the schema (which is always fully applied) but the binary: Temporal's compatibility guarantees — an older binary tolerating a newer schema, rollback, and data written by one version staying readable by the next — hold across adjacent minor versions, not arbitrary jumps. The server does not enforce this; it is a recommendation, but skipping minors leaves the tested, guaranteed path.
+Still upgrade the **binary** one minor version at a time. The schema isn't the constraint — the tool fast-forwards through every intermediate version in one run. The reason for stepping is the binary: a version can do version-gated work at startup — background data migrations, feature sequencing — that a multi-minor jump would skip past. The server doesn't enforce this; it's a recommendation, but one minor at a time is the tested, supported path.
 
 > **Recommended: skim the release notes for the versions you skip.** Skipping patches is the norm and usually safe, but a release note occasionally calls out a required intermediate step or a version that must not be skipped. If one does, follow it — it overrides the common path here.
 
@@ -471,54 +471,39 @@ temporal operator cluster describe
 
 #### Pre-rollout dynamic config
 
-These dynamic configs smooth the pod restarts a rollout causes. They're a **recommendation, not a requirement** — every value below defaults to `0s` and the upgrade works without them. Setting them creates a clean handoff: a departing pod drains its in-flight work before it exits.
+For a rolling upgrade, the setting that helps most is **aligned membership changes** on the history and matching services. It's a recommendation, not a requirement — both default to `0s`, and the upgrade works without them.
+
+When a history or matching pod restarts, the work it owns moves to other pods — shards for history, task-queue partitions for matching — and that movement is the main source of restart latency. Aligning membership changes coalesces those moves when several pods restart around the same time, so the fleet rebalances fewer times.
 
 ```yaml
-# History — drain in-flight work; delay ring-join so shards move once, not twice
-history.shutdownDrainDuration:
+history.alignMembershipChange:
   - value: 10s
     constraints: {}
-history.startupMembershipJoinDelay:
-  - value: 10s
-    constraints: {}
-
-# Matching — drain in-flight work (matching owns task-queue partitions)
-matching.shutdownDrainDuration:
-  - value: 10s
-    constraints: {}
-
-# Frontend — drain in-flight requests before the pod leaves the ring
-frontend.shutdownDrainDuration:
+matching.alignMembershipChange:
   - value: 10s
     constraints: {}
 ```
 
-Reset every value to `0s` after the rollout is complete.
+On matching this is a well-established latency win during restarts; on history it's expected to help the same way. `10s` is a reasonable starting point — reset both to `0s` after the rollout if you don't want them left on.
 
-**`10s` is a starting point, not a magic number.** A `shutdownDrainDuration` should cover how long that service's in-flight requests take to finish, and it must fit inside the pod's `terminationGracePeriodSeconds` (Kubernetes default `30s`) — a drain longer than the grace period gets SIGKILL'd mid-drain. Raise it (and the grace period with it) for longer-running requests.
+A couple of related settings you can leave alone:
 
-`history.startupMembershipJoinDelay` is the one startup-side setting, and it's history-only. It just needs to outlast membership propagation, so the departing pod's ring change settles before the new pod joins; larger fleets may want more.
-
-History also has an `alignMembershipChange` option — an alternative to the plain drain that coalesces shard movement when many pods restart together; see [How these settings interact](#how-these-settings-interact-during-a-history-rolling-restart) below for how it trades off against the drain. Matching has the same setting (`matching.alignMembershipChange`) for its task-queue partitions.
-
-Everything below is history-specific — history is the only service with a startup join-delay and a drain-versus-align trade-off. For frontend and matching, the values in the sample above are all you need.
+- **`shutdownDrainDuration` (history or matching) isn't needed once aligned changes are on** — on shutdown the pod takes the aligned-eviction path and the drain value is not used (see [How these settings interact](#how-these-settings-interact-during-a-history-rolling-restart)). No point setting both.
+- **Don't set `history.startupMembershipJoinDelay` alongside aligned changes** — it's redundant with them and can work against them.
+- **Frontend** owns no shards or partitions, so it has no aligned-changes setting. Its only knob is `frontend.shutdownDrainDuration`, which drains in-flight requests before the pod exits — a small, optional smoothing for frontend rolls.
 
 ##### How these settings interact during a history rolling restart
 
-Three settings shape this — `history.startupMembershipJoinDelay`, `history.shutdownDrainDuration`, and `history.alignMembershipChange`. They act at two points in a history pod's lifecycle, and two of them are mutually exclusive.
+On **shutdown**, a history pod follows one of two strategies, and they're mutually exclusive:
 
-**On startup — `history.startupMembershipJoinDelay` (default 0s).** A starting pod serves gRPC immediately but waits this long before joining the membership ring. Joining the ring is what makes every host re-run shard acquisition, so delaying it separates the shard movement caused by the *departing* pod from the *arriving* pod — the ring settles once instead of twice. Always applies on the startup side.
+- **Aligned eviction (`history.alignMembershipChange`)** — the recommended one. The pod schedules its eviction at the next aligned clock boundary, so pods restarting around the same time coalesce into fewer ring changes (fewer full-fleet rebalances). Its shutdown wait is `alignment wait + history.shardLingerTimeLimit + history.shardFinalizerTimeout` (defaults `0s` / `2s`).
+- **Plain drain (`history.shutdownDrainDuration`)** — the pod evicts from the ring immediately, then sleeps this long so in-flight requests drain before exit.
 
-**On shutdown — choose one strategy:**
+> If `history.alignMembershipChange > 0`, the pod takes the aligned-eviction path and **`history.shutdownDrainDuration` is not used** — setting both does not add them together. So with aligned changes on, leave the drain unset.
 
-- **`history.shutdownDrainDuration` (default 0s)** — the pod evicts itself from the ring *immediately*, then sleeps this long so in-flight requests drain before exit. Simple per-pod drain; the default choice for a rolling upgrade.
-- **`history.alignMembershipChange` (default 0s)** — the pod instead schedules eviction at the next *aligned clock boundary*, so hosts restarting around the same time coalesce into fewer ring changes (fewer full-fleet rebalances). When set, the shutdown wait becomes `alignment wait + history.shardLingerTimeLimit + history.shardFinalizerTimeout` (defaults 0s / 2s).
+On **startup**, `history.startupMembershipJoinDelay` makes a starting pod wait before it joins the ring. With aligned changes on it's redundant and can even work against them, so leave it off.
 
-> **These two are mutually exclusive.** If `history.alignMembershipChange > 0`, `history.shutdownDrainDuration` is **not consulted** — the aligned-eviction branch is taken instead. Setting both and expecting them to add up will silently ignore `history.shutdownDrainDuration`.
-
-**Guidance:**
-- Basic rolling upgrade → `history.startupMembershipJoinDelay` + `history.shutdownDrainDuration` (as above); reset both to `0s` after.
-- Large fleet where many history pods cycle close together → `history.startupMembershipJoinDelay` + `history.alignMembershipChange` (leave `history.shutdownDrainDuration` unset, since it would be ignored).
+Matching works the same way for its task-queue partitions (`matching.alignMembershipChange`); frontend owns nothing that moves, so none of this applies to it.
 
 #### Kubernetes: RollingUpdate, not Recreate
 
@@ -530,10 +515,10 @@ RollingUpdate on its own is enough for no-downtime (healthy replicas keep servin
 |---|---|---|
 | Replicas | Deployment | **≥ 2 per service**, so healthy pods keep serving while others cycle |
 | `maxUnavailable` | RollingUpdate strategy | **`1`**, especially for history — cycle one pod at a time so shard movement stays to a single handoff |
-| `terminationGracePeriodSeconds` | Pod spec (Kubernetes, default `30`) | Keep **≥ `history.shutdownDrainDuration`**. The drain runs during pod shutdown; if the grace period is shorter, Kubernetes SIGKILLs the pod mid-drain and the graceful handoff is lost |
+| `terminationGracePeriodSeconds` | Pod spec (Kubernetes, default `30`) | Keep it **above the pod's shutdown wait** — the aligned-eviction wait (or the drain, if you use `shutdownDrainDuration`). If the grace period is shorter, Kubernetes SIGKILLs the pod mid-shutdown and the graceful handoff is lost |
 | Readiness probe | Pod spec | Kubernetes only routes requests to pods reporting ready, so a shutting-down pod stops getting new work and can drain cleanly |
 
-`history.shutdownDrainDuration` defaults to `0s` (no drain). Setting it is optional — see [Pre-rollout dynamic config](#pre-rollout-dynamic-config) — but if you do, keep `terminationGracePeriodSeconds` comfortably above it.
+The pod's shutdown wait comes from the [Pre-rollout dynamic config](#pre-rollout-dynamic-config) settings (the aligned-eviction wait, or the drain). Keep `terminationGracePeriodSeconds` comfortably above whichever you use.
 
 #### Schema check at startup
 
