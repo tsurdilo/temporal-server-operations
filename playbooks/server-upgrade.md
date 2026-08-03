@@ -473,18 +473,18 @@ temporal operator cluster describe
 
 For a rolling upgrade, the setting that helps most is **aligned membership changes** on the history and matching services. It's a recommendation, not a requirement — both default to `0s`, and the upgrade works without them.
 
-When a history or matching pod restarts, the work it owns moves to other pods — shards for history, task-queue partitions for matching — and that movement is the main source of restart latency. Aligning membership changes coalesces those moves when several pods restart around the same time, so the fleet rebalances fewer times.
+When a history or matching pod restarts, the work it owns moves to other pods — shards for history, task-queue partitions for matching — and that movement is the main source of restart latency. The real cost isn't the move itself, it's the window in which different pods disagree about who owns what. Without alignment, an ownership change propagates through the membership ring, which takes on the order of `500–1000ms`; during that window pods can bounce a shard or partition back and forth. Aligning membership changes has all pods apply the change on a shared clock boundary instead, so they converge within a few milliseconds (clock skew plus scheduling latency) — shrinking that disagreement window to near zero and largely eliminating the bouncing. Coalescing several simultaneous restarts into fewer rebalances is a real but secondary benefit.
 
 ```yaml
 history.alignMembershipChange:
   - value: 10s
-    constraints: {}
 matching.alignMembershipChange:
   - value: 10s
-    constraints: {}
 ```
 
 On matching this is a well-established latency win during restarts; on history it's expected to help the same way. `10s` is a reasonable starting point — reset both to `0s` after the rollout if you don't want them left on.
+
+**Caveat for the upgrade itself:** aligned changes only take effect once *every* running pod understands the setting. On the roll that first moves the fleet onto a version supporting it, the fleet is mixed, so it won't kick in until every pod is upgraded — and if you're coming from a version too old to have the setting at all, it does nothing on that hop. Turn it on, but expect the payoff on the *next* roll, not the one that introduces it.
 
 A couple of related settings you can leave alone:
 
@@ -496,7 +496,7 @@ A couple of related settings you can leave alone:
 
 On **shutdown**, a history pod follows one of two strategies, and they're mutually exclusive:
 
-- **Aligned eviction (`history.alignMembershipChange`)** — the recommended one. The pod schedules its eviction at the next aligned clock boundary, so pods restarting around the same time coalesce into fewer ring changes (fewer full-fleet rebalances). Its shutdown wait is `alignment wait + history.shardLingerTimeLimit + history.shardFinalizerTimeout` (defaults `0s` / `2s`).
+- **Aligned eviction (`history.alignMembershipChange`)** — the recommended one. The pod schedules its eviction on a shared clock boundary, so its ownership change lands on the other pods within milliseconds instead of propagating over `500–1000ms` — that's what keeps shards from bouncing during the restart. Its shutdown wait is `alignment wait + history.shardLingerTimeLimit + history.shardFinalizerTimeout` (defaults `0s` / `2s`).
 - **Plain drain (`history.shutdownDrainDuration`)** — the pod evicts from the ring immediately, then sleeps this long so in-flight requests drain before exit.
 
 > If `history.alignMembershipChange > 0`, the pod takes the aligned-eviction path and **`history.shutdownDrainDuration` is not used** — setting both does not add them together. So with aligned changes on, leave the drain unset.
