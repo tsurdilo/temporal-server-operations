@@ -429,7 +429,6 @@ groups:
           component: history
           area: dr-handover
         annotations:
-          __dashboardUid__: temporal-ns-failover-handover
           summary: "Temporal Failover: replication latency too high — handover drain will fail"
           description: |
             replication_latency p99 has exceeded 20s on the standby. Any task in flight when HANDOVER
