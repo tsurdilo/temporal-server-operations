@@ -62,14 +62,17 @@ Nothing throttles or spreads these DLQ writes: unlike archival's *reads* (which 
 
 If that burst is large enough — again, this depends on the use case — and **especially if the database is already busy serving the production workload**, the flood of single-lane DLQ writes can add significant pressure and start to **overwhelm the database**.
 
+A single-lane queue has low write throughput, so it may not be obvious how it can overload a database. The pressure comes from **contention, not throughput**: every write has to go through the same lock — the same partition on Cassandra, the same queue row on SQL — so the writes are serialized, and each waiting write **holds a database connection and an open transaction while it waits its turn**. When many tasks arrive at that single lane at once, they tie up connections and transactions that the rest of the cluster also needs — even though the write rate itself stays low.
+
 If the database does get overloaded, the **DLQ writes themselves can start to fail** (time out). A failed DLQ write is **never given up on**: Temporal retries it on a backoff — starting at ~1 second and growing to at most ~3 minutes between attempts (this backoff is fixed and **not currently tunable**) — and keeps retrying **until it succeeds**. With many tasks stuck retrying their DLQ writes, this **adds still more load to the already-struggling database**. On **Cassandra** these failures appear as LWT/Paxos timeouts (`received only 0 responses`); on **SQL** as row-lock contention and transaction/connection-pool exhaustion.
 
 This pressure is **not limited to the DLQ writes themselves.** When the database is contended, persistence latency can rise for **all history task processing** on the cluster — not just archival. In effect, the database now has to serve, at the same time:
 - the **normal production workload** — ongoing history task processing across the cluster;
-- a **potentially large burst of DLQ writes** — the failed archival tasks being dead-lettered; and
-- a **potentially large burst of DLQ-write failures that are continuously retried** — per the backoff described above.
+- a **potentially large burst of DLQ writes** — the failed archival tasks being dead-lettered;
+- a **potentially large burst of DLQ-write failures that are continuously retried** — per the backoff described above; and
+- the **archival tasks themselves, which keep retrying the full archive** — each attempt re-reads the workflow's state and history from the database, adding read load on top of the DLQ writes.
 
-(Archival's own tasks also keep retrying throughout, and each attempt reloads the workflow's state and history — adding read load as well.) All together, this situation can potentially drive up **history host CPU utilization**.
+All together, this situation can potentially drive up **history host CPU utilization**.
 
 > **Persistence rate limits do not help here — and `ResourceExhausted` alerts will not catch it.** Temporal's persistence QPS limits (`history.persistenceMaxQPS`, `persistencePerShardNamespaceMaxQPS`, …) only cap how fast history *sends* its **normal** persistence requests. They do not protect against this scenario, because **(1)** the **DLQ writes bypass them entirely** — that path is not rate-limited — and **(2)** rate limits cap request *rate*, not database *latency*; once the database is contended, every operation slows down regardless of the limit. As a result, the problem surfaces as **rising persistence latency and timeouts** (the DLQ-write failures are timeouts, e.g. `received only 0 responses`) — **not** as `ResourceExhausted` rate-limit rejections. So alerting on `ResourceExhausted` will not reliably detect it; detection should watch **archival error rate** and **persistence latency** instead (see [Detection](#3-detection)).
 
