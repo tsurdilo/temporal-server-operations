@@ -89,18 +89,16 @@ Archival normally succeeds, so a sustained error rate means the backend is faili
 
 - **Archival Attempt Error Rate** — the main signal. Any sustained non-zero rate means archival is failing.
 - **Archival Attempts by Status** — confirms it. `ok` should drop toward zero; `err` is a real backend failure; `rate_limit_exceeded` is just archival rate-limiting, not an outage.
-- **Archival Errors by Type** — tells you if it will recover on its own. `non-retryable` (bad endpoint, DNS NXDOMAIN) means a hard outage that needs action; `transient` (timeouts, dropped connections) may clear by itself.
+- **Archival Errors by Type** — tells you if it will recover on its own. `non-retryable` (bad endpoint, DNS NXDOMAIN) means a hard outage that needs action; `transient` (timeouts, dropped connections) may clear by itself. Note: this is not emitted by default for a **custom** archival provider — make sure your implementation emits these counters, or this panel stays empty (the built-in S3/GCS archivers already emit them).
 
 If the errors are sustained and non-retryable, treat it as a real outage and move to the [recommended action](#5-recommended-action--pause-archival).
 
 ### Signal 2 — Is the DLQ backlog building?
 
-Once archival tasks start failing repeatedly, they get sent to the DLQ. Two panels show this:
+Once archival tasks start failing repeatedly, they get sent to the DLQ. The **History Task DLQ Writes & Write Failures** panel shows this as two series:
 
-- **History Task DLQ Writes & Write Failures** — two series:
-  - **archival DLQ writes** rising = archival tasks are now being dead-lettered (they hit the `history.TaskDLQUnexpectedErrorAttempts` limit).
-  - **DLQ write failures** rising = the DLQ writes themselves are failing, which means the database is under pressure (see [Impact on the cluster](#2-impact-of-a-sustained-archival-failure-on-a-production-cluster)).
-- **Archival DLQ Depth** — the total number of archival tasks parked in the DLQ. Expect it to climb during the outage and drain back to zero after [recovery](#6-recover--when-the-backend-is-healthy-again).
+- **archival DLQ writes** rising = archival tasks are now being dead-lettered (they hit the `history.TaskDLQUnexpectedErrorAttempts` limit).
+- **DLQ write failures** rising = the DLQ writes themselves are failing, which means the database is under pressure (see [Impact on the cluster](#2-impact-of-a-sustained-archival-failure-on-a-production-cluster)).
 
 ### Signal 3 — Is the database under pressure?
 
@@ -143,7 +141,7 @@ history.archivalProcessorMaxPollRPS         = 1       # stop loading new archiva
 
 **What this does:** archival tasks stop running, so there are no more calls to the backend, no failures, and nothing gets written to the DLQ. The archival tasks simply wait, idle, until you resume — nothing is lost.
 
-**Confirm it worked** (on the Archival Health row): the Signal 1 error rate drops to ~0, the Signal 2 DLQ writes and write-failures stop, and the DLQ Depth stops growing. History pod CPU / memory and persistence latency should settle back to normal.
+**Confirm it worked** (on the Archival Health row): the Signal 1 error rate drops to ~0, and the Signal 2 DLQ writes and write-failures stop. History pod CPU / memory and persistence latency should settle back to normal.
 
 **One thing to know: this pauses archival for the whole host.** These two settings are host-wide — they pause archival for **every** namespace on the host, not just one.
 
@@ -168,12 +166,94 @@ history.archivalProcessorMaxPollRPS         = 20      # restore to your previous
 
 The queued-up archival backlog drains and archives complete. **Retention cleanup also catches up:** while archival was paused, closed workflows could not be deleted yet — Temporal deletes a workflow only after it has been archived — so they piled up in the database. That is expected; they get cleaned up now that archival is running again.
 
-On the **Archival Health** row of the [Temporal Server Dashboard](../metrics/dashboards/server/temporal-server-readme.md#21-archival-health), watch two panels:
-- **Signal 1 — Archival Attempt Error Rate** — archival is succeeding again, so the error rate stays ~0.
-- **Archival DLQ Depth** — stops growing and drains back toward zero.
+On the **Archival Health** row of the [Temporal Server Dashboard](../metrics/dashboards/server/temporal-server-readme.md#21-archival-health), watch the **Signal 1 — Archival Attempt Error Rate** panel: archival is succeeding again, so the error rate returns to ~0.
 
-To check whether any archival tasks actually reached the DLQ during the outage, look at the **Archival DLQ Depth** panel — a non-zero depth means tasks are parked in the archival DLQ and need to be redriven. If so, redrive them after the backend recovers:
+To check whether any archival tasks reached the DLQ during the outage, list the DLQs with `tdbg`. The archival queue is named `5_<sourceCluster>_<targetCluster>_<hash>` — note its message count and the two cluster names, you need them to redrive:
 ```
 tdbg dlq --dlq-version v2 list
-tdbg dlq --dlq-version v2 merge --dlq-type 5
 ```
+
+### Redriving the archival DLQ
+
+If the archival DLQ has messages, they must be **redriven** (re-enqueued) so they archive — and only then can their workflows be deleted by retention.
+
+> ⚠️ **`tdbg` cannot redrive archival tasks today.** On current server versions (verified on **v1.31.0**), `tdbg dlq --dlq-version v2 merge --dlq-type 5` fails with **`unknown dlq category 5`**. `tdbg` builds its task-category registry without the archival category (only the server registers it when archival is enabled), so `tdbg` rejects `--dlq-type 5` client-side — even though the server's `MergeDLQTasks` API accepts it. This is expected to be fixed in a future release. Until then, use the small Go program below, which calls that same server RPC directly.
+
+Save this as `main.go`:
+
+```go
+// Redrives ("merges") dead-lettered ARCHIVAL history tasks back onto their
+// source queue by calling AdminService.MergeDLQTasks directly — a workaround
+// for `tdbg dlq merge` not supporting the archival category (5) on current
+// server versions. Expected to be fixed in a future server/tdbg release.
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"time"
+
+	adminservice "go.temporal.io/server/api/adminservice/v1"
+	commonspb "go.temporal.io/server/api/common/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+func main() {
+	address := flag.String("address", "", "frontend gRPC host:port, e.g. temporal-frontend:7233 (required)")
+	category := flag.Int("category", 5, "task category ID (5 = archival)")
+	source := flag.String("source-cluster", "active", "source cluster (from the DLQ queue name)")
+	target := flag.String("target-cluster", "active", "target cluster (from the DLQ queue name)")
+	lastID := flag.Int64("last-message-id", -1, "inclusive max DLQ message id to merge (all ids <= this); required")
+	timeout := flag.Duration("timeout", 60*time.Second, "RPC timeout")
+	flag.Parse()
+
+	if *address == "" {
+		log.Fatal("--address is required, e.g. --address temporal-frontend:7233")
+	}
+	if *lastID < 0 {
+		log.Fatal("--last-message-id is required; get it from: tdbg dlq --dlq-version v2 list")
+	}
+
+	conn, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to %s: %v", *address, err)
+	}
+	defer conn.Close()
+
+	client := adminservice.NewAdminServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+
+	log.Printf("MergeDLQTasks: category=%d source=%s target=%s inclusiveMaxMessageId=%d",
+		*category, *source, *target, *lastID)
+
+	resp, err := client.MergeDLQTasks(ctx, &adminservice.MergeDLQTasksRequest{
+		DlqKey: &commonspb.HistoryDLQKey{
+			TaskCategory:  int32(*category),
+			SourceCluster: *source,
+			TargetCluster: *target,
+		},
+		InclusiveMaxTaskMetadata: &commonspb.HistoryDLQTaskMetadata{MessageId: *lastID},
+	})
+	if err != nil {
+		log.Fatalf("MergeDLQTasks failed: %v", err)
+	}
+	log.Printf("accepted (async job): %v", resp)
+	log.Print("Re-run `tdbg dlq --dlq-version v2 list` to watch the count drain to zero.")
+}
+```
+
+Build and run it from anywhere that can reach the frontend gRPC endpoint. Match `go.temporal.io/server` to **your** server version, and take `--source-cluster` / `--target-cluster` / `--last-message-id` from the `tdbg dlq list` output (queue name `5_<source>_<target>_<hash>`, and its `LASTMESSAGEID`):
+
+```bash
+go mod init redrive
+go get go.temporal.io/server@v1.31.0 google.golang.org/grpc   # use YOUR server version
+go run . \
+  --address <frontend-host>:7233 \
+  --source-cluster <source> --target-cluster <target> \
+  --last-message-id <LASTMESSAGEID>
+```
+
+The merge runs as an async server job. Re-run `tdbg dlq --dlq-version v2 list` and watch the count drain to 0; on the dashboard, **Archival Attempts by Status** shows `ok` climbing as the redriven tasks archive.

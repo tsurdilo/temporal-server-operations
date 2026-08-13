@@ -7015,7 +7015,7 @@
           "gridPos": {
             "h": 7,
             "w": 12,
-            "x": 0,
+            "x": 12,
             "y": 32
           },
           "id": 2213,
@@ -7076,12 +7076,12 @@
           "gridPos": {
             "h": 7,
             "w": 12,
-            "x": 12,
+            "x": 0,
             "y": 32
           },
           "id": 2214,
           "title": "Archival Errors by Type (non-retryable vs transient)",
-          "description": "Breaks archival failures into non-retryable vs transient, for both history and visibility archival. Non-retryable (e.g. a bad endpoint / DNS NXDOMAIN) points to a hard, sustained outage — the scenario this playbook addresses; transient (timeouts, connection resets) may be a passing blip that self-heals. Use this to judge whether the failure is sustained before pausing.",
+          "description": "Breaks archival failures into non-retryable vs transient, for both history and visibility archival. Non-retryable (e.g. a bad endpoint / DNS NXDOMAIN) points to a hard, sustained outage — the scenario this playbook addresses; transient (timeouts, connection resets) may be a passing blip that self-heals. Use this to judge whether the failure is sustained before pausing. Note: only the built-in S3 and GCS archivers emit these counters; a custom archival provider must emit them from its own implementation, otherwise this panel stays empty.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -7115,61 +7115,6 @@
               "expr": "sum(rate(visibility_archiver_archive_transient_error[$__rate_interval]))",
               "legendFormat": "visibility transient",
               "refId": "D"
-            }
-          ]
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "lineWidth": 2
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green"
-                  },
-                  {
-                    "color": "red",
-                    "value": 1
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 7,
-            "w": 12,
-            "x": 0,
-            "y": 39
-          },
-          "id": 2215,
-          "title": "Archival DLQ Depth",
-          "description": "Current number of messages parked in the archival DLQ (dlq_message_count, task_category=archival). Signal 2 shows the write rate; this shows the accumulated backlog size. Watch it climb during an outage and drain back toward zero after the backend recovers and archival is un-paused (§6).",
-          "type": "timeseries",
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "min",
-                "max",
-                "lastNotNull"
-              ]
-            }
-          },
-          "targets": [
-            {
-              "expr": "max(dlq_message_count{task_category=\"archival\"})",
-              "legendFormat": "archival DLQ depth",
-              "refId": "A"
             }
           ]
         }
