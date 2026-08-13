@@ -6,7 +6,7 @@ Grafana dashboards for monitoring a self-hosted Temporal Server cluster.
 
 ## Dashboards
 
-### Temporal Server Dashboard — v2.7.0
+### Temporal Server Dashboard — v2.10.0
 
 Comprehensive cluster monitoring: throughput, persistence, service latencies, throttling, shard movement, workflow stats, matching, replication, and authorization.
 
@@ -51,6 +51,18 @@ Pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, fl
 | [namespace-failover-graceful-handover.json](./namespace-failover-graceful-handover.json) | Grafana dashboard JSON — import this into Grafana |
 | [namespace-failover-graceful-handover-readme.md](./namespace-failover-graceful-handover-readme.md) | Full panel reference |
 | [namespace-failover-graceful-handover-changelog.md](./namespace-failover-graceful-handover-changelog.md) | Version history |
+
+---
+
+### Temporal Task Queue Partitions — v1.2.0
+
+Single-queue drill-down for changing a task queue's partition count safely: per-partition backlog drain and `Write > Read` detection, the three throughput ceilings (sync match, backlog write, backlog read+dispatch), and the rule-outs that tell you whether matching is even the bottleneck. Companion to the Changing Task Queue Partitions playbook.
+
+| File | Description |
+|---|---|
+| [task-queue-partitions.json](./task-queue-partitions.json) | Grafana dashboard JSON — import this into Grafana |
+| [task-queue-partitions-readme.md](./task-queue-partitions-readme.md) | Full panel reference and prerequisites |
+| [task-queue-partitions-changelog.md](./task-queue-partitions-changelog.md) | Version history |
 
 ---
 

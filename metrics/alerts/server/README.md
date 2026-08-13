@@ -98,16 +98,18 @@ component: <frontend | history | persistence | server | matching>
 | 78 | [Shard Fleet Deficit](./runbooks/78-shard-fleet-deficit.md) | history | [Owned Shards (Total)](../../dashboards/server/temporal-server-readme.md) | 15m |
 | 79 | [Shard Ownership Loss Persisting](./runbooks/79-shard-ownership-loss-persisting.md) | history | [Persistence Errors Total by Operation](../../dashboards/server/temporal-server-readme.md) | 10m |
 | 57 | [All Pollers Disconnected](./runbooks/57-all-pollers-disconnected.md) | frontend | [Total Concurrent Pollers](../../dashboards/server/temporal-server-readme.md) | 1m |
-| 74 | [Matching Partition Sync Throttle Active](./runbooks/74-matching-sync-throttle-active.md) | matching | [Sync Throttle Count](../../dashboards/server/temporal-server-readme.md) | 1m |
 | 59a | [Visibility Store Write Errors (Warning)](./runbooks/59a-visibility-store-write-errors.md) | history | [Visibility Write Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 2m |
 | 59b | [Visibility Store Write Errors (Critical)](./runbooks/59a-visibility-store-write-errors.md) | history | [Visibility Write Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 1m |
 | 59c | [Visibility Store Write Latency High](./runbooks/59a-visibility-store-write-errors.md) | history | [Visibility Write Latency per Store](../../dashboards/server/temporal-server-readme.md) | 5m |
+| 80 | [History Task DLQ Stranding](./runbooks/80-history-task-dlq-stranding.md) | history | [Dead-Lettered Tasks — Execution-Stranding](../../dashboards/server/temporal-server-readme.md) | 10m |
+| 81 | [Archival Backend Failing](./runbooks/81-archival-backend-failing.md) | history | [Archival Health — Signal 1](../../dashboards/server/temporal-server-readme.md) | 10m |
+| 82 | [History Task DLQ Write Failures](./runbooks/82-history-task-dlq-write-failures.md) | history | [Archival Health — Signal 2](../../dashboards/server/temporal-server-readme.md) | 5m |
 
 ---
 
 ## Failover Alert Set — `temporal-failover-alerts.yaml`
 
-Multi-cluster replication only. All five alerts link to the [Namespace Failover — Graceful Handover dashboard](../../dashboards/server/namespace-failover-graceful-handover.json) and [playbook](../../playbooks/namespace-failover-graceful-handover.md).
+Multi-cluster replication only. All five alerts link to the [Namespace Failover — Graceful Handover dashboard](../../dashboards/server/namespace-failover-graceful-handover.json) and [playbook](../../../playbooks/namespace-failover-graceful-handover.md).
 
 | UID | Alert | Phase | Severity | `for` |
 |---|---|---|---|---|
@@ -144,7 +146,6 @@ All thresholds and `for` durations are starting points based on Temporal's defau
 | 34j | `dd_shard_io_semaphore_latency` p99 > 20s | Half the 40s deadlock detector timeout (10s DB op + 30s grace, from source) — fires early enough to act before 34f |
 | 38 | p99 timer lag > 30s | Planning doc threshold |
 | 57 | Pollers < 1 per namespace | Zero workers |
-| 74 | Any sync throttle | Binary |
 
 ---
 

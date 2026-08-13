@@ -37,7 +37,7 @@ This is designed as a self-service operational guide — operators should be abl
 
 | Deliverable | Description | Status |
 |---|---|---|
-| `temporal-server-alerts.yaml` | Grafana alerting provisioning file — drop into `provisioning/alerting/` and alerts load automatically on Grafana startup. Datasource referenced by name (`Prometheus`) so no UID replacement needed. | ✅ Essential Set complete (14 alerts) |
+| `temporal-server-alerts.yaml` | Grafana alerting provisioning file — drop into `provisioning/alerting/` and alerts load automatically on Grafana startup. Datasource referenced by name (`Prometheus`) so no UID replacement needed. | ✅ Essential Set complete (20 alerts) |
 | `runbooks/` | One markdown runbook per alert — structure created upfront, triage and remediation content filled in after alerts are tested and validated in Grafana | ✅ Stubs created, content TODO after testing |
 | `README.md` | Setup instructions and index of all alerts with links to runbooks | ✅ Complete |
 
@@ -95,7 +95,7 @@ All expressions are derived from the corresponding dashboard panel queries with 
 | 34j | 5m | `histogram_quantile(0.99, sum(rate(dd_shard_io_semaphore_latency_bucket{service_name="history"}[5m])) by (instance, le)) > 20` |
 | 38 | 5m | `histogram_quantile(0.99, sum by (operation, le) (rate(shardinfo_scheduled_queue_lag_bucket{task_category="timer",service_name="history"}[5m]))) > 30` |
 | 57 | 1m | `sum by (namespace) (service_pending_requests{service_name="frontend",namespace!="_unknown_",operation=~"PollWorkflowTaskQueue\|PollActivityTaskQueue"}) == 0` |
-| 74 | 1m | `sum by (namespace, task_type) (rate(sync_throttle_count{service_name="matching"}[5m])) > 0` |
+| 74 | — | removed from Essential Set — classic-matcher only; `sync_throttle_count` is not emitted on the default priority matcher (v1.31.0+), so it cannot fire on a modern default cluster |
 
 ---
 
@@ -119,7 +119,7 @@ Operators who want focused coverage without implementing the full alert inventor
 | 34f | Shard Deadlock Detected | 9 — Shard Queue Health | Suspected Deadlocks per Pod | 2113 | Binary and unambiguous — any `dd_current_suspected_deadlocks > 0` requires immediate pod restart. `noDataState: OK` because the metric is event-driven and does not emit baseline zero. |
 | 38 | Timer Task Scheduling Lag Critical | 10 — History Timer Task Info | Timer Task Scheduling Latency | 325 | Timers firing 30s+ late means workflow timeouts and scheduled actions are functionally broken |
 | 57 | All Pollers Disconnected | 15 — Pollers | Total Concurrent Pollers | 162 | All workers gone for a namespace — complete task processing halt |
-| 74 | Matching Partition Sync Throttle Active | 13 — Matching Task Queue Info | Sync Throttle Count | 403 | Per-partition dispatch limit hit — if alert 57 is not also firing, task queue partitions need to be increased |
+| 74 | Matching Partition Sync Throttle Active | 13 — Matching Task Queue Info | Sync Throttle Count | 403 | Classic-matcher only — `sync_throttle_count` is not emitted on the default priority matcher (v1.31.0+), so it cannot fire on a modern default cluster. **Removed from Essential Set** (no provisioning rule, no runbook); documented for classic-matcher / pre-1.31 clusters. |
 
 > **Dashboard UID for all panel links:** `temporal-overview-v1`
 
@@ -237,6 +237,7 @@ Operators who want focused coverage without implementing the full alert inventor
 | 34 | Unexpected Shard Movement | 🔴 Critical | Shards Created/Removed/Closed + Service Restarts | Shard churn rate is elevated AND service restarts == 0 in the same window — shard movement without a restart indicates DB pressure, history host crash, or membership instability |
 | 78 | Shard Fleet Deficit | 🔴 Critical | Owned Shards (Total) | `sum(numshards_gauge) < <total_shards>` sustained 15m — a genuinely unowned shard, distinct from alert 34's churn-rate signal. A permanently stuck shard (e.g. Cassandra `range_id` divergence) often stops generating churn once it settles into a repeating identical CAS failure, so 34 can go quiet while the shard is still unowned; this catches the coverage gap directly. |
 | 79 | Shard Ownership Loss Persisting | 🔴 Critical | Persistence Errors Total by Operation | `sum(rate(persistence_error_with_type{operation="UpdateShard",error_type="persistence.ShardOwnershipLostError"}[5m])) > 0` sustained 10m. `ShardOwnershipLostError` is deliberately excluded from the generic `persistence_errors` counter (routine on every normal ownership handoff), so this alert queries the typed error metric directly rather than relying on the generic error-rate signal. Typically co-fires with 78. |
+| 80 | History Task DLQ Stranding | 🔴 Critical | Dead-Lettered Tasks — Execution-Stranding | `sum(rate(dlq_writes{operation=~"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)\|Transfer(Active|Standby)Task(Activity|WorkflowTask)"}[5m])) > 0` sustained 10m. Execution-stranding history tasks (activity retry/timeout timers, activity/workflow-task dispatch) being dead-lettered under a prolonged DB outage/overload (persistence timeouts → 70-attempt DLQ threshold). Filtered to the stranding `operation` subset; visibility/retention/WFT-timeout writes and `ResourceExhausted` rate-limit rejections are excluded. DB-agnostic. |
 
 > **Note:** Shard movement during a planned restart or scaling event is expected and not alertable. This alert uses a compound condition to filter out the expected case. Alerts 78/79 added after a production incident where a shard's `range_id` column and its blob-embedded `RangeId` diverged by 1, leaving the shard permanently unacquirable with no self-healing path and no existing alert coverage — see [shard-range-id-divergence-stuck-child-workflows.md](https://github.com/tsurdilo/temporal-metrics/blob/main/tmp/shard-range-id-divergence-stuck-child-workflows.md).
 

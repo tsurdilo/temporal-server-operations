@@ -46,7 +46,7 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 16 — Visibility](#section-16--visibility) (#59–#63, #59a–#59c)
 - [Section 18 — Cluster Replication](#section-18--cluster-replication) (#64–#71)
 - [Section 19 — Authorization](#section-19--authorization) (#72–#73)
-- [Section 20 — Namespace Failover: Graceful Handover](#section-20--dr-graceful-handover) (#FAILOVER-PRE-01–#FAILOVER-POST-03)
+- [Section 20 — Namespace Failover: Graceful Handover](#section-20--namespace-failover-graceful-handover) (#FAILOVER-PRE-01–#FAILOVER-POST-03)
 
 ---
 
@@ -718,6 +718,78 @@ sum(rate(persistence_error_with_type{service_name="history",operation="UpdateSha
 
 **Runbook:** [79-shard-ownership-loss-persisting.md](./runbooks/79-shard-ownership-loss-persisting.md)
 
+### Alert 80 — History Task DLQ Stranding
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-080` |
+| Severity | critical |
+| Panel | 2202 |
+| `for` | 10m |
+| `noDataState` | OK |
+
+**Condition:**
+```promql
+sum(rate(dlq_writes{operation=~"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)"}[5m])) > 0
+```
+
+Execution-stranding history tasks (activity retry/timeout timers, activity/workflow-task dispatch; Active + Standby) are being written to the history task DLQ. A DLQ'd task is removed from the active queue and **not** auto-retried — for a retrying activity this strands it until an operator redrives the DLQ or pause/unpauses it. The usual trigger is a prolonged database outage/overload that drives persistence operations to time out (`context deadline exceeded` / `context canceled`), which count toward `history.TaskDLQUnexpectedErrorAttempts` (default 70 ≈ 1h). DB-agnostic — fires the same on Cassandra and SQL. Visibility, retention (`DeleteHistoryEvent`), and workflow-task-timeout DLQ writes are deliberately excluded (WFT timeouts covered by alerts 56/76), as are rate-limit rejections (`ResourceExhausted`, which are excused and never dead-lettered). Intentionally strict (`> 0` sustained 10m); tunable — see the runbook. Cluster-wide (no namespace filter), consistent with the Essential Set.
+
+**Runbook:** [80-history-task-dlq-stranding.md](./runbooks/80-history-task-dlq-stranding.md)
+
+---
+
+## Section 8a — Archival Health
+
+> **Dashboard panels:** Archival Health row — Signal 1 Archival Attempt Error Rate (panel 2211), Archival Attempts by Status (panel 2212), Signal 2 History Task DLQ Writes & Write Failures (panel 2213)
+> **Metrics:** `archiver_archive_latency` (`status` = ok / err / rate_limit_exceeded), `dlq_writes` (`operation="ArchivalTaskArchiveExecution"`), `task_dlq_failures`
+> **Component:** history
+>
+> Detection surface for a **sustained archival-backend (S3 / GCS / custom) outage**. A dead backend fails every closed workflow's archival task; after `history.TaskDLQUnexpectedErrorAttempts` (default 70 ≈ 1h) each is dead-lettered, and a large burst of DLQ writes can back-pressure the whole database. Full mechanism and recovery in the [Archival Backend Outage playbook](../../../playbooks/detecting-recovering-archival-outage.md).
+
+### Alert 81 — Archival Backend Failing
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-081` |
+| Severity | critical |
+| Panel | 2211 |
+| `for` | 10m |
+| `noDataState` | OK |
+
+**Condition:**
+```promql
+sum(rate(archiver_archive_latency_count{status="err"}[5m])) > 0
+```
+
+Archival attempts to the configured backend are failing (`archiver_archive_latency`, `status="err"`). `status="err"` excludes rate-limit rejections (`status="rate_limit_exceeded"`), so this reflects genuine backend failures — the backend is unreachable or persistently erroring. This is the **earliest** signal of an archival outage: it fires roughly **1 hour before** failing archival tasks reach the history task DLQ (they must first accumulate `history.TaskDLQUnexpectedErrorAttempts`, default 70). Catching it here gives ~1h of lead time to pause archival before any DLQ pressure begins. Intentionally simple (`> 0` sustained 10m); for a workload with occasional benign archival blips, switch to a ratio condition or raise the window — see the runbook. Essential Set.
+
+**Runbook:** [81-archival-backend-failing.md](./runbooks/81-archival-backend-failing.md)
+
+---
+
+### Alert 82 — History Task DLQ Write Failures
+
+| Field | Value |
+|---|---|
+| Status | ✅ Implemented |
+| UID | `temporal-alert-082` |
+| Severity | critical |
+| Panel | 2213 |
+| `for` | 5m |
+| `noDataState` | OK |
+
+**Condition:**
+```promql
+sum(rate(task_dlq_failures[5m])) > 0
+```
+
+Writes to the history task DLQ are themselves **failing** (`task_dlq_failures`). General — applies to **any** history task type (transfer, timer, visibility, archival, outbound) — and severe: the database cannot even accept DLQ writes, typically because it is overloaded (e.g. a flood of tasks being dead-lettered onto the single-partition DLQ driving lightweight-transaction / row-lock contention). Failed DLQ writes are retried indefinitely, adding more load. This is a **worse** condition than Alert 80 (tasks *being written* to the DLQ): here the writes are *failing*, indicating active database distress. A common driver is a sustained archival-backend outage under load (Alert 81) — pause archival to stop the flood. Essential Set.
+
+**Runbook:** [82-history-task-dlq-write-failures.md](./runbooks/82-history-task-dlq-write-failures.md)
+
 ---
 
 ## Section 9 — Shard Queue Health
@@ -1090,26 +1162,26 @@ Alert 12 covers `ReadHistoryBranch` as part of a broad multi-operation persisten
 
 ## Section 13 — Matching Task Queue Info
 
-> **Dashboard panels:** Sync Throttle Count (panel 403)
-> **Metric:** `sync_throttle_count`
+> **Dashboard panels:** none — Sync Throttle Count was removed (overview dashboard v2.9.0) because `sync_throttle_count` is classic-matcher only and not emitted on the default priority matcher (v1.31.0+)
+> **Metric:** `sync_throttle_count` (classic matcher only)
 > **Component:** matching
 
 ### Alert 74 — Matching Partition Sync Throttle Active
 
 | Field | Value |
 |---|---|
-| Status | ✅ Implemented |
+| Status | Documented — **not in the Essential Set** (classic-matcher only) |
 | UID | `temporal-alert-074` |
 | Severity | critical |
-| Panel | 403 |
+| Panel | none (Sync Throttle Count removed in overview dashboard v2.9.0) |
 | `for` | 1m |
 | `noDataState` | NoData |
 
 **Condition:** `sum by (namespace, task_type) (rate(sync_throttle_count{service_name="matching",namespace!="_unknown_"}[5m])) > 0`
 
-The matching service sync dispatch limit is being hit for a namespace and task type. If alert 57 is also firing, fix worker provisioning first. If pollers are healthy, increase `matching.numTaskqueueWritePartitions` and `matching.numTaskqueueReadPartitions` for the affected task queue.
+**Why it's not in the Essential Set:** `sync_throttle_count` is emitted only by the classic `TaskMatcher`. On server v1.31.0+ the priority matcher is the default (`matching.useNewMatcher`, on by default since v1.31.0) and does not emit this metric, so the alert can never fire there. It is relevant only on pre-v1.31.0 clusters or where `matching.useNewMatcher=false` is set explicitly. Because it can't fire on a default modern cluster, it was removed from the provisioning YAML and has no dedicated runbook — it remains documented here for classic-matcher deployments.
 
-**Runbook:** [74-matching-sync-throttle-active.md](./runbooks/74-matching-sync-throttle-active.md)
+The matching sync dispatch limit is being hit for a namespace and task type. There is no dashboard panel (removed in v2.9.0) — query `sum by (namespace, task_type) (rate(sync_throttle_count{service_name="matching"}[5m]))` directly in Prometheus to confirm which namespace/task type is affected. Triage: if alert 57 (All Pollers Disconnected) is also firing, fix worker provisioning first; if pollers are healthy, the bottleneck is partition count — increase `matching.numTaskqueueWritePartitions` and `matching.numTaskqueueReadPartitions` for the affected task queue (the per-partition dispatch limit is 1,000 tasks/s by default).
 
 > **Alerts not planned for this section:** Async Match Latency high/critical — schedule-to-start alerts (48/49 in Section 14) already cover the end-user impact. Task Write Throttle Count — typically indicates worker shortage rather than partition count, redundant with Section 14. Sync Match Latency — most useful as a comparative signal alongside async match, not as a standalone alert.
 
@@ -1583,7 +1655,7 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 
 > **File:** [`temporal-failover-alerts.yaml`](./temporal-failover-alerts.yaml) — drop this in addition to `temporal-server-alerts.yaml` if you run multi-cluster replication. Single-cluster deployments can skip it entirely.
 > **Dashboard:** [Temporal DR — Graceful Handover](../../dashboards/server/namespace-failover-graceful-handover.json) (`namespace-failover-graceful-handover.json`)
-> **Playbook:** [namespace-failover-graceful-handover.md](../../playbooks/namespace-failover-graceful-handover.md)
+> **Playbook:** [namespace-failover-graceful-handover.md](../../../playbooks/namespace-failover-graceful-handover.md)
 > **Metrics:** `replication_stream_stuck`, `replication_dlq_enqueue_failed`, `replication_tasks_recv_backlog`, `handover_ready_shard_count`, `client_redirection_errors`, `task_errors_version_mismatch`, `workflow_task_schedule_to_start_latency`
 > **Component:** history, frontend
 > **Note:** Only meaningful on multi-cluster deployments. All alerts scope to a specific `$standby_cluster` and `$active_cluster` label pair.

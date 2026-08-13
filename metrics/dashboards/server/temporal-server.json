@@ -2059,7 +2059,7 @@
           },
           "id": 143,
           "title": "Transfer Active Task Errors Workflow Busy",
-          "description": "Rate of workflow busy errors for active transfer operations.",
+          "description": "Rate of transfer active tasks throttled by workflow-lock contention (task_errors_throttled, cause BusyWorkflow). Replaces the never-emitted task_errors_workflow_busy counter used before v2.8.0.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -2075,7 +2075,7 @@
           },
           "targets": [
             {
-              "expr": "sum(rate(task_errors_workflow_busy{operation=~\"TransferActive.*\",namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum(rate(task_errors_throttled{operation=~\"TransferActive.*\",namespace=\"$namespace\",resource_exhausted_cause=\"BusyWorkflow\"}[$__rate_interval]))",
               "legendFormat": "workflow busy/s",
               "refId": "A"
             }
@@ -4195,68 +4195,6 @@
             },
             "overrides": []
           },
-          "id": 403,
-          "title": "Sync Throttle Count",
-          "description": "Rate of tasks being throttled by matching. The default limit is 1,000 tasks/s per partition. Any non-zero sustained rate means you are hitting the per-partition limit \u2014 increasing task queue partitions can help distribute the load. Rule out worker shortage first by checking Async Match Latency and Schedule to Start Latencies.",
-          "type": "timeseries",
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "min",
-                "max",
-                "mean",
-                "lastNotNull"
-              ]
-            }
-          },
-          "targets": [
-            {
-              "expr": "sum by (namespace, task_type) (rate(sync_throttle_count{namespace=\"$namespace\", service_name=~\"matching\"}[$__rate_interval]))",
-              "legendFormat": "{{namespace}} - {{task_type}}",
-              "refId": "A"
-            }
-          ],
-          "gridPos": {
-            "h": 7,
-            "w": 12,
-            "x": 0,
-            "y": 22
-          }
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "lineWidth": 2,
-                "thresholdsStyle": {
-                  "mode": "dashed"
-                }
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green"
-                  },
-                  {
-                    "color": "red",
-                    "value": 1
-                  }
-                ]
-              },
-              "color": {
-                "mode": "palette-classic"
-              }
-            },
-            "overrides": []
-          },
           "id": 404,
           "title": "Task Write Throttle Count",
           "description": "Rate of matching falling behind writing tasks to persistence. This is often caused by insufficient workers (low sync match rate) rather than partition count \u2014 check Schedule to Start Latencies and worker health first before increasing partitions.",
@@ -4283,7 +4221,7 @@
           "gridPos": {
             "h": 7,
             "w": 12,
-            "x": 12,
+            "x": 0,
             "y": 22
           }
         }
@@ -4698,7 +4636,7 @@
           },
           "id": 2121,
           "title": "Workflow Task Schedule-to-Start Timeouts (sticky fallback)",
-          "description": "Rate of Workflow Task ScheduleToStart timeout timers firing. A workflow task placed on a sticky task queue that no sticky worker picks up within the sticky ScheduleToStart timeout (server default 5s) fires this timer and is rescheduled onto the workflow's normal task queue. Sustained non-zero values mean sticky workers are absent, restarting, or too slow to poll — pairs with rising Schedule to Start Latencies. Uses operation TimerActiveTaskWorkflowTaskTimeout; normal-queue workflow tasks carry no ScheduleToStart timeout, so this isolates the sticky fallback. Note: the separate matching-side fast path (StickyWorkerUnavailable, returned after ~10s with no sticky poller) has no dedicated counter.",
+          "description": "Rate of Workflow Task ScheduleToStart timeout timers firing. A workflow task placed on a sticky task queue that no sticky worker picks up within the sticky ScheduleToStart timeout (server default 5s) fires this timer and is rescheduled onto the workflow's normal task queue. Sustained non-zero values mean sticky workers are absent, restarting, or too slow to poll \u2014 pairs with rising Schedule to Start Latencies. Uses operation TimerActiveTaskWorkflowTaskTimeout; normal-queue workflow tasks carry no ScheduleToStart timeout, so this isolates the sticky fallback. Note: the separate matching-side fast path (StickyWorkerUnavailable, returned after ~10s with no sticky poller) has no dedicated counter.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -6643,6 +6581,599 @@
           ]
         }
       ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 2200,
+      "title": "History Task DLQ / Terminal Failures",
+      "type": "row",
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 19
+          },
+          "id": 2201,
+          "title": "",
+          "type": "text",
+          "options": {
+            "mode": "markdown",
+            "content": "**History Task DLQ / Terminal Failures** \u2014 history tasks dead-lettered under DB stress. A task that fails processing with *unexpected* errors (`context deadline exceeded` / `context canceled`) crosses `history.TaskDLQUnexpectedErrorAttempts` (default 70 \u2248 1h), or hits a terminal/corruption error, and is sent to the history task DLQ (`history.TaskDLQEnabled`, default true) \u2014 removed from the active queue and **not auto-retried**.\n\n\u26a0\ufe0f **Not all DLQ writes are bad.** Filter by `operation`: visibility, retention (`DeleteHistoryEvent`), and workflow-task-timeout writes do **not** strand a running execution (WFT timeouts are already covered by alerts 56/76). Only the **execution-stranding** types (activity retry/timeout timers, activity/workflow-task dispatch) mean stuck work \u2014 that is what **alert 80** pages on. Rate-limit rejections (`ResourceExhausted`) are *excused* and never DLQ; they are retried with no loss."
+          }
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 23
+          },
+          "id": 2202,
+          "title": "Dead-Lettered Tasks \u2014 Execution-Stranding (page-worthy)",
+          "description": "History tasks sent to the DLQ that strand a running execution: activity retry/timeout timers and activity/workflow-task dispatch (Active + Standby). Any non-zero rate = permanently stranded work until DLQ redrive (tdbg dlq merge --dlq-type 2) or activity pause/unpause. This is the signal alert 80 pages on.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(dlq_writes{operation=~\"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\"}[$__rate_interval])) by (operation)",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 23
+          },
+          "id": 2203,
+          "title": "Dead-Lettered Tasks \u2014 Informational (visibility / retention / WFT-timeout)",
+          "description": "DLQ writes that do NOT strand a running execution: visibility (search/list store), retention cleanup (DeleteHistoryEvent), and workflow-task timeout enforcement (covered by alerts 56/76). A trend of visibility/retention pipeline health \u2014 not page-worthy.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(dlq_writes{operation=~\"VisibilityTask.*|Timer(Active|Standby)TaskDeleteHistoryEvent|Timer(Active|Standby)TaskWorkflowTaskTimeout\"}[$__rate_interval])) by (operation)",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 30
+          },
+          "id": 2204,
+          "title": "Task Terminal Failures (all DLQ paths)",
+          "description": "Rate of history tasks marked terminally failed and sent to the DLQ \u2014 covers the 70-attempt-threshold path, the terminal/corruption path, and the DLQ-error-pattern path (history.TaskDLQErrorPattern).",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(task_terminal_failures[$__rate_interval]))",
+              "legendFormat": "terminal failures/s",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 30
+          },
+          "id": 2205,
+          "title": "Leading Indicator \u2014 Unexpected Errors on Stranding Task Types",
+          "description": "Rate of unexpected (non-excused) processing errors (task_errors) on the execution-stranding task types. These accumulate toward history.TaskDLQUnexpectedErrorAttempts (default 70 \u2248 1h) before dead-lettering. A sustained climb here precedes DLQ writes \u2014 the early warning during a DB outage/overload window.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(task_errors{operation=~\"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\"}[$__rate_interval])) by (operation)",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 2209,
+      "title": "Archival Health",
+      "type": "row",
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 21
+          },
+          "id": 2210,
+          "title": "",
+          "type": "text",
+          "options": {
+            "mode": "markdown",
+            "content": "**Archival Health** — detection surface for a sustained archival-backend (S3 / GCS / custom) outage. A dead backend makes every closed workflow's archival task fail; after `history.TaskDLQUnexpectedErrorAttempts` (default 70 ≈ 1h) each task is dead-lettered, and a large burst of DLQ writes can back-pressure the whole database. **Signal 1 (Archival Attempt Errors)** is the earliest warning — it fires ~1h before any DLQ pressure and is what **alert 81** pages on. **Signal 2 (DLQ Writes & Failures)** is the downstream escalation — archival tasks reaching the DLQ, and DLQ writes themselves failing (**alert 82**). `status=\"err\"` excludes rate-limit rejections (`status=\"rate_limit_exceeded\"`), so it reflects genuine backend failures. See the [Archival Backend Outage playbook](https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/detecting-recovering-archival-outage.md)."
+          }
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 25
+          },
+          "id": 2211,
+          "title": "Signal 1 — Archival Attempt Error Rate (page-worthy)",
+          "description": "Rate of archival attempts to the configured backend that failed (archiver_archive_latency, status=err). Excludes rate-limit rejections (status=rate_limit_exceeded). A sustained non-zero rate = the backend is unreachable or persistently erroring — the earliest signal of an outage, ~1h before tasks reach the DLQ. This is what alert 81 pages on.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(archiver_archive_latency_count{status=\"err\"}[$__rate_interval]))",
+              "legendFormat": "archival errors/s",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 25
+          },
+          "id": 2212,
+          "title": "Archival Attempts by Status (ok / err / rate_limit_exceeded)",
+          "description": "Rate of all archival attempts broken down by outcome. Confirms whether archival is succeeding at all (ok climbing) versus failing (err climbing), and distinguishes a genuine backend outage (err) from archival rate-limiting (rate_limit_exceeded). Context for Signal 1.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(archiver_archive_latency_count[$__rate_interval])) by (status)",
+              "legendFormat": "{{status}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 32
+          },
+          "id": 2213,
+          "title": "Signal 2 — History Task DLQ Writes & Write Failures (page-worthy)",
+          "description": "Downstream escalation of an archival outage. 'archival DLQ writes' = archival tasks reaching the DLQ after 70 failed attempts (dlq_writes, ArchivalTaskArchiveExecution). 'DLQ write failures' = writes to the single-partition DLQ themselves failing (task_dlq_failures) — database distress. Alert 82 pages on task_dlq_failures.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(dlq_writes{operation=\"ArchivalTaskArchiveExecution\"}[$__rate_interval]))",
+              "legendFormat": "archival DLQ writes/s",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(task_dlq_failures[$__rate_interval]))",
+              "legendFormat": "DLQ write failures/s",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 32
+          },
+          "id": 2214,
+          "title": "Archival Errors by Type (non-retryable vs transient)",
+          "description": "Breaks archival failures into non-retryable vs transient, for both history and visibility archival. Non-retryable (e.g. a bad endpoint / DNS NXDOMAIN) points to a hard, sustained outage — the scenario this playbook addresses; transient (timeouts, connection resets) may be a passing blip that self-heals. Use this to judge whether the failure is sustained before pausing.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(history_archiver_archive_non_retryable_error[$__rate_interval]))",
+              "legendFormat": "history non-retryable",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(history_archiver_archive_transient_error[$__rate_interval]))",
+              "legendFormat": "history transient",
+              "refId": "B"
+            },
+            {
+              "expr": "sum(rate(visibility_archiver_archive_non_retryable_error[$__rate_interval]))",
+              "legendFormat": "visibility non-retryable",
+              "refId": "C"
+            },
+            {
+              "expr": "sum(rate(visibility_archiver_archive_transient_error[$__rate_interval]))",
+              "legendFormat": "visibility transient",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 39
+          },
+          "id": 2215,
+          "title": "Archival DLQ Depth",
+          "description": "Current number of messages parked in the archival DLQ (dlq_message_count, task_category=archival). Signal 2 shows the write rate; this shows the accumulated backlog size. Watch it climb during an outage and drain back toward zero after the backend recovers and archival is un-paused (§6).",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "max(dlq_message_count{task_category=\"archival\"})",
+              "legendFormat": "archival DLQ depth",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -6735,8 +7266,8 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.7.0",
+  "title": "Temporal Server Dashboard v2.11.0",
   "uid": "temporal-overview-v1",
-  "version": 4,
+  "version": 8,
   "weekStart": ""
 }

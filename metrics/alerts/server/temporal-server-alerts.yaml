@@ -720,80 +720,6 @@ groups:
         isPaused: false
 
       # ---------------------------------------------------------------------------
-      # Alert 74 — Matching Partition Sync Throttle Active
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-074
-        title: "Temporal: Matching Partition Sync Throttle Active"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum by (namespace, task_type) (rate(sync_throttle_count{service_name=\"matching\",namespace!=\"_unknown_\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              reducer: last
-              refId: B
-              settings:
-                mode: dropNN
-              type: reduce
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [C]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: B
-              refId: C
-              type: threshold
-        noDataState: NoData
-        execErrState: Error
-        for: 1m
-        labels:
-          severity: critical
-          service: temporal
-          component: matching
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "403"
-          summary: "Temporal: matching sync throttle active for {{ $labels.namespace }}/{{ $labels.task_type }}"
-          description: |
-            The matching service sync dispatch limit is being hit for namespace
-            {{ $labels.namespace }}, task type {{ $labels.task_type }}. If alert 57
-            (All Pollers Disconnected) is also firing, fix worker provisioning first.
-            If pollers are healthy, increase matching.numTaskqueueWritePartitions and
-            matching.numTaskqueueReadPartitions for the affected task queue.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/74-matching-sync-throttle-active.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
       # Alert 34b — Immediate Queue Lag Critical
       # ---------------------------------------------------------------------------
       - uid: temporal-alert-034b
@@ -1309,4 +1235,183 @@ groups:
             the Visibility Write Error Rate per Store panel for accompanying errors.
 
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/59a-visibility-store-write-errors.md
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # Alert 80 — History Task DLQ Stranding
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-080
+        title: "Temporal: History Task DLQ Stranding"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(dlq_writes{operation=~\"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\"}[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+        annotations:
+          __dashboardUid__: temporal-overview-v1
+          __panelId__: "2202"
+          summary: "Temporal: history tasks being dead-lettered and stranding executions ({{ $value | printf \"%.3f\" }} tasks/s)"
+          description: |
+            Execution-stranding history tasks are being written to the history task DLQ (activity retry/timeout timers or activity/workflow-task dispatch). A DLQ'd task is removed from the active queue and is NOT auto-retried — for a retrying activity this strands the activity until an operator redrives the DLQ or pause/unpauses it. This is typically triggered by a prolonged database outage/overload driving persistence operations to time out (context deadline exceeded), which counts toward history.TaskDLQUnexpectedErrorAttempts (default 70 ≈ 1h). DB-agnostic (Cassandra and SQL alike).
+
+            This condition is intentionally strict (any rate > 0 sustained 10m). If your cluster legitimately produces occasional stranding-type DLQ writes, raise the threshold or the `for` window to suit — see the runbook.
+
+            Not paged here (informational only): visibility, retention (DeleteHistoryEvent), and workflow-task-timeout DLQ writes, and rate-limit rejections (ResourceExhausted, which are excused and never dead-lettered). Use the "Dead-Lettered Tasks" panels to see the per-operation breakdown.
+
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/80-history-task-dlq-stranding.md
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # Alert 81 — Archival Backend Failing
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-081
+        title: "Temporal: Archival Backend Failing"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(archiver_archive_latency_count{status=\"err\"}[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+        annotations:
+          __dashboardUid__: temporal-overview-v1
+          __panelId__: "2211"
+          summary: "Temporal: archival backend is failing ({{ $value | printf \"%.3f\" }} archive errors/s)"
+          description: |
+            Archival attempts to the configured backend (S3 / GCS / custom provider) are failing (archiver_archive_latency with status="err"). Archival normally succeeds, so a sustained non-zero error rate means the archival backend is unreachable or erroring. This is the EARLIEST signal — it fires ~1 hour before failing archival tasks reach the history task DLQ.
+
+            See the runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/81-archival-backend-failing.md
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # Alert 82 — History Task DLQ Write Failures
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-082
+        title: "Temporal: History Task DLQ Write Failures"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(task_dlq_failures[5m]))"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+        annotations:
+          __dashboardUid__: temporal-overview-v1
+          __panelId__: "2213"
+          summary: "Temporal: history task DLQ writes are failing ({{ $value | printf \"%.3f\" }} failures/s)"
+          description: |
+            Writes to the history task DLQ are themselves FAILING (task_dlq_failures). This is general — it applies to any history task type (transfer, timer, visibility, archival, outbound) — and severe: it means the database cannot even accept DLQ writes, typically because it is overloaded (e.g. a flood of tasks being dead-lettered onto the single-partition DLQ, driving lightweight-transaction / row-lock contention). Failed DLQ writes are retried indefinitely, adding still more load.
+
+            Identify the source of the DLQ flood and relieve the database. A common cause is a sustained archival-backend outage under load (in which case pause archival — see the playbook). Related: Alert 80 fires when tasks are being written to the DLQ; this alert fires when those writes are failing (a worse, database-under-pressure condition).
+
+            for: 5m at any rate > 0 — DLQ-write failures indicate active database distress; treat as critical.
+
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/metrics/alerts/server/runbooks/82-history-task-dlq-write-failures.md
         isPaused: false

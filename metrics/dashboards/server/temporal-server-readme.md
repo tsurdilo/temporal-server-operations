@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.7.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.11.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -34,6 +34,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
   - [Worker Registry (In-memory)](#17-worker-registry-in-memory)
   - [Cluster Replication](#18-cluster-replication)
   - [Authorization](#19-authorization)
+  - [History Task DLQ / Terminal Failures](#20-history-task-dlq--terminal-failures)
 - [Related Resources](#related-resources)
 
 ---
@@ -190,7 +191,7 @@ Tracks throttling events specific to the `BusyWorkflow` cause. This occurs when 
 |---|---|
 | **Transfer Active Task Errors Discarded** | Rate of active transfer task errors that were discarded. Indicates the cluster gave up retrying a task after repeated failures. |
 | **Transfer Active Task Errors Limit Exceeded** | Rate of active transfer task errors caused by internal processing rate limit exceeded conditions. |
-| **Transfer Active Task Errors Workflow Busy** | Rate of active transfer task errors caused by `WorkflowBusy`. **Primary signal for busy workflow throttling.** A sustained rate typically indicates a workflow type receiving very high update rates, or elevated DB latency causing workflow locks to be held longer than expected. |
+| **Transfer Active Task Errors Workflow Busy** | Rate of transfer active tasks throttled by workflow-lock contention — `task_errors_throttled` with cause `BusyWorkflow` (as of v2.8.1; earlier versions queried the never-emitted `task_errors_workflow_busy` counter, and v2.8.0 used the wrong cause value — both read flat). **Primary signal for busy workflow throttling.** A sustained rate typically indicates a workflow type receiving very high update rates, or elevated DB latency causing workflow locks to be held longer than expected. |
 | **Transfer Active Task Errors Throttled** | Rate of throttled active transfer task errors broken down by namespace and resource exhausted cause. Useful for identifying which namespaces are experiencing the most busy workflow throttling. |
 
 ---
@@ -284,7 +285,6 @@ Focuses on matching task queue latencies and throttling. Can be useful among oth
 |---|---|
 | **Async Match Latency** | Time from task creation to worker pickup for tasks that could not be sync-matched and had to wait in the queue. High values with healthy workers indicate matching is the bottleneck — consider increasing task queue partitions. If workers are unhealthy, fix worker provisioning first. |
 | **Sync Match Latency** | Latency for tasks that were directly matched to a waiting poller within the sync match window. Low sync match latency alongside high async match latency indicates workers are present but matching partitions are overwhelmed. |
-| **Sync Throttle Count** | Rate of sync match dispatch attempts rejected by the per-partition rate limiter. This metric fires only on the sync match path — when a new task arrives and tries to pair directly with a waiting poller without writing to the database. The effective default limit is 1,000/s per partition per task queue, set by `admin.matchingNamespaceTaskqueueToPartitionDispatchRate` (default 1,000); there is also a namespace-level cap via `admin.matchingNamespaceToPartitionDispatchRate` (default 10,000). Any non-zero sustained rate means the per-partition rate limit is actively rejecting sync match attempts. Important: when a backlog older than `matching.backlogNegligibleAge` (default 5s) is present, sync match is bypassed entirely and this metric goes silent even if the partition is saturated — in that state, use Tasks Persisted to DB and Approximate Task Backlog instead. If workers are present and sync throttle is non-zero, increasing task queue partitions distributes load across more rate-limit buckets. Rule out worker shortage first by checking Async Match Latency and Schedule to Start Latencies. |
 | **Task Write Throttle Count** | Rate of matching falling behind writing tasks to persistence. This is often caused by insufficient workers (low sync match rate) rather than partition count — check Schedule to Start Latencies and worker health first before increasing partitions. |
 
 ---
@@ -385,6 +385,35 @@ Tracks authorization-related metrics including denied requests, authorization sy
 
 ---
 
+### 20. History Task DLQ / Terminal Failures
+
+Surfaces history tasks being sent to the **history task DLQ** under database stress. When a history task fails processing with *unexpected* errors (`context deadline exceeded` / `context canceled`, e.g. during a DB outage) it accumulates attempts toward `history.TaskDLQUnexpectedErrorAttempts` (default 70 ≈ 1h); on crossing that, or on a terminal/corruption error, the task is written to the DLQ (`history.TaskDLQEnabled`, default true), removed from the active queue, and **not auto-retried**. For activity retry/timeout timers this strands the activity until an operator redrives the DLQ (`tdbg dlq merge --dlq-type 2`) or pause/unpauses the activity. The mechanism is DB-agnostic (Cassandra and SQL alike) and on by default.
+
+**Not all DLQ writes indicate a problem — filter by `operation`.** Visibility, retention (`DeleteHistoryEvent`), and workflow-task-timeout writes do not strand a running execution (WFT timeouts are covered by alerts 56/76). Only the execution-stranding types (activity retry/timeout timers, activity/workflow-task dispatch) mean stuck work — that subset is what alert 80 pages on. Rate-limit rejections (`ResourceExhausted`) are *excused* and never reach the DLQ; they are retried with no loss.
+
+| Panel | Description |
+|---|---|
+| **Dead-Lettered Tasks — Execution-Stranding (page-worthy)** | `dlq_writes` filtered to the stranding `operation` types (`ActivityRetryTimer`, `ActivityTimeout`, transfer `Activity`/`WorkflowTask`; Active + Standby). Any non-zero rate = permanently stranded work until DLQ redrive or activity pause/unpause. Backs essential alert 80. |
+| **Dead-Lettered Tasks — Informational** | `dlq_writes` for visibility / retention / WFT-timeout types. These do not strand executions; a trend of visibility/retention pipeline health, not page-worthy. |
+| **Task Terminal Failures (all DLQ paths)** | `task_terminal_failures` — rate of tasks marked terminally failed and sent to the DLQ across all three paths (70-attempt threshold, terminal/corruption, and `history.TaskDLQErrorPattern` regex match). |
+| **Leading Indicator — Unexpected Errors on Stranding Task Types** | `task_errors` on the stranding `operation` types. These accumulate toward the 70-attempt threshold before dead-lettering, so a sustained climb here is the early warning during a DB outage/overload window — before any DLQ write occurs. |
+
+---
+
+### 21. Archival Health
+
+Detection surface for a **sustained archival-backend (S3 / GCS / custom provider) outage**. A dead backend fails every closed workflow's archival task; after `history.TaskDLQUnexpectedErrorAttempts` (default 70 ≈ 1h) each task is dead-lettered, and a large burst of DLQ writes can back-pressure the whole database (the single-partition history task DLQ serializes writes as lightweight transactions on Cassandra / row-locked transactions on SQL). Retention deletion also stalls, since it is chained after a successful archive. This group provides two page-worthy signals plus context; full mechanism, detection queries, pause remediation, and recovery are in the **[Detecting & Recovering from an Archival Backend Outage playbook](../../../playbooks/detecting-recovering-archival-outage.md)**.
+
+`archiver_archive_latency` carries a `status` tag with three values — `ok`, `err`, `rate_limit_exceeded` (verified in `service/history/archival/archiver.go`). Signal 1 uses `status="err"` so it excludes rate-limit rejections and reflects genuine backend failures. `dlq_writes` carries an `operation` tag whose archival value is `ArchivalTaskArchiveExecution` (verified in `service/history/queues/dlq_writer.go`).
+
+| Panel | Description |
+|---|---|
+| **Signal 1 — Archival Attempt Error Rate (page-worthy)** | `archiver_archive_latency` with `status="err"` — rate of archival attempts to the configured backend that failed (excludes rate-limit rejections). The **earliest** signal of an outage; fires ~1h before failing tasks reach the DLQ. Backs essential alert 81. |
+| **Archival Attempts by Status (ok / err / rate_limit_exceeded)** | `archiver_archive_latency` broken down by `status`. Confirms whether archival is succeeding at all and separates a genuine backend outage (`err`) from archival rate-limiting (`rate_limit_exceeded`). Context for Signal 1. |
+| **Signal 2 — History Task DLQ Writes & Write Failures (page-worthy)** | `dlq_writes{operation="ArchivalTaskArchiveExecution"}` (archival tasks reaching the DLQ after 70 failed attempts) and `task_dlq_failures` (writes to the single-partition DLQ themselves failing — database distress). Backs essential alert 82. |
+| **Archival Errors by Type (non-retryable vs transient)** | `history_archiver_archive_non_retryable_error` / `_transient_error` and the `visibility_archiver_archive_*` equivalents. Non-retryable (e.g. bad endpoint / DNS NXDOMAIN) = a hard, sustained outage; transient (timeouts, connection resets) may be a passing blip. Use to judge whether the failure is sustained before pausing. |
+| **Archival DLQ Depth** | `max(dlq_message_count{task_category="archival"})` — accumulated backlog size in the archival DLQ (Signal 2 shows the write *rate*; this shows the *depth*). Climbs during an outage; drains back toward zero after the backend recovers and archival is un-paused. |
+
 ---
 
 ## Threshold Reference Lines
@@ -456,7 +485,6 @@ The following panels have threshold reference lines configured:
 | Panel | Orange | Red | Notes |
 |---|---|---|---|
 | **Async Match Latency** | 500ms | 2s | High values with healthy workers indicate matching partitions are the bottleneck. See the [Changing Task Queue Partitions playbook](../../../playbooks/change-task-queue-partitions.md). |
-| **Sync Throttle Count** | — | 1 (any) | Any non-zero rate means the rate limiter is actively rejecting sync match attempts. Default limit: 1,000/s per partition per task queue (`admin.matchingNamespaceTaskqueueToPartitionDispatchRate`); namespace-level cap: 10,000/s (`admin.matchingNamespaceToPartitionDispatchRate`). Metric is silent when backlog age exceeds `matching.backlogNegligibleAge` (5s default) — pair with Tasks Persisted and Approximate Task Backlog for the full picture. |
 | **Task Write Throttle Count** | — | 1 (any) | Any non-zero rate warrants investigation. Rule out worker shortage before adjusting partitions. |
 
 ### SDK Workers Info
