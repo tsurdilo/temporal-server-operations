@@ -6911,7 +6911,7 @@
             "y": 25
           },
           "id": 2211,
-          "title": "Signal 1 — Archival Attempt Error Rate (page-worthy)",
+          "title": "Signal 1 — Archival Attempt Error Rate",
           "description": "Rate of archival attempts to the configured backend that failed (archiver_archive_latency, status=err). Excludes rate-limit rejections (status=rate_limit_exceeded). A sustained non-zero rate = the backend is unreachable or persistently erroring — the earliest signal of an outage, ~1h before tasks reach the DLQ. This is what alert 81 pages on.",
           "type": "timeseries",
           "options": {
@@ -7019,7 +7019,7 @@
             "y": 32
           },
           "id": 2213,
-          "title": "Signal 2 — History Task DLQ Writes & Write Failures (page-worthy)",
+          "title": "Signal 2 — History Task DLQ Writes & Write Failures",
           "description": "Downstream escalation of an archival outage. 'archival DLQ writes' = archival tasks reaching the DLQ after 70 failed attempts (dlq_writes, ArchivalTaskArchiveExecution). 'DLQ write failures' = writes to the single-partition DLQ themselves failing (task_dlq_failures) — database distress. Alert 82 pages on task_dlq_failures.",
           "type": "timeseries",
           "options": {
