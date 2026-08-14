@@ -169,6 +169,8 @@ The schema tool applies every intermediate schema version in one run — you don
 Still upgrade the **binary** one minor version at a time. The schema isn't the constraint — the tool fast-forwards through every intermediate version in one run. The reason for stepping is the binary: a version can do version-gated work at startup — background data migrations, feature sequencing — that a multi-minor jump would skip past. The server doesn't enforce this; it's a recommendation, but one minor at a time is the tested, supported path.
 
 > **Recommended: skim the release notes for the versions you skip.** Skipping patches is the norm and usually safe, but a release note occasionally calls out a required intermediate step or a version that must not be skipped. If one does, follow it — it overrides the common path here.
+>
+> **PostgreSQL only: one visibility schema step can take a long time on a large database.** When you upgrade a large PostgreSQL visibility database to the 1.30 or 1.31 releases, one step rebuilds a whole table and can take a long time. This was made more efficient in v1.31.1, so upgrading straight to v1.31.1 or later is easier than stopping at 1.30. See the note in [Step 2](#sql-visibility-mysql--postgresql). Keep it in mind when you pick your target version and schedule the upgrade.
 
 ---
 
@@ -269,6 +271,12 @@ temporal-sql-tool \
   update-schema \
   --schema-name postgresql/v12/visibility
 ```
+
+> **PostgreSQL: on a large visibility table this step can take a long time — it's working, not stuck.** Some of the columns added in the 1.30 and later releases require PostgreSQL to rebuild the entire `executions_visibility` table. On a table with tens of millions of rows this can run for a long time — potentially much longer than you'd expect — and it uses a lot of database CPU while it runs. During the rebuild the table is locked, so searching or listing workflows may be slow or fail until it finishes — but running workflows keep going and no data is lost. Don't stop the migration partway through: it's making progress, and killing it throws the work away and starts over.
+>
+> This got more efficient in **v1.31.1**. The older v1.30 tool makes the changes in several separate passes, each one rewriting the whole table and locking it while it builds indexes. The v1.31.1 tool does it in a single pass and builds the new indexes without blocking writes. Since the migration comes from whichever tool you run, upgrading straight to v1.31.1 or later is easier on a large table than going through v1.30. (See temporalio/temporal PR #10371.)
+>
+> If your visibility database is large when you run the upgrade, treat this migration like a heavy maintenance task: run it during a scheduled maintenance window, and avoid starting it while production traffic is high — especially during workload spikes. One thing to check first: while it runs, the migration temporarily needs extra free space in the database (in the worst case, up to double the size of the visibility table), so make sure there's room before you start. This only affects PostgreSQL — MySQL doesn't rewrite the table for these changes.
 
 #### Elasticsearch
 
