@@ -210,7 +210,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
         "y": 12
       },
@@ -233,6 +233,53 @@
       "targets": [
         {
           "expr": "sum by (partition) (physical_approximate_backlog_count{namespace=\"$namespace\", taskqueue=\"$taskqueue\", task_type=\"$task_type\", service_name=~\"matching\"})",
+          "legendFormat": "partition {{partition}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 36,
+      "title": "Tasks Added by Partition",
+      "description": "",
+      "type": "timeseries",
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (partition) (rate(tasks_added{namespace=\"$namespace\", taskqueue=\"$taskqueue\", task_type=\"$task_type\", service_name=~\"matching\"}[$__rate_interval]))",
           "legendFormat": "partition {{partition}}",
           "refId": "A"
         }
@@ -708,7 +755,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 12,
         "x": 0,
         "y": 55
       },
@@ -732,6 +779,53 @@
         {
           "expr": "histogram_quantile($p, sum by (operation, le) (rate(persistence_latency_bucket{namespace=\"$namespace\", operation=~\"UpdateWorkflowExecution|CreateWorkflowExecution\"}[$__rate_interval])))",
           "legendFormat": "{{operation}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 55
+      },
+      "id": 37,
+      "title": "Eager Activity Dispatch",
+      "description": "",
+      "type": "timeseries",
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(activity_eager_execution{namespace=\"$namespace\", taskqueue=\"$taskqueue\"}[$__rate_interval]))",
+          "legendFormat": "eager activity dispatch",
           "refId": "A"
         }
       ]
@@ -861,8 +955,8 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Task Queue Partitions v1.2.0",
+  "title": "Temporal Task Queue Partitions v1.4.0",
   "uid": "temporal-taskqueue-partitions",
-  "version": 7,
+  "version": 9,
   "weekStart": ""
 }

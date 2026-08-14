@@ -40,7 +40,7 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 10 — History Timer Task Info](#section-10--history-timer-task-info) (#35–#39)
 - [Section 11 — Workflow Stats](#section-11--workflow-stats) (#40–#41)
 - [Section 12 — Workflow Execution History Info](#section-12--workflow-execution-history-info) (#42–#47, #75)
-- [Section 13 — Matching Task Queue Info](#section-13--matching-task-queue-info) (#74)
+- [Section 13 — Matching Task Queue Info](#section-13--matching-task-queue-info) (#74, #83)
 - [Section 14 — SDK Workers Info](#section-14--sdk-workers-info) (#48–#56, #76–#77)
 - [Section 15 — Pollers](#section-15--pollers) (#57–#58)
 - [Section 16 — Visibility](#section-16--visibility) (#59–#63, #59a–#59c)
@@ -1162,8 +1162,8 @@ Alert 12 covers `ReadHistoryBranch` as part of a broad multi-operation persisten
 
 ## Section 13 — Matching Task Queue Info
 
-> **Dashboard panels:** none — Sync Throttle Count was removed (overview dashboard v2.9.0) because `sync_throttle_count` is classic-matcher only and not emitted on the default priority matcher (v1.31.0+)
-> **Metric:** `sync_throttle_count` (classic matcher only)
+> **Dashboard panels:** Approximate Backlog Age by Partition (Task Queue Partitions dashboard) for alert 83. Sync Throttle Count was removed from the overview dashboard (v2.9.0) — `sync_throttle_count` is classic-matcher only and not emitted on the default priority matcher (v1.31.0+).
+> **Metrics:** `approximate_backlog_age_seconds`, `sync_throttle_count` (classic matcher only)
 > **Component:** matching
 
 ### Alert 74 — Matching Partition Sync Throttle Active
@@ -1182,6 +1182,25 @@ Alert 12 covers `ReadHistoryBranch` as part of a broad multi-operation persisten
 **Why it's not in the Essential Set:** `sync_throttle_count` is emitted only by the classic `TaskMatcher`. On server v1.31.0+ the priority matcher is the default (`matching.useNewMatcher`, on by default since v1.31.0) and does not emit this metric, so the alert can never fire there. It is relevant only on pre-v1.31.0 clusters or where `matching.useNewMatcher=false` is set explicitly. Because it can't fire on a default modern cluster, it was removed from the provisioning YAML and has no dedicated runbook — it remains documented here for classic-matcher deployments.
 
 The matching sync dispatch limit is being hit for a namespace and task type. There is no dashboard panel (removed in v2.9.0) — query `sum by (namespace, task_type) (rate(sync_throttle_count{service_name="matching"}[5m]))` directly in Prometheus to confirm which namespace/task type is affected. Triage: if alert 57 (All Pollers Disconnected) is also firing, fix worker provisioning first; if pollers are healthy, the bottleneck is partition count — increase `matching.numTaskqueueWritePartitions` and `matching.numTaskqueueReadPartitions` for the affected task queue (the per-partition dispatch limit is 1,000 tasks/s by default).
+
+---
+
+### Alert 83 — Task Queue Partition Backlog Not Draining
+
+| Field | Value |
+|---|---|
+| Status | Documented — **not in the Essential Set** (opt-in metric + workload-specific threshold) |
+| UID | `temporal-alert-083` |
+| Severity | warning |
+| Panel | Approximate Backlog Age by Partition ([Task Queue Partitions dashboard](../../../metrics/dashboards/server/task-queue-partitions-readme.md)) |
+| `for` | 10m |
+| `noDataState` | OK |
+
+**Condition:** `max by (namespace, taskqueue, task_type, partition) (approximate_backlog_age_seconds{service_name="matching", namespace="<your-namespace>", taskqueue="<your-task-queue>"}) > 300`
+
+**Why it's not in the Essential Set:** two reasons. (1) The threshold is **workload-specific** — a low-latency queue wants a few seconds, a batch queue tolerates minutes; there is no universal number. (2) `approximate_backlog_age_seconds` only emits when `metrics.breakdownByPartition` and `metrics.breakdownByTaskQueue` are enabled, which is opt-in per task queue (for cardinality). So it can't be a cluster-wide alert — scope it to the specific queue(s) you have instrumented and tune the threshold to each.
+
+A partition's oldest backlog task has stayed older than the threshold for the whole `for` window and isn't draining. The most common cause is a `Write > Read` misconfiguration — a partition beyond the read count that receives tasks but has no worker polling it — but it fires for any non-draining backlog. **Triage:** compare `matching.numTaskqueueReadPartitions` vs `matching.numTaskqueueWritePartitions` for the queue (including per-namespace / per-task-queue overrides); if write is higher than read, raise read to ≥ write. Otherwise it's a drain problem — add worker capacity (pollers / activity slots), or clear a rate limit on the drain path. See the [Changing Task Queue Partitions playbook](../../../playbooks/change-task-queue-partitions.md#detecting-and-fixing-an-existing-write--read-misconfiguration). This catches the stall while the partition is still loaded; once an idle partition unloads (`matching.maxTaskQueueIdleTime`, 5 min) its series goes absent, which is why `noDataState` is `OK` — so a quiet queue does not page.
 
 > **Alerts not planned for this section:** Async Match Latency high/critical — schedule-to-start alerts (48/49 in Section 14) already cover the end-user impact. Task Write Throttle Count — typically indicates worker shortage rather than partition count, redundant with Section 14. Sync Match Latency — most useful as a comparative signal alongside async match, not as a standalone alert.
 

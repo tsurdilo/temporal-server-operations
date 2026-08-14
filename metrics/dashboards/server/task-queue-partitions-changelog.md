@@ -1,5 +1,15 @@
 # Changelog — Temporal Task Queue Partitions Dashboard
 
+## v1.4.0 — 2026-08-14
+
+### Added
+- **Eager Activity Dispatch** panel in the *Rule-Outs* row (`activity_eager_execution`, `sum(rate(...))` per queue). Answers the common "why are my activity backlog / Tasks Added panels flat under load?" question: when `system.enableActivityEagerExecution` is on (server default) and the SDK requests eager dispatch (Go/Java default), activities scheduled during a workflow task are handed straight back to the completing worker and **never reach matching** — so the matching-side activity panels read empty even under heavy load, and changing partitions does nothing for that work. A high rate here is the confirmation. It's a **history**-emitted metric, per namespace + task queue (not per partition, and activity-only — so the panel intentionally does **not** filter by `$task_type`); the `taskqueue` tag needs `metrics.breakdownByTaskQueue` on, same as the per-partition panels. *Persistence Latency* narrowed to half width to make room. Verified against source (`service/history/api/respondworkflowtaskcompleted/workflow_task_completed_handler.go:667`, `common/metrics/metric_defs.go`).
+
+## v1.3.0 — 2026-08-10
+
+### Added
+- **Tasks Added by Partition** panel in the *Per-Partition Backlog* row (`tasks_added`, `sum by (partition)`). Shows the rate of tasks landing on each partition — the positive "this partition is receiving and dispatching work" signal the backlog panels can't give: a partition that sync-matches its tasks straight to workers shows **zero backlog** but a non-zero `tasks_added`. Primary use is confirming, after a partition **increase**, that the new high-index partitions are actually being written to and dispatched from — not just inferring it from whether backlog does or doesn't accumulate. `tasks_added` carries a `task_add_result` tag (`sync_match` / `backlog` / `sync_match_unavailable` / `throttled` / `failure`) for drill-down; this panel sums across it. Per partition, gated by `metrics.breakdownByPartition` like the other backlog panels. *Physical Backlog Count by Partition* narrowed to half width to make room. Verified against source (`service/matching/task_queue_partition_manager.go` `RecordTaskAdd` call sites, `physical_task_queue_manager.go:469`, `common/metrics/metric_defs.go`, `common/metrics/tags.go`).
+
 ## v1.2.0 — 2026-08-10
 
 ### Added

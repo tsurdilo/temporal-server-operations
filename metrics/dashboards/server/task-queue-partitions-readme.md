@@ -91,8 +91,9 @@ Per-partition backlog depth and age — one series per partition index.
 | **Approximate Backlog Count by Partition** | `approximate_backlog_count` | Tasks waiting in each partition's backlog. Summed across `worker_version` on v1.31.0+ |
 | **Approximate Backlog Age by Partition** | `approximate_backlog_age_seconds` | Age of the oldest task in each partition's backlog — the reliable backlog-age signal |
 | **Physical Backlog Count by Partition (v1.31.0+)** | `physical_approximate_backlog_count` | Version-agnostic backlog count. Empty pre-v1.31.0 |
+| **Tasks Added by Partition** | `tasks_added` | Rate of tasks landing on each partition. The positive "this partition is receiving and dispatching work" signal — non-zero even when a partition sync-matches everything and shows zero backlog. Carries a `task_add_result` tag (`sync_match` / `backlog` / …) for drill-down; the panel sums across it |
 
-> **How to read this row** — drain confirmation on a decrease, load spread on an increase, and `Write > Read` detection: see the playbook's [Monitoring After a Decrease](../../../playbooks/change-task-queue-partitions.md#monitoring-after-a-decrease) and [Monitoring After an Increase](../../../playbooks/change-task-queue-partitions.md#monitoring-after-an-increase), plus [Detecting and Fixing an Existing `Write > Read` Misconfiguration](../../../playbooks/change-task-queue-partitions.md#detecting-and-fixing-an-existing-write--read-misconfiguration).
+> **How to read this row** — drain confirmation on a decrease, load spread on an increase, and `Write > Read` detection: see the playbook's [Monitoring After a Decrease](../../../playbooks/change-task-queue-partitions.md#monitoring-after-a-decrease) and [Monitoring After an Increase](../../../playbooks/change-task-queue-partitions.md#monitoring-after-an-increase), plus [Detecting and Fixing an Existing `Write > Read` Misconfiguration](../../../playbooks/change-task-queue-partitions.md#detecting-and-fixing-an-existing-write--read-misconfiguration). **Tasks Added by Partition** is the panel to watch when confirming a partition **increase** took — the new high-index partitions should light up on it even if their backlog stays at 0.
 
 > **Approximate vs. Physical backlog count.** Both count panels show the same backlog — use either. They diverge only under Worker Versioning: Approximate is split per worker version, Physical is the single combined total.
 
@@ -130,8 +131,9 @@ Per-partition backlog depth and age — one series per partition index.
 | **Schedule to Start Latency (queue)** | `task_schedule_to_start_latency` (`$p`) | Latency from task scheduling to worker pickup for this queue. **Queue-level** — not per-partition (history emits it with `partition=__normal__`) |
 | **Busy Workflow Throttling** | `task_errors_throttled{resource_exhausted_cause="BusyWorkflow"}` | Rate of history tasks throttled by workflow-lock contention. **Namespace-scoped** |
 | **Persistence Latency — Update / CreateWorkflowExecution** | `persistence_latency` (`$p`) | History write-path latency for `UpdateWorkflowExecution` / `CreateWorkflowExecution`. **Namespace-scoped** |
+| **Eager Activity Dispatch** | `activity_eager_execution` | Rate of activities dispatched **eagerly** (handed straight back to the completing worker, bypassing matching). **Queue-level**, activity-only — so it doesn't filter by `$task_type`. A high rate explains flat activity backlog / Tasks Added panels: that work never reaches matching, so partition changes won't affect it |
 
-> **How to read this row** — using these to rule out a non-matching bottleneck before adding partitions: see the playbook's [Recommendations: before you increase](../../../playbooks/change-task-queue-partitions.md#recommendations-before-you-increase).
+> **How to read this row** — using these to rule out a non-matching bottleneck before adding partitions: see the playbook's [Recommendations: before you increase](../../../playbooks/change-task-queue-partitions.md#recommendations-before-you-increase). **Eager Activity Dispatch** is a different kind of rule-out — if a queue's activity panels look empty under load, check it before assuming the queue is idle.
 
 ---
 
@@ -142,12 +144,14 @@ Not every panel can be split by partition — some metrics don't carry a `partit
 **Per partition** — one line per partition index:
 - Approximate Backlog Count / Age
 - Physical Backlog Count
+- Tasks Added
 - Async Match Latency
 - Dispatch Rate-Limiting (opt-in — needs `matching.enablePollerScalingDecisionMetrics`)
 - Task Write Throttle Count / Latency
 
 **Whole task queue** — one line for the queue, not split by partition:
 - Schedule to Start Latency
+- Eager Activity Dispatch
 
 **Whole namespace** — covers the entire namespace, **not** just the task queue you picked in `$taskqueue`:
 - Resource Exhausted by Cause
