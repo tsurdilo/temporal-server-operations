@@ -171,7 +171,7 @@ The queued-up archival backlog drains and archives complete. **Retention cleanup
 
 On the **Archival Health** row of the [Temporal Server Dashboard](../metrics/dashboards/server/temporal-server-readme.md#21-archival-health), watch the **Signal 1 — Archival Attempt Error Rate** panel: archival is succeeding again, so the error rate returns to ~0.
 
-To check whether any archival tasks reached the DLQ during the outage, list the DLQs with `tdbg`. The archival queue is named `5_<sourceCluster>_<targetCluster>_<hash>` — note its message count and the two cluster names, you need them to redrive:
+To check whether any archival tasks reached the DLQ during the outage, list the DLQs with `tdbg`. The archival queue is named `5_<sourceCluster>_<targetCluster>_<hash>` — a non-zero message count means there are tasks to redrive; note the two cluster names from the queue name (you pass them to the redrive tool below):
 ```
 tdbg dlq --dlq-version v2 list
 ```
@@ -189,17 +189,27 @@ Save this as `main.go`:
 // source queue by calling AdminService.MergeDLQTasks directly — a workaround
 // for `tdbg dlq merge` not supporting the archival category (5) on current
 // server versions. Expected to be fixed in a future server/tdbg release.
+//
+// TLS: leave the --tls-* flags empty for a plaintext connection. For a production
+// frontend, set --tls-ca-path for server-authenticated TLS, and additionally
+// --tls-cert-path/--tls-key-path for mutual TLS (client cert).
 package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
+	"fmt"
 	"log"
+	"os"
 	"time"
 
 	adminservice "go.temporal.io/server/api/adminservice/v1"
 	commonspb "go.temporal.io/server/api/common/v1"
+	"go.temporal.io/server/common/persistence"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -208,18 +218,27 @@ func main() {
 	category := flag.Int("category", 5, "task category ID (5 = archival)")
 	source := flag.String("source-cluster", "active", "source cluster (from the DLQ queue name)")
 	target := flag.String("target-cluster", "active", "target cluster (from the DLQ queue name)")
-	lastID := flag.Int64("last-message-id", -1, "inclusive max DLQ message id to merge (all ids <= this); required")
+	// Optional: the inclusive max DLQ message id to merge. Leave unset (-1) and the
+	// tool discovers the queue's current last message id automatically, i.e. redrive
+	// everything currently in the DLQ. Set it only to cap the merge at a lower id.
+	lastID := flag.Int64("last-message-id", -1, "inclusive max DLQ message id to merge; unset = redrive everything currently queued")
 	timeout := flag.Duration("timeout", 60*time.Second, "RPC timeout")
+	tlsCertPath := flag.String("tls-cert-path", "", "path to client TLS certificate (mTLS)")
+	tlsKeyPath := flag.String("tls-key-path", "", "path to client TLS private key (mTLS)")
+	tlsCAPath := flag.String("tls-ca-path", "", "path to server CA certificate (server-authenticated TLS)")
+	tlsServerName := flag.String("tls-server-name", "", "override the TLS server name (SNI), if it differs from the --address host")
 	flag.Parse()
 
 	if *address == "" {
 		log.Fatal("--address is required, e.g. --address temporal-frontend:7233")
 	}
-	if *lastID < 0 {
-		log.Fatal("--last-message-id is required; get it from: tdbg dlq --dlq-version v2 list")
+
+	creds, err := transportCredentials(*tlsCertPath, *tlsKeyPath, *tlsCAPath, *tlsServerName)
+	if err != nil {
+		log.Fatalf("failed to build TLS credentials: %v", err)
 	}
 
-	conn, err := grpc.NewClient(*address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(*address, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		log.Fatalf("failed to connect to %s: %v", *address, err)
 	}
@@ -229,8 +248,23 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
+	// Discover the last message id if not supplied — merge everything currently queued.
+	maxID := *lastID
+	if maxID < 0 {
+		id, nonEmpty, err := findLastMessageID(ctx, client, *category, *source, *target)
+		if err != nil {
+			log.Fatalf("failed to look up last message id: %v", err)
+		}
+		if !nonEmpty {
+			log.Printf("DLQ for category=%d source=%s target=%s is empty — nothing to redrive.", *category, *source, *target)
+			return
+		}
+		maxID = id
+		log.Printf("discovered last message id = %d", maxID)
+	}
+
 	log.Printf("MergeDLQTasks: category=%d source=%s target=%s inclusiveMaxMessageId=%d",
-		*category, *source, *target, *lastID)
+		*category, *source, *target, maxID)
 
 	resp, err := client.MergeDLQTasks(ctx, &adminservice.MergeDLQTasksRequest{
 		DlqKey: &commonspb.HistoryDLQKey{
@@ -238,7 +272,7 @@ func main() {
 			SourceCluster: *source,
 			TargetCluster: *target,
 		},
-		InclusiveMaxTaskMetadata: &commonspb.HistoryDLQTaskMetadata{MessageId: *lastID},
+		InclusiveMaxTaskMetadata: &commonspb.HistoryDLQTaskMetadata{MessageId: maxID},
 	})
 	if err != nil {
 		log.Fatalf("MergeDLQTasks failed: %v", err)
@@ -246,17 +280,81 @@ func main() {
 	log.Printf("accepted (async job): %v", resp)
 	log.Print("Re-run `tdbg dlq --dlq-version v2 list` to watch the count drain to zero.")
 }
+
+// findLastMessageID looks up the DLQ for the given category + clusters via
+// AdminService.ListQueues and returns its current last message id and whether it
+// has any messages. This is what lets the caller omit --last-message-id.
+func findLastMessageID(ctx context.Context, client adminservice.AdminServiceClient, category int, source, target string) (int64, bool, error) {
+	want := persistence.GetHistoryTaskQueueName(category, source, target)
+	var pageToken []byte
+	for {
+		resp, err := client.ListQueues(ctx, &adminservice.ListQueuesRequest{
+			QueueType:     int32(persistence.QueueTypeHistoryDLQ),
+			PageSize:      100,
+			NextPageToken: pageToken,
+		})
+		if err != nil {
+			return 0, false, fmt.Errorf("ListQueues: %w", err)
+		}
+		for _, q := range resp.Queues {
+			if q.GetQueueName() == want {
+				return q.GetLastMessageId(), q.GetMessageCount() > 0, nil
+			}
+		}
+		if len(resp.NextPageToken) == 0 {
+			return 0, false, nil // queue not found = empty
+		}
+		pageToken = resp.NextPageToken
+	}
+}
+
+// transportCredentials returns insecure credentials when no --tls-* flags are set,
+// otherwise a TLS config: server-authenticated with --tls-ca-path, and mutual
+// (client cert) when --tls-cert-path/--tls-key-path are also provided.
+func transportCredentials(certPath, keyPath, caPath, serverName string) (credentials.TransportCredentials, error) {
+	if certPath == "" && keyPath == "" && caPath == "" {
+		return insecure.NewCredentials(), nil
+	}
+	cfg := &tls.Config{ServerName: serverName}
+	if certPath != "" || keyPath != "" {
+		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("loading client cert/key: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	if caPath != "" {
+		ca, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading CA cert: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(ca) {
+			return nil, fmt.Errorf("no valid certificates in CA file %s", caPath)
+		}
+		cfg.RootCAs = pool
+	}
+	return credentials.NewTLS(cfg), nil
+}
 ```
 
-Build and run it from anywhere that can reach the frontend gRPC endpoint. Match `go.temporal.io/server` to **your** server version, and take `--source-cluster` / `--target-cluster` / `--last-message-id` from the `tdbg dlq list` output (queue name `5_<source>_<target>_<hash>`, and its `LASTMESSAGEID`):
+Build and run it from anywhere that can reach the frontend gRPC endpoint. Match `go.temporal.io/server` to **your** server version, and take `--source-cluster` / `--target-cluster` from the archival queue name in the `tdbg dlq list` output (`5_<source>_<target>_<hash>`). You do **not** need to pass a message id — the tool looks up the queue's current last message id and redrives everything in it. (Pass `--last-message-id N` only if you want to cap the merge at a specific id.)
 
 ```bash
 go mod init redrive
 go get go.temporal.io/server@v1.31.0 google.golang.org/grpc   # use YOUR server version
+
+# plaintext frontend:
 go run . \
   --address <frontend-host>:7233 \
-  --source-cluster <source> --target-cluster <target> \
-  --last-message-id <LASTMESSAGEID>
+  --source-cluster <source> --target-cluster <target>
+
+# TLS / mTLS frontend (typical in production):
+go run . \
+  --address <frontend-host>:7233 \
+  --tls-ca-path /path/ca.pem \
+  --tls-cert-path /path/client.pem --tls-key-path /path/client.key \
+  --source-cluster <source> --target-cluster <target>
 ```
 
 The merge runs as an async server job. Re-run `tdbg dlq --dlq-version v2 list` and watch the count drain to 0; on the dashboard, **Archival Attempts by Status** shows `ok` climbing as the redriven tasks archive.
