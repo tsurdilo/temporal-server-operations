@@ -180,7 +180,9 @@ tdbg dlq --dlq-version v2 list
 
 If the archival DLQ has messages, they must be **redriven** (re-enqueued) so they archive — and only then can their workflows be deleted by retention.
 
-> ⚠️ **`tdbg` cannot redrive archival tasks today.** On current server versions (verified on **v1.31.0**), `tdbg dlq --dlq-version v2 merge --dlq-type 5` fails with **`unknown dlq category 5`**. `tdbg` builds its task-category registry without the archival category (only the server registers it when archival is enabled), so `tdbg` rejects `--dlq-type 5` client-side — even though the server's `MergeDLQTasks` API accepts it. This is expected to be fixed in a future release. Until then, use the small Go program below, which calls that same server RPC directly.
+> ⚠️ **`tdbg` cannot redrive archival tasks today.** On current server versions (verified on **v1.31.0**), `tdbg dlq --dlq-version v2 merge --dlq-type 5` fails with **`unknown dlq category 5`**. `tdbg` builds its task-category registry without the archival category (only the server registers it when archival is enabled), so `tdbg` rejects `--dlq-type 5` client-side — even though the server's `MergeDLQTasks` API accepts it.
+>
+> **Tracking the fix:** this is filed as [temporalio/temporal#11586](https://github.com/temporalio/temporal/issues/11586), with a fix in [PR #11587](https://github.com/temporalio/temporal/pull/11587) that registers the archival category in `tdbg`. Once that ships, `tdbg dlq --dlq-version v2 merge --dlq-type 5` will work directly and the Go program below is no longer needed. Until then (and on any server version predating the fix), use the small Go program below, which calls that same `MergeDLQTasks` RPC directly.
 
 Save this as `main.go`:
 
