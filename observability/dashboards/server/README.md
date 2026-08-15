@@ -42,6 +42,18 @@ Deep health monitoring for the history service fleet: `host_health` state, gRPC 
 
 ---
 
+### Temporal Shard IO Concurrency — v1.1.0
+
+Decision guide for tuning `history.shardIOConcurrency`: shard IO semaphore health (latency and failures), the max-safe-value-per-pod ceiling, and the DB prerequisite check. SQL backends only (PostgreSQL, MySQL) — not applicable to Cassandra. Companion to the Shard IO Concurrency playbook.
+
+| File | Description |
+|---|---|
+| [shard-io-concurrency.json](./shard-io-concurrency.json) | Grafana dashboard JSON — import this into Grafana |
+| [shard-io-concurrency-readme.md](./shard-io-concurrency-readme.md) | Full panel reference and decision guide |
+| [shard-io-concurrency-changelog.md](./shard-io-concurrency-changelog.md) | Version history |
+
+---
+
 ### Namespace Failover — Graceful Handover Dashboard — v1.4.0
 
 Pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, flip confirmation, and post-handover health for planned namespace failovers using `namespace-handover-v2`. Multi-cluster replication only.

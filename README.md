@@ -8,17 +8,17 @@ Community feedback and contributions are always welcome — if something doesn't
 
 ---
 
+## [Playbooks](playbooks/README.md)
+
+Production-ready operational playbooks for self-hosted Temporal clusters. Each playbook has been tested against a real cluster and cross-references the specific dashboard panels and alert rules that surface its signals.
+
+---
+
 ## Observability
 
 ### Dashboards
 
-- [Server Dashboards](observability/dashboards/server/README.md) — Grafana dashboards for monitoring a self-hosted Temporal Server cluster, including:
-    - [Server Overview Dashboard](observability/dashboards/server/temporal-server-readme.md) — cluster health, throughput, persistence, and service metrics
-    - [Standby Cluster Dashboard](observability/dashboards/server/temporal-standby-readme.md) — replication health, lag, and failover readiness for standby clusters
-    - [History Host Health Dashboard](observability/dashboards/server/history-health-dashboard-readme.md) — per-pod `host_health` gauge, NOT_SERVING detection, and fleet-level aggregation
-    - [Shard IO Concurrency Dashboard](observability/dashboards/server/shard-io-concurrency-readme.md) — shard IO semaphore health, DB prerequisite check, and decision guide for tuning `history.shardIOConcurrency` (SQL backends only)
-    - [Task Queue Partitions Dashboard](observability/dashboards/server/task-queue-partitions-readme.md) — single-queue drill-down for safely changing a task queue's partition count: per-partition backlog drain and `Write > Read` detection, the three throughput ceilings (sync match, backlog write, backlog read+dispatch), and rule-outs for whether matching is the bottleneck; companion to the Changing Task Queue Partitions playbook
-    - [Namespace Failover — Graceful Handover Dashboard](observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, flip confirmation, and post-handover health panels for `namespace-handover-v2`
+- [Server Dashboards](observability/dashboards/server/README.md) — Grafana dashboards for monitoring a self-hosted Temporal Server cluster.
 - [SDK Dashboards](observability/dashboards/sdk/README.md) — Grafana dashboards for monitoring Temporal SDK clients and workers (Java, Go, TypeScript, Python, .NET, Ruby).
 - [Troubleshooting Dashboards](observability/dashboards/troubleshooting/README.md) — Grafana dashboards focused on troubleshooting specific Temporal operational issues.
 
@@ -33,12 +33,6 @@ Community feedback and contributions are always welcome — if something doesn't
 
 ---
 
-## [Playbooks](playbooks/README.md)
-
-Production-ready operational playbooks for self-hosted Temporal clusters. Each playbook has been tested against a real cluster and cross-references the specific dashboard panels and alert rules that surface its signals.
-
----
-
 ## [Dynamic Config](dynamic-config/README.md)
 
 OSS Temporal server dynamic config reference, dynamic config YAML samples, and troubleshooting info.
@@ -49,4 +43,5 @@ OSS Temporal server dynamic config reference, dynamic config YAML samples, and t
 
 - [temporal-etcd-dynconfig](https://github.com/tsurdilo/temporal-etcd-dynconfig) — etcd-backed dynamic config client for Temporal
 - [temporal-configmap-dynconfig](https://github.com/tsurdilo/temporal-configmap-dynconfig) — Kubernetes ConfigMap-backed dynamic config client for Temporal
+- [my-temporal-dockercompose](https://github.com/tsurdilo/my-temporal-dockercompose) — Docker Compose reference deployment of a self-hosted Temporal cluster with a full observability stack
 - [temporal-helm-superchart](https://github.com/tsurdilo/temporal-helm-superchart) — Helm super-chart wrapping the upstream Temporal chart with a full observability stack
