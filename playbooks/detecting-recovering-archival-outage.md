@@ -12,9 +12,9 @@ This playbook is specifically for a **sustained** archival outage — one that i
 
 **Related dashboard & alerts**
 
-- **Dashboard:** use the **Archival Health** row of the [Temporal Server Dashboard](../metrics/dashboards/server/temporal-server-readme.md#21-archival-health). Two panels there drive this playbook: **Signal 1 — Archival Attempt Error Rate** (detect the failure early) and **Signal 2 — History Task DLQ Writes & Write Failures** (see it escalate).
-- **Alert 81 — Archival Backend Failing** ([runbook](../metrics/alerts/server/runbooks/81-archival-backend-failing.md)): the earliest alert — fires on a sustained archival error rate, ~1h before any DLQ pressure. This is the one that should trigger this playbook.
-- **Alert 82 — History Task DLQ Write Failures** ([runbook](../metrics/alerts/server/runbooks/82-history-task-dlq-write-failures.md)): the later alert — the DLQ writes themselves are failing. If this fires, the situation has already progressed; go straight to the [recommended action](#5-recommended-action--pause-archival).
+- **Dashboard:** use the **Archival Health** row of the [Temporal Server Dashboard](../observability/dashboards/server/temporal-server-readme.md#21-archival-health). Two panels there drive this playbook: **Signal 1 — Archival Attempt Error Rate** (detect the failure early) and **Signal 2 — History Task DLQ Writes & Write Failures** (see it escalate).
+- **Alert 81 — Archival Backend Failing** ([runbook](../observability/alerts/server/runbooks/81-archival-backend-failing.md)): the earliest alert — fires on a sustained archival error rate, ~1h before any DLQ pressure. This is the one that should trigger this playbook.
+- **Alert 82 — History Task DLQ Write Failures** ([runbook](../observability/alerts/server/runbooks/82-history-task-dlq-write-failures.md)): the later alert — the DLQ writes themselves are failing. If this fires, the situation has already progressed; go straight to the [recommended action](#5-recommended-action--pause-archival).
 
 Both alerts are part of the server Essential Alert Set.
 
@@ -84,7 +84,7 @@ All together, this situation can potentially drive up **history host CPU utiliza
 
 ## 3. Detection
 
-Detection is driven from the **Archival Health** row of the [Temporal Server Dashboard](../metrics/dashboards/server/temporal-server-readme.md#21-archival-health). The signals below are ordered by how early they appear; **Signal 1 is the one to alert on** (see [Alert on archival failure](#4-alert-on-archival-failure)).
+Detection is driven from the **Archival Health** row of the [Temporal Server Dashboard](../observability/dashboards/server/temporal-server-readme.md#21-archival-health). The signals below are ordered by how early they appear; **Signal 1 is the one to alert on** (see [Alert on archival failure](#4-alert-on-archival-failure)).
 
 ### Signal 1 — Is archival failing?
 
@@ -122,8 +122,8 @@ Alert on **Signal 1** so you get roughly an hour of lead time before the DLQ bac
 
 You do not need to write this rule yourself — it ships in this repo:
 
-- **[Alert 81 — Archival Backend Failing](../metrics/alerts/server/runbooks/81-archival-backend-failing.md)** — fires on a sustained archival error rate, severity critical, `for: 10m`. This is the alert that should trigger this playbook.
-- **[Alert 82 — History Task DLQ Write Failures](../metrics/alerts/server/runbooks/82-history-task-dlq-write-failures.md)** — the escalation: the DLQ writes themselves are failing (the database is already under pressure). If this fires, [pause immediately](#5-recommended-action--pause-archival).
+- **[Alert 81 — Archival Backend Failing](../observability/alerts/server/runbooks/81-archival-backend-failing.md)** — fires on a sustained archival error rate, severity critical, `for: 10m`. This is the alert that should trigger this playbook.
+- **[Alert 82 — History Task DLQ Write Failures](../observability/alerts/server/runbooks/82-history-task-dlq-write-failures.md)** — the escalation: the DLQ writes themselves are failing (the database is already under pressure). If this fires, [pause immediately](#5-recommended-action--pause-archival).
 
 Both are part of the server Essential Alert Set.
 
@@ -169,7 +169,7 @@ history.archivalProcessorMaxPollRPS         = 20      # restore to your previous
 
 The queued-up archival backlog drains and archives complete. **Retention cleanup also catches up:** while archival was paused, closed workflows could not be deleted yet — Temporal deletes a workflow only after it has been archived — so they piled up in the database. That is expected; they get cleaned up now that archival is running again.
 
-On the **Archival Health** row of the [Temporal Server Dashboard](../metrics/dashboards/server/temporal-server-readme.md#21-archival-health), watch the **Signal 1 — Archival Attempt Error Rate** panel: archival is succeeding again, so the error rate returns to ~0.
+On the **Archival Health** row of the [Temporal Server Dashboard](../observability/dashboards/server/temporal-server-readme.md#21-archival-health), watch the **Signal 1 — Archival Attempt Error Rate** panel: archival is succeeding again, so the error rate returns to ~0.
 
 To check whether any archival tasks reached the DLQ during the outage, list the DLQs with `tdbg`. The archival queue is named `5_<sourceCluster>_<targetCluster>_<hash>` — a non-zero message count means there are tasks to redrive; note the two cluster names from the queue name (you pass them to the redrive tool below):
 ```

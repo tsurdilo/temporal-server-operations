@@ -8,28 +8,28 @@ Community feedback and contributions are always welcome — if something doesn't
 
 ---
 
-## Metrics
+## Observability
 
 ### Dashboards
 
-- [Server Dashboards](metrics/dashboards/server/README.md) — Grafana dashboards for monitoring a self-hosted Temporal Server cluster, including:
-    - [Server Overview Dashboard](metrics/dashboards/server/temporal-server-readme.md) — cluster health, throughput, persistence, and service metrics
-    - [Standby Cluster Dashboard](metrics/dashboards/server/temporal-standby-readme.md) — replication health, lag, and failover readiness for standby clusters
-    - [History Host Health Dashboard](metrics/dashboards/server/history-health-dashboard-readme.md) — per-pod `host_health` gauge, NOT_SERVING detection, and fleet-level aggregation
-    - [Shard IO Concurrency Dashboard](metrics/dashboards/server/shard-io-concurrency-readme.md) — shard IO semaphore health, DB prerequisite check, and decision guide for tuning `history.shardIOConcurrency` (SQL backends only)
-    - [Task Queue Partitions Dashboard](metrics/dashboards/server/task-queue-partitions-readme.md) — single-queue drill-down for safely changing a task queue's partition count: per-partition backlog drain and `Write > Read` detection, the three throughput ceilings (sync match, backlog write, backlog read+dispatch), and rule-outs for whether matching is the bottleneck; companion to the Changing Task Queue Partitions playbook
-    - [Namespace Failover — Graceful Handover Dashboard](metrics/dashboards/server/namespace-failover-graceful-handover-readme.md) — pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, flip confirmation, and post-handover health panels for `namespace-handover-v2`
-- [SDK Dashboards](metrics/dashboards/sdk/README.md) — Grafana dashboards for monitoring Temporal SDK clients and workers (Java, Go, TypeScript, Python, .NET, Ruby).
-- [Troubleshooting Dashboards](metrics/dashboards/troubleshooting/README.md) — Grafana dashboards focused on troubleshooting specific Temporal operational issues.
+- [Server Dashboards](observability/dashboards/server/README.md) — Grafana dashboards for monitoring a self-hosted Temporal Server cluster, including:
+    - [Server Overview Dashboard](observability/dashboards/server/temporal-server-readme.md) — cluster health, throughput, persistence, and service metrics
+    - [Standby Cluster Dashboard](observability/dashboards/server/temporal-standby-readme.md) — replication health, lag, and failover readiness for standby clusters
+    - [History Host Health Dashboard](observability/dashboards/server/history-health-dashboard-readme.md) — per-pod `host_health` gauge, NOT_SERVING detection, and fleet-level aggregation
+    - [Shard IO Concurrency Dashboard](observability/dashboards/server/shard-io-concurrency-readme.md) — shard IO semaphore health, DB prerequisite check, and decision guide for tuning `history.shardIOConcurrency` (SQL backends only)
+    - [Task Queue Partitions Dashboard](observability/dashboards/server/task-queue-partitions-readme.md) — single-queue drill-down for safely changing a task queue's partition count: per-partition backlog drain and `Write > Read` detection, the three throughput ceilings (sync match, backlog write, backlog read+dispatch), and rule-outs for whether matching is the bottleneck; companion to the Changing Task Queue Partitions playbook
+    - [Namespace Failover — Graceful Handover Dashboard](observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, flip confirmation, and post-handover health panels for `namespace-handover-v2`
+- [SDK Dashboards](observability/dashboards/sdk/README.md) — Grafana dashboards for monitoring Temporal SDK clients and workers (Java, Go, TypeScript, Python, .NET, Ruby).
+- [Troubleshooting Dashboards](observability/dashboards/troubleshooting/README.md) — Grafana dashboards focused on troubleshooting specific Temporal operational issues.
 
 ### Alerts
 
-- [Server Alerts](metrics/alerts/server/README.md) — Grafana alerting provisioning rules for a self-hosted Temporal Server cluster. Covers the essential alert set, dual visibility store alerts, and namespace failover graceful handover alerts. Each alert links to the relevant dashboard panel and playbook section.
-- [SDK Alerts](metrics/alerts/sdk/README.md) — Grafana alerting provisioning rules for Temporal SDK clients and workers. One YAML per SDK reporter (Java Micrometer, Java OTel, Go, Core). Each alert links to a runbook with diagnosis and recovery steps.
+- [Server Alerts](observability/alerts/server/README.md) — Grafana alerting provisioning rules for a self-hosted Temporal Server cluster. Covers the essential alert set, dual visibility store alerts, and namespace failover graceful handover alerts. Each alert links to the relevant dashboard panel and playbook section.
+- [SDK Alerts](observability/alerts/sdk/README.md) — Grafana alerting provisioning rules for Temporal SDK clients and workers. One YAML per SDK reporter (Java Micrometer, Java OTel, Go, Core). Each alert links to a runbook with diagnosis and recovery steps.
 
-### References
+### Metric Reference
 
-- [Metrics References](metrics/references/README.md) — per-metric reference docs for the Temporal server and all SDKs (Go, Java, Core).
+- [Metrics References](observability/metric-reference/README.md) — per-metric reference docs for the Temporal server and all SDKs (Go, Java, Core).
 
 ---
 
@@ -39,7 +39,7 @@ Production-ready operational playbooks for self-hosted Temporal clusters. Each p
 
 ---
 
-## [Dynamic Config](dynamic_config/README.md)
+## [Dynamic Config](dynamic-config/README.md)
 
 OSS Temporal server dynamic config reference, dynamic config YAML samples, and troubleshooting info.
 

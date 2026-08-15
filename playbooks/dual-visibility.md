@@ -12,7 +12,7 @@ diagnosis, recovery, and write-mode management for all three failure scenarios.
 
 ## References
 
-**Dashboard:** [Temporal Server Dashboard](../metrics/dashboards/server/temporal-server-readme.md) — v2.5.0+, Visibility group
+**Dashboard:** [Temporal Server Dashboard](../observability/dashboards/server/temporal-server-readme.md) — v2.5.0+, Visibility group
 
 | Panel ID | Panel Name | What to look for |
 |----------|------------|------------------|
@@ -20,7 +20,7 @@ diagnosis, recovery, and write-mode management for all three failure scenarios.
 | 2118 | Visibility Write Error Rate per Store | **Primary alert signal.** Which store's line is spiking identifies the failure |
 | 2119 | Visibility Write Latency per Store | Divergence between stores = one recovering or under pressure |
 
-**Alerts:** [`metrics/alerts/server/temporal-server-alerts.yaml`](../metrics/alerts/server/temporal-server-alerts.yaml)
+**Alerts:** [`observability/alerts/server/temporal-server-alerts.yaml`](../observability/alerts/server/temporal-server-alerts.yaml)
 
 | Alert UID | Alert Name | Fires when |
 |-----------|------------|------------|
@@ -28,7 +28,7 @@ diagnosis, recovery, and write-mode management for all three failure scenarios.
 | `temporal-alert-059b` | Visibility Store Write Errors (Critical) | `visibility_persistence_errors` > 1 req/s for 1m on either store |
 | `temporal-alert-059c` | Visibility Store Write Latency High | p99 `visibility_persistence_latency` > 3s for 5m on either store |
 
-Alert runbook: [`metrics/alerts/server/runbooks/59a-visibility-store-write-errors.md`](../metrics/alerts/server/runbooks/59a-visibility-store-write-errors.md)
+Alert runbook: [`observability/alerts/server/runbooks/59a-visibility-store-write-errors.md`](../observability/alerts/server/runbooks/59a-visibility-store-write-errors.md)
 
 **Related dynamic config keys:**
 

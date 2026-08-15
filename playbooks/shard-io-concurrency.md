@@ -6,7 +6,7 @@
 
 ## References
 
-**Dashboard:** [Shard IO Concurrency — Operator Guide](../metrics/dashboards/server/shard-io-concurrency-readme.md) — v1.1.0
+**Dashboard:** [Shard IO Concurrency — Operator Guide](../observability/dashboards/server/shard-io-concurrency-readme.md) — v1.1.0
 
 | Panel | Panel Name | What to look for |
 |---|---|---|
@@ -16,7 +16,7 @@
 | Row 3 | Persistence Write Latency | DB round-trip health — must be low before raising `shardIOConcurrency` |
 | Row 3 | SQL Connection Pool Utilization | Pool ratio — must be below 0.8 before raising `shardIOConcurrency` |
 
-**Alerts:** [`metrics/alerts/server/temporal-server-alerts.yaml`](../metrics/alerts/server/temporal-server-alerts.yaml)
+**Alerts:** [`observability/alerts/server/temporal-server-alerts.yaml`](../observability/alerts/server/temporal-server-alerts.yaml)
 
 | Alert UID | Alert Name | Fires when |
 |---|---|---|

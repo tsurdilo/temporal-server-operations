@@ -2,7 +2,7 @@
 
 ## References
 
-**Dashboard:** [Temporal History Host Health Dashboard](../metrics/dashboards/server/history-health-dashboard-readme.md) — v1.3.0
+**Dashboard:** [Temporal History Host Health Dashboard](../observability/dashboards/server/history-health-dashboard-readme.md) — v1.3.0
 
 | Row | What to look for |
 |---|---|
@@ -12,7 +12,7 @@
 | **4. History RPC Health** | Latency / errors spiking without a DB spike → RPC check triggered the flip; check shard ownership lost and membership change panels |
 | **5. Shard Acquisition Health and Movement** | Shard acquisition latency and per-pod shard count — explains why pods stay in DECLINED_SERVING longer than expected during restarts or rebalancing |
 
-**Alerts:** [`metrics/alerts/server/alerts-index.md`](../metrics/alerts/server/alerts-index.md) — Section 0
+**Alerts:** [`observability/alerts/server/alerts-index.md`](../observability/alerts/server/alerts-index.md) — Section 0
 
 | Alert | Severity | Fires when |
 |---|---|---|
@@ -263,7 +263,7 @@ Tradeoff: tighter thresholds mean earlier signal but higher sensitivity to trans
 
 ## 4. Grafana dashboard
 
-A pre-built Grafana dashboard covering all `host_health` panels — pod counts by state, percentage breakdown, per-pod state, metric freshness, and fleet size change — is available in the [Temporal History Host Health Dashboard](../metrics/dashboards/server/history-health-dashboard.json). A full panel-by-panel explanation is in the [dashboard readme](../metrics/dashboards/server/history-health-dashboard-readme.md).
+A pre-built Grafana dashboard covering all `host_health` panels — pod counts by state, percentage breakdown, per-pod state, metric freshness, and fleet size change — is available in the [Temporal History Host Health Dashboard](../observability/dashboards/server/history-health-dashboard.json). A full panel-by-panel explanation is in the [dashboard readme](../observability/dashboards/server/history-health-dashboard-readme.md).
 
 Use the dashboard as your starting point. It includes a **Metric Freshness** panel that shows how long ago `host_health` was last updated — this is your signal that the poller has stopped calling `DeepHealthCheck`, which is a silent failure mode that leaves all other panels showing stale data.
 
@@ -271,7 +271,7 @@ Use the dashboard as your starting point. It includes a **Metric Freshness** pan
 
 ## 5. Alerts
 
-Alerting definitions for `host_health` are maintained in the [server alerts index](../metrics/alerts/server/alerts-index.md) under **Section 0 — History Host Health**. Three alerts are defined:
+Alerting definitions for `host_health` are maintained in the [server alerts index](../observability/alerts/server/alerts-index.md) under **Section 0 — History Host Health**. Three alerts are defined:
 
 | Alert | Severity | What it catches |
 |---|---|---|
@@ -286,7 +286,7 @@ All alerts are required. The warning/critical split on 0b is intentional — 0b-
 
 ## 6. Diagnosing what triggered NOT_SERVING
 
-**Typical flow**: Alert 0b warning fires → open the [History Host Health Dashboard](../metrics/dashboards/server/history-health-dashboard.json) → the dashboard shows you which pods are affected and when the flip happened → use the rows below to identify the cause. If 0b-critical fires instead, skip straight to section 7 (failover).
+**Typical flow**: Alert 0b warning fires → open the [History Host Health Dashboard](../observability/dashboards/server/history-health-dashboard.json) → the dashboard shows you which pods are affected and when the flip happened → use the rows below to identify the cause. If 0b-critical fires instead, skip straight to section 7 (failover).
 
 `host_health == 2` tells you a pod is degraded but not which check fired. **The dashboard is your primary diagnostic tool** — it has dedicated rows for each failure category. Logs are a follow-up when the dashboard doesn't show a clear cause.
 
@@ -350,7 +350,7 @@ Note: a matching pod showing ready does not mean it has loaded any task queues. 
 | 2 | `host_health` metric present and fresh | Poller is reaching frontend, `DeepHealthCheck` fan-out is working |
 | 3 | `host_health == 2` or `== 3` on majority of history pods | History fleet is degraded — `2` means RPC/persistence threshold breach, `3` means gRPC health non-SERVING (startup/shutdown/crashloop) |
 
-If layer 1 fails (frontend pods down), layer 2 will also fail (no metric emission). Absence of `host_health` data combined with frontend pods not ready is itself a failover signal. Alert 0c in the [server alerts index](../metrics/alerts/server/alerts-index.md) covers metric staleness detection.
+If layer 1 fails (frontend pods down), layer 2 will also fail (no metric emission). Absence of `host_health` data combined with frontend pods not ready is itself a failover signal. Alert 0c in the [server alerts index](../observability/alerts/server/alerts-index.md) covers metric staleness detection.
 
 ### Graceful vs forced failover — why timing matters
 
@@ -372,7 +372,7 @@ This is why `host_health` monitoring matters for failover: it gives you early wa
 
 **Alert 0a fires (pod disappeared) or 0c fires (metric stale)** alongside other degradation signals: treat as equivalent to 0b-critical — assume the worst and act accordingly.
 
-See the [server alerts index](../metrics/alerts/server/alerts-index.md) section 0 for full alert definitions.
+See the [server alerts index](../observability/alerts/server/alerts-index.md) section 0 for full alert definitions.
 
 ---
 
@@ -497,7 +497,7 @@ ENTRYPOINT ["/poller"]
 
 ## 9. Quick reference — what to check when `host_health` alerts
 
-**First action for any alert: open the [History Host Health Dashboard](../metrics/dashboards/server/history-health-dashboard.json).** The dashboard tells you which pods are affected, when it happened, and which row (Persistence Health, History RPC Health, Shard Acquisition) shows the cause. Sections 6 and 7 of this playbook have the full diagnosis and failover guidance.
+**First action for any alert: open the [History Host Health Dashboard](../observability/dashboards/server/history-health-dashboard.json).** The dashboard tells you which pods are affected, when it happened, and which row (Persistence Health, History RPC Health, Shard Acquisition) shows the cause. Sections 6 and 7 of this playbook have the full diagnosis and failover guidance.
 
 | Alert | Severity | Immediate action |
 |---|---|---|

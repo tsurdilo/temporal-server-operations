@@ -39,9 +39,9 @@ This playbook covers how to safely change the number of partitions behind a task
 
 ## References
 
-1. **[Temporal Task Queue Partitions dashboard](../metrics/dashboards/server/task-queue-partitions-readme.md)** — the companion Grafana dashboard for this playbook: watch a single task queue's per-partition metrics while you change its partitions. Requires `metrics.breakdownByPartition` and `metrics.breakdownByTaskQueue` on for the queue(s) or namespace you're watching (they make the server emit the finer-grained per-partition metrics the dashboard reads). See **Turning on the per-partition metrics** just below the config table for sample YAML.
+1. **[Temporal Task Queue Partitions dashboard](../observability/dashboards/server/task-queue-partitions-readme.md)** — the companion Grafana dashboard for this playbook: watch a single task queue's per-partition metrics while you change its partitions. Requires `metrics.breakdownByPartition` and `metrics.breakdownByTaskQueue` on for the queue(s) or namespace you're watching (they make the server emit the finer-grained per-partition metrics the dashboard reads). See **Turning on the per-partition metrics** just below the config table for sample YAML.
 
-2. **[Server Overview dashboard](../metrics/dashboards/server/temporal-server-readme.md)** — cluster-wide health. When you want the bigger picture, its Matching Task Queue Info and SDK Worker Info panels show the same signals (async match latency, task write throttle, approximate backlog, schedule-to-start) at cluster scale.
+2. **[Server Overview dashboard](../observability/dashboards/server/temporal-server-readme.md)** — cluster-wide health. When you want the bigger picture, its Matching Task Queue Info and SDK Worker Info panels show the same signals (async match latency, task write throttle, approximate backlog, schedule-to-start) at cluster scale.
 
 3. **Related server dynamic config** — none require a server restart after a change.
 
@@ -79,13 +79,13 @@ The order of the two entries doesn't matter — matching resolves the **most spe
 
 **One more opt-in for the dashboard.** The dashboard's **Dispatch Rate-Limiting by Partition** panel reads `poller_scale_decision`, which matching emits only when `matching.enablePollerScalingDecisionMetrics` is on (default off) — so that panel stays empty until you enable it. It's the path-1 (sync-match / dispatch cap) signal on the default priority matcher; set it the same way (scope it to the queue you're resizing) when you want that panel populated.
 
-4. **Alerting on a stuck partition backlog** — an optional per-queue alert (**Alert 83**) for a `Write > Read` stall or any non-draining per-partition backlog is documented in the [server alert index](../metrics/alerts/server/alerts-index.md#alert-83--task-queue-partition-backlog-not-draining). It's not in the essential set — the threshold is workload-specific and the metric is opt-in per queue — so scope it to a queue you've instrumented and tune the threshold.
+4. **Alerting on a stuck partition backlog** — an optional per-queue alert (**Alert 83**) for a `Write > Read` stall or any non-draining per-partition backlog is documented in the [server alert index](../observability/alerts/server/alerts-index.md#alert-83--task-queue-partition-backlog-not-draining). It's not in the essential set — the threshold is workload-specific and the metric is opt-in per queue — so scope it to a queue you've instrumented and tune the threshold.
 
 ---
 
 ## Using the Dashboard with This Playbook
 
-This playbook is meant to be read with the companion **[Task Queue Partitions dashboard](../metrics/dashboards/server/task-queue-partitions-readme.md)** open on the exact queue you're changing — set its `namespace`, `taskqueue`, and `task_type` variables and keep it beside you. Nearly every signal below is a panel on it, called out by name where it matters, so at each step you're looking at a graph rather than guessing. (If the per-partition panels read empty, turn the metrics on — see [References](#references).)
+This playbook is meant to be read with the companion **[Task Queue Partitions dashboard](../observability/dashboards/server/task-queue-partitions-readme.md)** open on the exact queue you're changing — set its `namespace`, `taskqueue`, and `task_type` variables and keep it beside you. Nearly every signal below is a panel on it, called out by name where it matters, so at each step you're looking at a graph rather than guessing. (If the per-partition panels read empty, turn the metrics on — see [References](#references).)
 
 The dashboard's rows line up with the work here:
 
@@ -132,7 +132,7 @@ Not every queue behind a task queue name is partitioned the same way. There are 
 - Raise the worker's workflow-task concurrency (`MaxConcurrentWorkflowTaskExecutionSize`) and poller count.
 - Increase the worker's sticky (workflow) cache size.
 
-**You can see it happening** on either dashboard. The [Server Overview](../metrics/dashboards/server/temporal-server-readme.md) dashboard graphs the fallback timeouts directly, in its *Workflow Task Schedule-to-Start Timeouts (sticky fallback)* panel. On the [companion dashboard](../metrics/dashboards/server/task-queue-partitions-readme.md), pick `task_type = Workflow` — that view is the **normal** workflow queue. The workflow tasks that fall back from sticky get rescheduled onto it, so the normal queue's **Approximate Backlog** and **Schedule to Start Latency** panels climb.
+**You can see it happening** on either dashboard. The [Server Overview](../observability/dashboards/server/temporal-server-readme.md) dashboard graphs the fallback timeouts directly, in its *Workflow Task Schedule-to-Start Timeouts (sticky fallback)* panel. On the [companion dashboard](../observability/dashboards/server/task-queue-partitions-readme.md), pick `task_type = Workflow` — that view is the **normal** workflow queue. The workflow tasks that fall back from sticky get rescheduled onto it, so the normal queue's **Approximate Backlog** and **Schedule to Start Latency** panels climb.
 
 ---
 
@@ -149,9 +149,9 @@ Matching has two task-dispatch implementations, and which one your cluster runs 
 - **v1.28.0–v1.30.x** — the classic matcher is the default; the priority matcher is available but off unless enabled.
 - **before v1.28.0** — classic matcher only.
 
-**What this means for this playbook.** The priority matcher doesn't emit some metrics the classic matcher did — most importantly **`sync_throttle_count`**. On a default (v1.31.0+) cluster it's absent, with no replacement, so it can't serve as a signal here — rely on the backlog signals (`approximate_backlog_*`, `asyncmatch_latency`) instead. The same applies to the [Matching Partition Sync Throttle Active](../metrics/alerts/server/alerts-index.md#alert-74--matching-partition-sync-throttle-active) alert (`temporal-alert-074`): it keys on `sync_throttle_count`, so it only works on the classic matcher. Because it doesn't apply across all versions it's kept in the alerts index rather than the essential alert set — add it to your cluster's alerts if you run the classic matcher. Every other signal in this playbook is emitted regardless of matcher.
+**What this means for this playbook.** The priority matcher doesn't emit some metrics the classic matcher did — most importantly **`sync_throttle_count`**. On a default (v1.31.0+) cluster it's absent, with no replacement, so it can't serve as a signal here — rely on the backlog signals (`approximate_backlog_*`, `asyncmatch_latency`) instead. The same applies to the [Matching Partition Sync Throttle Active](../observability/alerts/server/alerts-index.md#alert-74--matching-partition-sync-throttle-active) alert (`temporal-alert-074`): it keys on `sync_throttle_count`, so it only works on the classic matcher. Because it doesn't apply across all versions it's kept in the alerts index rather than the essential alert set — add it to your cluster's alerts if you run the classic matcher. Every other signal in this playbook is emitted regardless of matcher.
 
-> The companion [Task Queue Partitions dashboard](../metrics/dashboards/server/task-queue-partitions-readme.md) is **matcher-agnostic** — it uses base metric names that both matchers emit, so it works whichever matcher you're on.
+> The companion [Task Queue Partitions dashboard](../observability/dashboards/server/task-queue-partitions-readme.md) is **matcher-agnostic** — it uses base metric names that both matchers emit, so it works whichever matcher you're on.
 
 ---
 
@@ -303,7 +303,7 @@ A task only falls to the backlog when sync match can't place it. Matching first 
 
 ### What to watch on the dashboard
 
-There's no single "add partitions now" metric — you'll generally just see latency rising. Instead you read each ceiling off its panels on the [companion dashboard](../metrics/dashboards/server/task-queue-partitions-readme.md) (backlog and write signals per partition, rule-outs per queue), and each of the three shows up differently:
+There's no single "add partitions now" metric — you'll generally just see latency rising. Instead you read each ceiling off its panels on the [companion dashboard](../observability/dashboards/server/task-queue-partitions-readme.md) (backlog and write signals per partition, rule-outs per queue), and each of the three shows up differently:
 
 **Backlog write (path 2) — can matching persist tasks fast enough?**
 **Watch: Task Write Throttle Count by Partition** (`task_write_throttle_count`). Any non-zero rate means that partition's write buffer (`matching.outstandingTaskAppendsThreshold`, 250 pending writes) is full and it's rejecting the task-writes history sends it — the write path is saturated, and the panel shows you *which* partition. Two companions on the same row: **Resource Exhausted by Cause** shows those same rejections from history's side (`AddActivityTask` / `AddWorkflowTask`, `SystemOverloaded` cause), and **Task Write Latency by Partition** rising means the database writes themselves are getting slow.
@@ -483,7 +483,7 @@ A task queue can end up with the **write count higher than the read count** — 
 
 **Usually these tasks aren't stuck, just slow.** While such a partition stays loaded, it forwards its backlog to a partition that *is* polled, so the tasks still get dispatched — they just take an extra hop, which adds latency and concentrates load on that one partition. Nothing is lost, but it defeats the point of the extra write partitions.
 
-**They can get stuck in one case:** if an unpolled partition goes idle and unloads (`matching.maxTaskQueueIdleTime`, 5 min) while still holding a backlog, that backlog waits in the database until the partition loads again — and with no polls and no new writes, it may not reload promptly. You can catch it coming, though: a partition heading there shows a **backlog age that climbs and won't drain** on **Approximate Backlog Age by Partition**. A rising per-partition backlog age (`approximate_backlog_age_seconds`) is a good thing to alert on — it flags a `Write > Read` stall and any other non-draining backlog alike, and there's a ready-to-adapt rule for it in [Alert 83](../metrics/alerts/server/alerts-index.md#alert-83--task-queue-partition-backlog-not-draining). Rising **Schedule to Start Latency** is the broader "tasks aren't getting picked up" catch-all. The fix is simple, so it's worth correcting rather than living with.
+**They can get stuck in one case:** if an unpolled partition goes idle and unloads (`matching.maxTaskQueueIdleTime`, 5 min) while still holding a backlog, that backlog waits in the database until the partition loads again — and with no polls and no new writes, it may not reload promptly. You can catch it coming, though: a partition heading there shows a **backlog age that climbs and won't drain** on **Approximate Backlog Age by Partition**. A rising per-partition backlog age (`approximate_backlog_age_seconds`) is a good thing to alert on — it flags a `Write > Read` stall and any other non-draining backlog alike, and there's a ready-to-adapt rule for it in [Alert 83](../observability/alerts/server/alerts-index.md#alert-83--task-queue-partition-backlog-not-draining). Rising **Schedule to Start Latency** is the broader "tasks aren't getting picked up" catch-all. The fix is simple, so it's worth correcting rather than living with.
 
 ### How to confirm
 

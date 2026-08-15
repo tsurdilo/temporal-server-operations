@@ -39,7 +39,7 @@ Quick reference — all recommendations below are explained in detail in the sec
 
 ### Dashboard and workflow steps
 
-**Dashboard:** [Temporal — Namespace Failover: Graceful Handover](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md) — v1.3.0
+**Dashboard:** [Temporal — Namespace Failover: Graceful Handover](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — v1.3.0
 
 | Row | What you are watching for |
 |---|---|
@@ -174,9 +174,9 @@ These must be set on a running cluster before the first handover — no restart 
 
 ### Alerts
 
-Full reference: [`metrics/alerts/server/alerts-index.md`](../metrics/alerts/server/alerts-index.md) — Section 20
+Full reference: [`observability/alerts/server/alerts-index.md`](../observability/alerts/server/alerts-index.md) — Section 20
 
-All alerts below link to the [Namespace Failover: Graceful Handover dashboard](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md) and fire annotations directly onto it — alert state is visible in context alongside the panels they monitor.
+All alerts below link to the [Namespace Failover: Graceful Handover dashboard](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) and fire annotations directly onto it — alert state is visible in context alongside the panels they monitor.
 
 | Alert | Severity | Workflow step | Dashboard row | Fires when |
 |---|---|---|---|---|
@@ -548,7 +548,7 @@ temporal workflow start \
 
 ## Running the Handover
 
-This section is the operational playbook for running a graceful handover end-to-end — from pre-flight signal checks through the handover workflow execution and into post-flip health verification. It is structured around the six internal activity steps of `namespace-handover-v2` and maps directly to the [Namespace Failover: Graceful Handover dashboard](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md). The dashboard is an integral part of this playbook — each section below corresponds to a dashboard row.
+This section is the operational playbook for running a graceful handover end-to-end — from pre-flight signal checks through the handover workflow execution and into post-flip health verification. It is structured around the six internal activity steps of `namespace-handover-v2` and maps directly to the [Namespace Failover: Graceful Handover dashboard](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md). The dashboard is an integral part of this playbook — each section below corresponds to a dashboard row.
 
 > This section assumes you have read [Before You Start](#before-you-start) and applied the recommendations there.
 
@@ -618,22 +618,22 @@ Wait for the workflow to complete before starting the handover workflow.
 
 #### 1.2. Is the replication stream between clusters healthy?
 
-Alerts [`FAILOVER-PRE-01` through `FAILOVER-PRE-07`](../metrics/alerts/server/alerts-index.md) fire on the blockers covered here. If any are already firing, you have your answer before opening the dashboard — but check the dashboard anyway. Alerts tell you something is wrong; the dashboard panels below tell you how bad it is, whether it is recovering, and what to do about it.
+Alerts [`FAILOVER-PRE-01` through `FAILOVER-PRE-07`](../observability/alerts/server/alerts-index.md) fire on the blockers covered here. If any are already firing, you have your answer before opening the dashboard — but check the dashboard anyway. Alerts tell you something is wrong; the dashboard panels below tell you how bad it is, whether it is recovering, and what to do about it.
 
-Open [Row 1 — Pre-Flight](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#row-1--pre-flight-go--no-go) in the dashboard.
+Open [Row 1 — Pre-Flight](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#row-1--pre-flight-go--no-go) in the dashboard.
 
 | Panel | Blocker | Advisory |
 |---|---|---|
-| [Stream Stuck](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) | Any non-zero rate → **blocker** | The standby has a built-in liveness monitor — if the stream stops making progress it reconnects automatically within ~3 minutes. Wait before acting. If it does not clear, see section [5](#5-something-went-wrong--rollback-and-recovery). |
-| [DLQ Enqueue Failed](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-dlq-enqueue-failed-stat) | Any non-zero rate → **blocker** | Fires on the standby. The DLQ is the last resort for replication tasks the standby cannot apply — if even that is failing, those tasks are permanently lost. Running a handover in this state makes no sense. Investigate and fix before proceeding. |
-| [Receiver Backlog](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) | ≥ 500 → **blocker**, 400–499 → **do not start** | Replication tasks are backing up on the standby faster than it can apply them. Starting the handover now risks the backlog hitting its limit mid-flight, which causes the sender to pause and WaitReplication to stall indefinitely. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks). |
-| [Stream Errors (gRPC)](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) | Any non-zero rate → **blocker** | The replication stream between active and standby is currently in a bad state. Starting the handover now is dangerous — the standby is not reliably receiving updates from the active. Investigate the connection between clusters before proceeding. |
-| [Stream Service Errors](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-service-errors-stat) | Sustained unexplained rate → **investigate before proceeding** | Fires on the standby. A brief spike when the standby restarts is normal and clears on its own. A sustained rate with no obvious cause means the standby is struggling to process the replication stream — do not start until you understand why. |
-| [Replication Lag](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) | Trending up → **do not start** | How far behind the standby is from the active. Aim for near-zero and stable before starting — a rising lag means the standby is falling further behind and the handover drain window will not be enough time to close the gap. See section [1.3](#13-is-replication-lag-low-enough-to-proceed). |
-| [Backfill Activity](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-backfill-activity-stat) | — | The standby is receiving replication tasks but is missing some of the history behind them — it has to fetch that history from the active before it can apply each affected task. This slows down catchup. See section [1.4](#14-is-the-standby-still-catching-up-on-missing-history). |
-| [Send Channel Full](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-send-channel-full-active-stat) | Any non-zero rate → **investigate** | Fires on the active. The active's internal buffer for queuing outgoing replication tasks is full — it cannot dispatch tasks to the standby fast enough. This is the earliest warning sign: left unaddressed, tasks start piling up (visible as a rising Send Backlog) and replication lag grows. See section [1.3](#13-is-replication-lag-low-enough-to-proceed) for how to raise the sender rate. |
-| [Send Backlog](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-send-backlog-active-stat) | — | Fires on the active. Replication tasks are piling up on the active waiting to be sent to the standby — raising `history.ReplicationStreamSenderHighPriorityQPS` will help drain it. If this panel is zero but lag is still not closing, the active is already sending as fast as it can — the standby is the problem, applying tasks too slowly. Check standby history pod CPU and the Receiver Backlog panel. See section [1.3](#13-is-replication-lag-low-enough-to-proceed). |
-| [Standby Task Discards](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat) | Any non-zero rate → **blocker** | Fires on the standby. Workflow executions on the standby had their tasks discarded because the history events they depended on never arrived in time. After the flip those workflows will be stuck on the new active with no pending task — direct business impact. Identify and understand the scope before proceeding. See section [1.6](#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip). |
+| [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) | Any non-zero rate → **blocker** | The standby has a built-in liveness monitor — if the stream stops making progress it reconnects automatically within ~3 minutes. Wait before acting. If it does not clear, see section [5](#5-something-went-wrong--rollback-and-recovery). |
+| [DLQ Enqueue Failed](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-dlq-enqueue-failed-stat) | Any non-zero rate → **blocker** | Fires on the standby. The DLQ is the last resort for replication tasks the standby cannot apply — if even that is failing, those tasks are permanently lost. Running a handover in this state makes no sense. Investigate and fix before proceeding. |
+| [Receiver Backlog](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) | ≥ 500 → **blocker**, 400–499 → **do not start** | Replication tasks are backing up on the standby faster than it can apply them. Starting the handover now risks the backlog hitting its limit mid-flight, which causes the sender to pause and WaitReplication to stall indefinitely. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks). |
+| [Stream Errors (gRPC)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) | Any non-zero rate → **blocker** | The replication stream between active and standby is currently in a bad state. Starting the handover now is dangerous — the standby is not reliably receiving updates from the active. Investigate the connection between clusters before proceeding. |
+| [Stream Service Errors](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-service-errors-stat) | Sustained unexplained rate → **investigate before proceeding** | Fires on the standby. A brief spike when the standby restarts is normal and clears on its own. A sustained rate with no obvious cause means the standby is struggling to process the replication stream — do not start until you understand why. |
+| [Replication Lag](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) | Trending up → **do not start** | How far behind the standby is from the active. Aim for near-zero and stable before starting — a rising lag means the standby is falling further behind and the handover drain window will not be enough time to close the gap. See section [1.3](#13-is-replication-lag-low-enough-to-proceed). |
+| [Backfill Activity](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-backfill-activity-stat) | — | The standby is receiving replication tasks but is missing some of the history behind them — it has to fetch that history from the active before it can apply each affected task. This slows down catchup. See section [1.4](#14-is-the-standby-still-catching-up-on-missing-history). |
+| [Send Channel Full](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-send-channel-full-active-stat) | Any non-zero rate → **investigate** | Fires on the active. The active's internal buffer for queuing outgoing replication tasks is full — it cannot dispatch tasks to the standby fast enough. This is the earliest warning sign: left unaddressed, tasks start piling up (visible as a rising Send Backlog) and replication lag grows. See section [1.3](#13-is-replication-lag-low-enough-to-proceed) for how to raise the sender rate. |
+| [Send Backlog](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-send-backlog-active-stat) | — | Fires on the active. Replication tasks are piling up on the active waiting to be sent to the standby — raising `history.ReplicationStreamSenderHighPriorityQPS` will help drain it. If this panel is zero but lag is still not closing, the active is already sending as fast as it can — the standby is the problem, applying tasks too slowly. Check standby history pod CPU and the Receiver Backlog panel. See section [1.3](#13-is-replication-lag-low-enough-to-proceed). |
+| [Standby Task Discards](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat) | Any non-zero rate → **blocker** | Fires on the standby. Workflow executions on the standby had their tasks discarded because the history events they depended on never arrived in time. After the flip those workflows will be stuck on the new active with no pending task — direct business impact. Identify and understand the scope before proceeding. See section [1.6](#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip). |
 
 > If any blocker above is unresolved, our recommendation is not to proceed with the handover. Resolve the issue first and re-run this check before continuing.
 
@@ -643,12 +643,12 @@ Open [Row 1 — Pre-Flight](../metrics/dashboards/server/namespace-failover-grac
 
 Replication lag is how far behind the standby is from the active — measured in number of replication tasks still waiting to be applied. It matters here because the handover drain window is only 30 seconds. If the standby is significantly behind when the flip starts, the stream cannot deliver all remaining tasks in time and the handover rolls back automatically. The lower the lag before you start, the higher the chance the handover completes cleanly.
 
-Start with the [Replication Lag Trend panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-trend-time-series) (Row 1, standby cluster) — it shows the direction of lag over the last 15 minutes. Then check the [Replication Lag gauge](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) for the current task count.
+Start with the [Replication Lag Trend panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-trend-time-series) (Row 1, standby cluster) — it shows the direction of lag over the last 15 minutes. Then check the [Replication Lag gauge](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) for the current task count.
 
 | What the trend shows | What it means | What to do |
 |---|---|---|
 | Declining toward zero | The standby is catching up | Wait for it to flatten near zero before starting |
-| Rising | Lag is growing — the standby is falling further behind | Do not start. This can have several causes: a burst of high load on the active, standby history pods under pressure, or stream errors slowing delivery. Check the [Receiver Backlog Depth panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) and the stream health panels from section 1.2 to narrow it down. Wait until the trend reverses before proceeding. |
+| Rising | Lag is growing — the standby is falling further behind | Do not start. This can have several causes: a burst of high load on the active, standby history pods under pressure, or stream errors slowing delivery. Check the [Receiver Backlog Depth panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) and the stream health panels from section 1.2 to narrow it down. Wait until the trend reverses before proceeding. |
 | Flat at a non-zero value | Standby is keeping pace with the active's current load — there is always a small in-flight queue under normal throughput | If the value is small (a few hundred tasks or fewer), this is normal — proceed. If it is large (thousands of tasks), the drain window may not be enough to clear it. In that case, raise `history.ReplicationStreamSenderHighPriorityQPS` (default 100 tasks/s) on the **active cluster** to push tasks faster, or wait for a lower-traffic window. |
 
 **When you are ready to start the handover workflow**
@@ -663,11 +663,11 @@ When lag looks good and you are ready to proceed, use what you observed here to 
 
 > If lag is rising or flat at a large value, do not proceed. Wait for the trend to reverse and lag to stabilize near zero before continuing to section 1.4.
 
-**Replication latency — the time-based signal.** The panels above measure task count — how many tasks are pending. Also check the [Replication Latency p99 panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-latency-p99-time-series) (Row 1, standby cluster). This measures how long each task takes end-to-end from generation on the active to application on the standby. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window — the handover is guaranteed to roll back regardless of task count. Alert `FAILOVER-PRE-07` fires when p99 exceeds 20s.
+**Replication latency — the time-based signal.** The panels above measure task count — how many tasks are pending. Also check the [Replication Latency p99 panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-latency-p99-time-series) (Row 1, standby cluster). This measures how long each task takes end-to-end from generation on the active to application on the standby. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window — the handover is guaranteed to roll back regardless of task count. Alert `FAILOVER-PRE-07` fires when p99 exceeds 20s.
 
 #### 1.4. Is the standby making extra round-trips to fetch missing history?
 
-**Dashboard:** [Backfill Activity panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-backfill-activity-stat) (Row 1, standby cluster)
+**Dashboard:** [Backfill Activity panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-backfill-activity-stat) (Row 1, standby cluster)
 
 When the standby applies a replication task, it sometimes finds that the history events that task depends on have not arrived yet. When that happens, it makes a synchronous call back to the active to fetch them before it can continue. This is not an error — the task eventually completes — but each of these extra round-trips makes that task take longer to apply. A high rate of this means WaitReplication will take longer than the raw lag number alone suggests.
 
@@ -680,7 +680,7 @@ When the standby applies a replication task, it sometimes finds that the history
 
 #### 1.5. Is the standby keeping up with incoming replication tasks?
 
-**Dashboard:** [Receiver Backlog Depth panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) (Row 1, standby cluster)
+**Dashboard:** [Receiver Backlog Depth panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) (Row 1, standby cluster)
 
 Replication tasks travel from the active to the standby over a stream. When they arrive on the standby they land in a receive buffer before being applied. The Receiver Backlog Depth panel shows how many tasks are sitting in that buffer waiting to be processed.
 
@@ -699,7 +699,7 @@ When the buffer fills up past its limit (500 tasks by default), the standby tell
 
 #### 1.6. Are there workflow executions on the standby that will be stuck after the flip?
 
-**Dashboard:** [Standby Task Discards panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat) (Row 1, standby cluster) · Alert `FAILOVER-PRE-06`
+**Dashboard:** [Standby Task Discards panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat) (Row 1, standby cluster) · Alert `FAILOVER-PRE-06`
 
 When the standby receives a replication task it waits for the matching history events from the active before it can apply it. If those events never arrive within the timeout (default 15 minutes), the standby gives up and discards the task. That workflow execution is now in a broken state on the standby — when the flip happens and it becomes the active, that workflow will have no pending task driving it forward. It is effectively stuck and will not make progress until it is manually recovered using `RefreshWorkflowTasks`. This applies regardless of what type of task was discarded — workflow tasks, activity tasks, timers, and child workflow tasks are all regenerated by `RefreshWorkflowTasks`.
 
@@ -736,9 +736,9 @@ The output contains `NamespaceID`, `WorkflowID`, and `RunID` for each discarded 
 
 The handover workflow is now running. During this phase — Steps 1 through 3 — the workflow is waiting for the standby to fully catch up with the active before it attempts the flip. Your namespace is serving traffic normally and your clients and workers see nothing different. This phase can take anywhere from seconds to several minutes depending on how much lag remained when you started.
 
-**Watch [Row 2a — WaitReplication](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#row-2a--waitreplication-steps-13--no-client-impact) in the dashboard.**
+**Watch [Row 2a — WaitReplication](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#row-2a--waitreplication-steps-13--no-client-impact) in the dashboard.**
 
-The key panel is the [Catchup Progress % gauge](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-catchup-progress--gauge) — it shows what percentage of shards have caught up within your `AllowedLaggingSeconds` threshold. You want this to climb steadily toward 100%. The [Handover Progress — Catchup + Drain Combined](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-progress--catchup--drain-combined-time-series) panel shows both catchup and drain progress together — during this phase only catchup rises; drain stays at 0 until the flip begins.
+The key panel is the [Catchup Progress % gauge](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-catchup-progress--gauge) — it shows what percentage of shards have caught up within your `AllowedLaggingSeconds` threshold. You want this to climb steadily toward 100%. The [Handover Progress — Catchup + Drain Combined](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-progress--catchup--drain-combined-time-series) panel shows both catchup and drain progress together — during this phase only catchup rises; drain stays at 0 until the flip begins.
 
 > The catchup gauge does not filter by namespace. If you have multiple global namespaces replicating, it reflects all of them combined — not just the one being handed over. A server-side fix to add namespace filtering is pending.
 
@@ -749,7 +749,7 @@ The key panel is the [Catchup Progress % gauge](../metrics/dashboards/server/nam
 | Signal | What it means | What to do |
 |---|---|---|
 | Catchup progress rising steadily | Normal — standby is catching up | Wait for it to reach 100% |
-| Catchup progress stalled for more than 2 minutes and lag is flat | Stream may be stuck | Check the [Stream Stuck panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) in Row 1 — a non-zero rate confirms it. See section [5](#5-something-went-wrong--rollback-and-recovery) for recovery steps. |
+| Catchup progress stalled for more than 2 minutes and lag is flat | Stream may be stuck | Check the [Stream Stuck panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) in Row 1 — a non-zero rate confirms it. See section [5](#5-something-went-wrong--rollback-and-recovery) for recovery steps. |
 | Catchup reaches 100% | Standby is caught up — the workflow will automatically move to the drain window | Watch Row 2b next |
 
 **Log messages you may see during this phase:**
@@ -766,12 +766,12 @@ The key panel is the [Catchup Progress % gauge](../metrics/dashboards/server/nam
 
 Step 4 put the namespace into HANDOVER state. The active cluster's frontend is now returning `Unavailable` for write APIs on this namespace — other namespaces on the same cluster are unaffected. The 30-second clock is running. The workflow is waiting for all shards to confirm they have applied every replication task up to the snapshot taken in Step 2. When they do, Step 6 fires and the flip completes. If they do not all confirm within `HandoverTimeoutSeconds`, the workflow rolls back automatically and the namespace returns to normal — no flip occurs.
 
-**Watch [Row 2b — HANDOVER Drain](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#row-2b--handover-drain-steps-45) in the dashboard.**
+**Watch [Row 2b — HANDOVER Drain](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#row-2b--handover-drain-steps-45) in the dashboard.**
 
 | What you see | What it means | What to do |
 |---|---|---|
-| [Handover Drain Progress %](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-drain-progress--gauge) rising toward 100% | Shards are confirming catchup — drain is proceeding normally | Wait for it to reach 100% |
-| [UNAVAILABLE Error Burst](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-unavailable-error-burst-expected-time-series) spiking | Expected — this is the active cluster returning `Unavailable` during HANDOVER. The SDK retries automatically. | Normal — watch for it to clear once drain completes |
+| [Handover Drain Progress %](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-drain-progress--gauge) rising toward 100% | Shards are confirming catchup — drain is proceeding normally | Wait for it to reach 100% |
+| [UNAVAILABLE Error Burst](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-unavailable-error-burst-expected-time-series) spiking | Expected — this is the active cluster returning `Unavailable` during HANDOVER. The SDK retries automatically. | Normal — watch for it to clear once drain completes |
 | Drain Progress stalls and then drops to 0 | Drain timed out — workflow is rolling back | See rollback behaviour below |
 | `Unavailable` errors persist after drain completes | HANDOVER state has not fully cleared from the shard cache | Wait one more 2-second cache cycle. If still non-zero after ~5s, check history pod logs. |
 
@@ -815,14 +815,14 @@ After addressing the root cause, go back to section 1 and repeat all pre-flight 
 
 ## 3. Flip completed — confirm the namespace switched correctly (Step 6)
 
-Step 6 ran `UpdateActiveCluster` — the namespace is now active on the new cluster. Watch [Row 3 — Flip Confirmed](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#row-3--flip-confirmed-step-6) in the dashboard. All four signals should change in quick succession.
+Step 6 ran `UpdateActiveCluster` — the namespace is now active on the new cluster. Watch [Row 3 — Flip Confirmed](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#row-3--flip-confirmed-step-6) in the dashboard. All four signals should change in quick succession.
 
 | Signal | What to look for |
 |---|---|
-| [`handover_ready_shard_count`](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-state-exited-stat) drops to 0 | HANDOVER state has exited — the flip is done |
-| [`client_redirection_errors{error_type="Unavailable"}`](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-unavailable-errors-gone-stat) on old active returns to 0 | The write block is lifted — clients are no longer being rejected |
-| [`client_redirection_requests`](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-active-stat) on old active starts rising | The old active is now forwarding write calls to the new active |
-| [`task_errors_version_mismatch`](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-fence-fired-stat) on old active may spike | Expected — see below. Zero is also a valid outcome. |
+| [`handover_ready_shard_count`](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-state-exited-stat) drops to 0 | HANDOVER state has exited — the flip is done |
+| [`client_redirection_errors{error_type="Unavailable"}`](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-unavailable-errors-gone-stat) on old active returns to 0 | The write block is lifted — clients are no longer being rejected |
+| [`client_redirection_requests`](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-active-stat) on old active starts rising | The old active is now forwarding write calls to the new active |
+| [`task_errors_version_mismatch`](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-fence-fired-stat) on old active may spike | Expected — see below. Zero is also a valid outcome. |
 
 **Why `task_errors_version_mismatch` may spike — and why zero is fine too**
 
@@ -856,12 +856,12 @@ If the two clusters disagree — one shows the new active cluster as `Active Clu
 
 ## 4. Monitor the new active cluster after the handover
 
-The namespace is now active on the new cluster and the handover workflow has completed. Watch [Row 4 — Post-Handover Health](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#row-4--post-handover-health) in the dashboard for 5–10 minutes. The first minute or two may be noisy — queue processors are activating, workers are reconnecting, and the reverse replication stream is establishing. Give signals time to settle before acting on them.
+The namespace is now active on the new cluster and the handover workflow has completed. Watch [Row 4 — Post-Handover Health](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#row-4--post-handover-health) in the dashboard for 5–10 minutes. The first minute or two may be noisy — queue processors are activating, workers are reconnecting, and the reverse replication stream is establishing. Give signals time to settle before acting on them.
 
 **What normal looks like in the first few minutes:**
 
-- If the old active is running `dcRedirectionPolicy=all-apis-forwarding`, workers that were polling the old active will have their Respond calls forwarded to the new active — you will see [Forwarding Success Rate](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-success-rate-time-series) on the old active rise and then gradually decline as workers are re-pointed. If you are running `selected-apis-forwarding`, Respond calls are not in the forwarding whitelist — workers must already be pointed at the new active or those calls will fail.
-- [WFT Schedule-to-Start](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) on the new active may spike briefly while its queue processors warm up — this is expected and should normalize on its own.
+- If the old active is running `dcRedirectionPolicy=all-apis-forwarding`, workers that were polling the old active will have their Respond calls forwarded to the new active — you will see [Forwarding Success Rate](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-success-rate-time-series) on the old active rise and then gradually decline as workers are re-pointed. If you are running `selected-apis-forwarding`, Respond calls are not in the forwarding whitelist — workers must already be pointed at the new active or those calls will fail.
+- [WFT Schedule-to-Start](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) on the new active may spike briefly while its queue processors warm up — this is expected and should normalize on its own.
 - Some workflows may take up to 5 seconds longer to get their first task picked up after the flip. This is because workers that were running on the old active had a dedicated fast-path (sticky queue) for picking up tasks. After the flip that fast-path no longer exists on the new active, so the server waits 5 seconds (the default sticky timeout) before falling back to the normal queue. Once that happens the workflow resumes normally — this is not a stuck state.
 - The old active (now standby) will show timer queue lag of approximately `history.standbyClusterDelay` (default 5 minutes) — this is normal standby behavior.
 
@@ -869,17 +869,17 @@ The namespace is now active on the new cluster and the handover workflow has com
 
 | Panel | Cluster | What it means if something looks wrong |
 |---|---|---|
-| [Version Mismatch Decay](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-mismatch-decay-time-series) | Old active | The old active is working through its backlog of pre-flip tasks — each one is version-checked, found to belong to the new active, and safely dropped. This should trend toward 0 as the backlog drains. If it stays non-zero for more than a few minutes, a queue processor on the old active may be stuck — check history pod logs. |
-| [Forwarding Error Rate by Type](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series) | Old active | Should be 0. `Unavailable` = new active unreachable. `ResourceExhausted` = new active throttling, raise `frontend.namespaceRPS`. `FailedPrecondition` = workers completing tasks on old active without forwarding — see dynamic config section below. |
-| [WFT Schedule-to-Start](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) | New active | Still elevated after 2 minutes = workers have not reconnected to the new active yet. Check that workers are polling the new active. |
-| [Replication Lag — Reverse Stream](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag--reverse-stream-time-series) | New active | Rising lag = old active (now standby) cannot keep up with replication from the new active. |
-| [Reverse Replication Active](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-reverse-replication-active-time-series) | Old active (now standby) | Should go non-zero shortly after the flip — the old active recognises it is now the standby once its namespace cache refreshes (default 2s). If it stays flat, the reverse stream has not established — check [Stream Stuck](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) on the old active. |
+| [Version Mismatch Decay](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-mismatch-decay-time-series) | Old active | The old active is working through its backlog of pre-flip tasks — each one is version-checked, found to belong to the new active, and safely dropped. This should trend toward 0 as the backlog drains. If it stays non-zero for more than a few minutes, a queue processor on the old active may be stuck — check history pod logs. |
+| [Forwarding Error Rate by Type](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series) | Old active | Should be 0. `Unavailable` = new active unreachable. `ResourceExhausted` = new active throttling, raise `frontend.namespaceRPS`. `FailedPrecondition` = workers completing tasks on old active without forwarding — see dynamic config section below. |
+| [WFT Schedule-to-Start](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) | New active | Still elevated after 2 minutes = workers have not reconnected to the new active yet. Check that workers are polling the new active. |
+| [Replication Lag — Reverse Stream](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag--reverse-stream-time-series) | New active | Rising lag = old active (now standby) cannot keep up with replication from the new active. |
+| [Reverse Replication Active](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-reverse-replication-active-time-series) | Old active (now standby) | Should go non-zero shortly after the flip — the old active recognises it is now the standby once its namespace cache refreshes (default 2s). If it stays flat, the reverse stream has not established — check [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) on the old active. |
 
 #### Check for stuck workflows and recover them
 
 If all pre-flight checks were clean — in particular if the Standby Task Discards panel in section 1.6 was zero — stuck workflows are very unlikely after a graceful handover. If section 1.6 was non-zero and you proceeded anyway, this is where those workflows will surface.
 
-The [WFT Schedule-to-Start](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) panel tells you whether tasks are queued but workers are slow to pick them up. It does not detect workflows whose tasks were never re-scheduled on the new active at all — those are invisible to this metric.
+The [WFT Schedule-to-Start](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) panel tells you whether tasks are queued but workers are slow to pick them up. It does not detect workflows whose tasks were never re-scheduled on the new active at all — those are invisible to this metric.
 
 To find workflows that are genuinely stuck, run this Loki query against the **old active (now standby)** history service, scoped to the window just before and during the flip:
 
@@ -926,7 +926,7 @@ Here is a summary of the config changes to make and when:
 | `dcRedirectionPolicy` → `"selected-apis-forwarding"` | Old active | On next restart, once polls are no longer needed through old active |
 | `frontend.namespaceRPS` → raise | New active | If `ResourceExhausted` errors appear on Forwarding Error Rate panel |
 
-> If you set `system.forceNamespaceSelectedAPIAutoForwarding=true` too early and workers are still polling the old active, you will see `FailedPrecondition` errors on the [Forwarding Error Rate by Type panel](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series). Alert `FAILOVER-POST-01` detects this. To recover: set `system.forceNamespaceSelectedAPIAutoForwarding=false` immediately, wait 2 seconds for propagation, and verify the errors clear.
+> If you set `system.forceNamespaceSelectedAPIAutoForwarding=true` too early and workers are still polling the old active, you will see `FailedPrecondition` errors on the [Forwarding Error Rate by Type panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series). Alert `FAILOVER-POST-01` detects this. To recover: set `system.forceNamespaceSelectedAPIAutoForwarding=false` immediately, wait 2 seconds for propagation, and verify the errors clear.
 
 > If all signals in Row 4 look healthy and no stuck workflows were found, the handover is complete. If anything went wrong at any point during the handover — the workflow rolled back, the drain timed out, or you need to force a failover — see section 5 below.
 
@@ -942,7 +942,7 @@ In most cases: **the namespace is safe**. The handover workflow is designed so t
 
 #### The handover workflow rolled back — no flip occurred
 
-**What you see:** [Handover Drain Progress %](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-drain-progress--gauge) was climbing during section 2b, then dropped back to 0. `Unavailable` errors cleared. Alert `FAILOVER-HANDOVER-01` may have fired. The namespace is back on the original active cluster.
+**What you see:** [Handover Drain Progress %](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-drain-progress--gauge) was climbing during section 2b, then dropped back to 0. `Unavailable` errors cleared. Alert `FAILOVER-HANDOVER-01` may have fired. The namespace is back on the original active cluster.
 
 **Why it happened:** the drain window expired before all shards confirmed catchup. The workflow rolled back automatically — no operator action was needed and no flip occurred.
 
@@ -951,7 +951,7 @@ In most cases: **the namespace is safe**. The handover workflow is designed so t
 | Cause | Where to check |
 |---|---|
 | Too much replication lag when HANDOVER started | Go back to section [1.3](#13-is-replication-lag-low-enough-to-proceed) — wait for lag to be near-zero before re-running |
-| Receiver backlog hit its limit mid-drain | Check [Receiver Backlog Depth](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) — see section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks) |
+| Receiver backlog hit its limit mid-drain | Check [Receiver Backlog Depth](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) — see section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks) |
 | `history.EnableReplicationTaskTieredProcessing` is not `true` | Verify on both clusters — a LOW priority backlog predating the snapshot prevents drain from completing |
 | Migration worker pod restarted during the drain window | Re-run once the pod is stable |
 
@@ -961,15 +961,15 @@ In most cases: **the namespace is safe**. The handover workflow is designed so t
 
 #### The standby is not catching up — WaitReplication is stalled
 
-**What you see:** you started the handover workflow and are in section 2a. [Catchup Progress %](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-catchup-progress--gauge) has not moved for several minutes. The namespace is still serving traffic normally — no client impact yet.
+**What you see:** you started the handover workflow and are in section 2a. [Catchup Progress %](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-catchup-progress--gauge) has not moved for several minutes. The namespace is still serving traffic normally — no client impact yet.
 
 **Why it happened:** the replication stream between the clusters is not delivering tasks fast enough, or has stopped entirely.
 
 **What to do — check in this order:**
 
-1. **Check [Stream Stuck](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat)** — a non-zero rate means one or more streams have stopped. A stuck stream will reconnect automatically after `history.ReplicationStreamSendEmptyTaskDuration` × `history.ReplicationReceiverLivenessMultiplier` (defaults: 1 min × 3 = **3 minutes**). Wait and watch — if the panel clears on its own, WaitReplication will resume. If it does not clear, restart the affected standby history pods (check history pod logs to find which pod is serving the stuck shard first).
-2. **Check [Receiver Backlog Depth](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) p99** — if it is near 500, the standby receiver is saturated and the sender has paused. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks) for how to resolve it.
-3. **Check [Stream Errors (gRPC)](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) and [Stream Service Errors](../metrics/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-service-errors-stat)** — look for `"ReplicationStreamError"` in standby history pod logs for the specific cause.
+1. **Check [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat)** — a non-zero rate means one or more streams have stopped. A stuck stream will reconnect automatically after `history.ReplicationStreamSendEmptyTaskDuration` × `history.ReplicationReceiverLivenessMultiplier` (defaults: 1 min × 3 = **3 minutes**). Wait and watch — if the panel clears on its own, WaitReplication will resume. If it does not clear, restart the affected standby history pods (check history pod logs to find which pod is serving the stuck shard first).
+2. **Check [Receiver Backlog Depth](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) p99** — if it is near 500, the standby receiver is saturated and the sender has paused. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks) for how to resolve it.
+3. **Check [Stream Errors (gRPC)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) and [Stream Service Errors](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-service-errors-stat)** — look for `"ReplicationStreamError"` in standby history pod logs for the specific cause.
 
 **Important:** WaitReplication has a 1-hour timeout. If it expires, the namespace is never put into HANDOVER state — no write unavailability, no flip. It is safe to let it expire or cancel it manually and re-run. To cancel without waiting:
 
