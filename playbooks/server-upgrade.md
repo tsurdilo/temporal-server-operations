@@ -372,7 +372,9 @@ Where these come from in your config: `$ES_PRIMARY_INDEX` is `elasticsearch.indi
 
 ##### General upgrade order
 
-Upgrade **both** visibility stores before rolling the binary — the order between them doesn't matter. Each is an independent database; the server only checks at startup that every store is at the version the new binary expects.
+Upgrade **both** visibility stores before rolling the binary — the order between them doesn't matter. At startup the server only checks the version of the *primary* visibility store, not the secondary — but you still need to upgrade the secondary too, because the server reads and writes it while running and expects the new schema there.
+
+We don't recommend running the two stores at different schema versions to skip a migration. While it's running, the server uses both stores and expects the new fields in each — so a store left on the old schema would cause errors when the server records or searches workflows there. A brand-new store also starts empty: Temporal only records workflows going forward, so it won't have your existing ones.
 
 The following dynamic config keys control dual visibility behavior. Do not change these during the schema upgrade or binary rollout:
 
