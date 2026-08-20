@@ -140,7 +140,17 @@ make temporal-elasticsearch-tool
 
 Binaries are written to the repository root.
 
-> Either way, use the tool version that matches your **target** server version, not your current one.
+**Or use the `admin-tools` container image (Kubernetes / containers).** In a containerized cluster the schema tools ship in `temporalio/admin-tools` — the plain `temporalio/server` image does **not** contain them (it carries only `temporal-server`). Pull `temporalio/admin-tools` at your **target** version and run the tools from it as a one-off (`kubectl run`, a Job, or `docker run`). It also bundles the schema under `/etc/temporal/schema`, so `--schema-dir /etc/temporal/schema/postgresql/v12/temporal/versioned` works with no source checkout.
+
+Current `admin-tools`/`server` images publish as plain semver tags (e.g. `1.31.2`); older releases used a composite `admin-tools` tag (`<server>-tctl-<v>-cli-<v>`) — read the leading server version, that's the part that governs the schema.
+
+> ⚠️ **Do not use the `temporalio/auto-setup` image for upgrades — it's deprecated.** It bundles schema setup and a server for quick local demos, not production migrations.
+
+> Whichever way you choose, use the tool version that matches your **target** server version, not your current one.
+
+> **Match the tools image to each binary step.** Because you roll the binary one minor at a time ([Plan Your Upgrade Path](#plan-your-upgrade-path)), use the `admin-tools` version that matches the binary for that step: migrate that hop's schema with it, then roll the binary to the same version. You don't step the schema *tool* per schema version — it fast-forwards through the intermediate versions in one run — you step it per minor, in lockstep with the binary.
+
+> ⚠️ **Don't run `tdbg` from a target-version `admin-tools` image while the cluster is still on the old binary.** `tdbg` is built to match its server version and it *mutates* live cluster state — but the version handshake spans all of 1.x, so a minor mismatch isn't rejected; the safety is on you. Between the schema migration and the binary roll the tools image is ahead of the server — use a `tdbg` matching the running version, or wait for the roll. (Schema migration uses `temporal-sql-tool`, not `tdbg`.)
 
 The schema tools are standalone command-line programs, separate from `temporal-server`. Each one connects to the database, applies its migration, and exits — it does not start a server. Run it as a one-off from anywhere that can reach your database. You don't deploy or restart the server for this — the new server version isn't rolled out until [Step 3](#step-3-roll-out-the-new-version).
 
@@ -280,7 +290,7 @@ temporal-sql-tool \
 
 #### Elasticsearch
 
-> **Note:** `temporal-elasticsearch-tool` ships from server **v1.30.0** and is marked EXPERIMENTAL — but it's still the recommended way to apply visibility schema changes; prefer it over editing the index mappings by hand. If your target version is older than v1.30.0 the tool isn't available — apply the Elasticsearch index template/mappings using that release's method (the JSON files under `schema/elasticsearch/` via the ES API, or its auto-setup). The read-only detection script in [Confirm the Schema Updated](#confirm-the-schema-updated) works on any version, since it only reads the index mapping.
+> **Note:** `temporal-elasticsearch-tool` ships from server **v1.30.0** and is marked EXPERIMENTAL — but it's still the recommended way to apply visibility schema changes; prefer it over editing the index mappings by hand. If your target version is older than v1.30.0 the tool isn't available — apply the Elasticsearch index template/mappings using that release's method (the JSON files under `schema/elasticsearch/` via the ES API). The read-only detection script in [Confirm the Schema Updated](#confirm-the-schema-updated) works on any version, since it only reads the index mapping.
 
 The `update-schema` command applies the full current index mappings to your existing visibility index in a single operation. All mapping changes are additive — no reindexing is required.
 
@@ -478,6 +488,8 @@ temporal operator cluster describe
 ---
 
 ### Step 3: Roll Out the New Version
+
+> If you pulled a target-version `admin-tools` image to run the schema migration, don't use its `tdbg` against the cluster until this roll completes — see [Obtain the schema tools](#obtain-the-schema-tools).
 
 #### Pre-rollout dynamic config
 
