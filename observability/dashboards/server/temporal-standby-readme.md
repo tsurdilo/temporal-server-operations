@@ -4,7 +4,7 @@ A dedicated Grafana dashboard for monitoring Temporal standby clusters in a mult
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.0.0 — see [CHANGELOG](./temporal-standby-changelog.md)
+> **Current version:** v2.1.0 — see [CHANGELOG](./temporal-standby-changelog.md)
 
 ---
 
@@ -133,7 +133,8 @@ Quantifies how far behind the standby cluster is relative to the active. The hea
 | **Replication Tasks Lag** | Gauge. Task ID delta between standby and active. The primary headline number for how far behind the standby is. Thresholds: 1,000 orange, 5,000 red. |
 | **Recv Backlog Depth** | Gauge. Average depth of the receiver-side replication backlog on the standby. A growing backlog means the standby is receiving tasks faster than it can apply them. |
 | **Send Backlog Depth** | Gauge. Average depth of the sender-side backlog on the active cluster. Elevated values here explain standby lag before any standby-side metric fires. |
-| **Replication Latencies** | Timeseries. End-to-end, queue, processing, transmission, and persistence load latencies at the selected percentile. End-to-end is the primary SLO signal. High transmission latency points to network issues. High processing latency points to standby persistence pressure. |
+| **Replication Latency — Time Behind (End-to-End)** | Timeseries. Dedicated view of `replication_latency` (p50 and p99) — wall-clock from when a task is created on the active to when the standby applies it. The p99 is the single best "how many seconds is the standby behind" signal. Red at 20s aligns with alert `FAILOVER-PRE-07` (handover blocker). Use this to decide whether reconnect churn or load bursts are actually keeping the standby behind, vs. just producing log noise. |
+| **Replication Latencies** | Timeseries. End-to-end, queue, processing, transmission, and persistence load latencies at the selected percentile — the same `replication_latency` end-to-end series shown above, plus its sub-components for breaking down *where* latency comes from. High transmission latency points to network issues. High processing latency points to standby persistence pressure. |
 | **Sender Rate Limit Latency (Active → Standby)** | Timeseries. Time the active cluster spent rate-limiting replication sends. An active-side signal that appears here as context for diagnosing standby lag with no other visible cause. |
 | **Replication Task Generation and Load Latency** | Timeseries. Generation latency = time from workflow event to replication task creation on the active cluster. Load latency = persistence schedule-to-start for replication tasks. High values here mean the active cluster is slow to produce tasks, which contributes to end-to-end lag. |
 

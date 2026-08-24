@@ -39,7 +39,7 @@ Quick reference — all recommendations below are explained in detail in the sec
 
 ### Dashboard and workflow steps
 
-**Dashboard:** [Temporal — Namespace Failover: Graceful Handover](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — v1.3.0
+**Dashboard:** [Temporal — Namespace Failover: Graceful Handover](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — v1.5.0
 
 | Row | What you are watching for |
 |---|---|
@@ -114,7 +114,7 @@ What each policy forwards — and what it does not:
 | Activity heartbeats (`RecordActivityTaskHeartbeat`) | ✓ | ✗ |
 | `UpdateWorkflowExecution`, `ExecuteMultiOperation` | ✓ | ✗ — not yet in whitelist (tracked) |
 
-**The `selected-apis-forwarding` whitelist — the exact 11 APIs that are forwarded:**
+**The `selected-apis-forwarding` whitelist — the 11 APIs that are forwarded (as of v1.31.x):**
 
 ```
 StartWorkflowExecution
@@ -129,6 +129,8 @@ RequestCancelActivityExecution
 TerminateActivityExecution
 DeleteActivityExecution
 ```
+
+> **Version note.** This list is the whitelist as of **v1.31.x** (the current release line). It has grown over time — v1.30.x and earlier had only the 6 workflow APIs (no `DeleteWorkflowExecution`, no standalone-activity APIs); those 5 were added in **v1.31.0**. **v1.32.0** (not yet released) adds **8 more**: `PauseActivityExecution`, `UnpauseActivityExecution`, `ResetActivityExecution`, `UpdateActivityExecutionOptions`, and four standalone Nexus-operation APIs (`Start`/`RequestCancel`/`Terminate`/`Delete NexusOperationExecution`) — 19 total. The exact list lives in `common/rpc/interceptor/dc_redirection_policy.go`. **The worker-availability conclusion is unchanged across all versions: polls, `Respond*`, and heartbeats are never in the whitelist**, so `selected-apis-forwarding` never lets workers on the standby pick up work.
 
 Everything else — polls, Respond*, heartbeats, Update, ExecuteMultiOperation — is not forwarded and will be served locally by the standby (which means no work for workers, and errors for anything that requires the active).
 
@@ -182,7 +184,7 @@ All alerts below link to the [Namespace Failover: Graceful Handover dashboard](.
 |---|---|---|---|---|
 | `FAILOVER-PRE-01` — Replication Stream Stuck | critical | Pre-flight (before Step 1) | Row 1 | Any stream stopped making progress — hard blocker for handover |
 | `FAILOVER-PRE-02` — Replication DLQ Enqueue Failing | critical | Pre-flight (before Step 1) | Row 1 | Tasks failing into DLQ on stream path — hard blocker for handover |
-| `FAILOVER-PRE-03` — Replication Stream Errors Sustained | critical | Pre-flight (before Step 1) | Row 1 | `replication_stream_error` sustained for 2m — stream cycling through reconnects, hard blocker for handover |
+| `FAILOVER-PRE-03` — Replication Stream Reconnect Rate Elevated | warning | Pre-flight (before Step 1) | Row 1 | `replication_stream_error` sustained for 2m — advisory. A steady non-zero rate is expected from connection recycling; only a concern if the stream is also stuck or lag is rising (see `FAILOVER-PRE-01`) |
 | `FAILOVER-PRE-04` — Receiver Backlog At Flow Control Limit | critical | Pre-flight (before Step 1) | Row 1 | Receiver backlog p99 ≥ 500 — flow control active, hard blocker |
 | `FAILOVER-PRE-05` — Receiver Backlog Near Flow Control Limit | warning | Pre-flight (before Step 1) | Row 1 | Receiver backlog p99 ≥ 400 — approaching flow control ceiling, advisory |
 | `FAILOVER-PRE-06` — Standby Task Discards Detected | warning | Pre-flight (before Step 1) | Row 1 | `task_errors_discarded` non-zero — stuck workflows will exist post-flip |
@@ -578,6 +580,8 @@ This section is the operational playbook for running a graceful handover end-to-
 
 If required, the `force-replication-v2` workflow must be run and complete **before** you start the handover workflow — for the same namespace you intend to hand over.
 
+> **`force-replication-v2` is a data-plane operation only — it does not fail over anything.** It backfills the target cluster with history/data it is missing; it never changes which cluster the namespace is active on. It does **not** call `UpdateActiveCluster` or `UpdateNamespaceState`, does not enter HANDOVER state, and does not bump the failover version — active stays active and passive stays passive throughout. Flipping the active cluster is done only by the handover workflow (its final `UpdateActiveCluster` step) or by a direct `UpdateNamespace` force failover. Run `force-replication-v2` to make the standby a complete replica; run the handover workflow to actually move traffic.
+
 | Situation | Action |
 |---|---|
 | **Brand-new standby** — cluster was recently added and has never received live replication for this namespace | **Run `force-replication-v2`.** The stream only carries tasks from the point it was connected — all executions that existed before have no replication tasks in flight and will be missing on the standby after the flip. |
@@ -627,7 +631,7 @@ Open [Row 1 — Pre-Flight](../observability/dashboards/server/namespace-failove
 | [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) | Any non-zero rate → **blocker** | The standby has a built-in liveness monitor — if the stream stops making progress it reconnects automatically within ~3 minutes. Wait before acting. If it does not clear, see section [5](#5-something-went-wrong--rollback-and-recovery). |
 | [DLQ Enqueue Failed](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-dlq-enqueue-failed-stat) | Any non-zero rate → **blocker** | Fires on the standby. The DLQ is the last resort for replication tasks the standby cannot apply — if even that is failing, those tasks are permanently lost. Running a handover in this state makes no sense. Investigate and fix before proceeding. |
 | [Receiver Backlog](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) | ≥ 500 → **blocker**, 400–499 → **do not start** | Replication tasks are backing up on the standby faster than it can apply them. Starting the handover now risks the backlog hitting its limit mid-flight, which causes the sender to pause and WaitReplication to stall indefinitely. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks). |
-| [Stream Errors (gRPC)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) | Any non-zero rate → **blocker** | The replication stream between active and standby is currently in a bad state. Starting the handover now is dangerous — the standby is not reliably receiving updates from the active. Investigate the connection between clusters before proceeding. |
+| [Stream Errors (gRPC)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) | Elevated **and** paired with stalled progress → **investigate** | A steady non-zero rate here is **normal** — it is the connection recycling reconnecting the stream every few minutes (see the note below). On its own it is not a blocker. It only matters if it comes with **Stream Stuck** non-zero or **Replication Lag / Latency** rising — that combination means the stream is reconnecting *and* failing to catch up. Judge readiness by Stream Stuck and lag, not by this count. |
 | [Stream Service Errors](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-service-errors-stat) | Sustained unexplained rate → **investigate before proceeding** | Fires on the standby. A brief spike when the standby restarts is normal and clears on its own. A sustained rate with no obvious cause means the standby is struggling to process the replication stream — do not start until you understand why. |
 | [Replication Lag](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) | Trending up → **do not start** | How far behind the standby is from the active. Aim for near-zero and stable before starting — a rising lag means the standby is falling further behind and the handover drain window will not be enough time to close the gap. See section [1.3](#13-is-replication-lag-low-enough-to-proceed). |
 | [Backfill Activity](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-backfill-activity-stat) | — | The standby is receiving replication tasks but is missing some of the history behind them — it has to fetch that history from the active before it can apply each affected task. This slows down catchup. See section [1.4](#14-is-the-standby-still-catching-up-on-missing-history). |
@@ -636,6 +640,27 @@ Open [Row 1 — Pre-Flight](../observability/dashboards/server/namespace-failove
 | [Standby Task Discards](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat) | Any non-zero rate → **blocker** | Fires on the standby. Workflow executions on the standby had their tasks discarded because the history events they depended on never arrived in time. After the flip those workflows will be stuck on the new active with no pending task — direct business impact. Identify and understand the scope before proceeding. See section [1.6](#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip). |
 
 > If any blocker above is unresolved, our recommendation is not to proceed with the handover. Resolve the issue first and re-run this check before continuing.
+
+**Stream errors are usually normal — here is how to tell.** A steady, non-zero **Stream Errors (gRPC)** rate (often between 10s and 20s on a busy cluster) is expected. It is the connection between clusters being recycled every few minutes; the stream drops and re-establishes within a couple of seconds and resumes where it left off — no data is lost. 
+So looking at just raw error count is not really indication of a non-healthy stream. It's also important to look at two things:
+
+- **Stream Stuck** (`replication_stream_stuck`) — this only goes non-zero when the stream stops making forward progress (its acknowledged position stops advancing). This, not the error count, is the real "the stream is broken" signal.
+- **Replication Lag / Replication Latency** — if these are flat and low, the stream is keeping up despite the reconnects.
+
+Errors + healthy Stream Stuck and lag = benign, proceed. Errors + Stream Stuck non-zero *or* rising lag = a real problem, do not proceed.
+
+> **Why these reconnects happen — and should I change a setting to stop them?**
+>
+> These reconnects come from Temporal periodically recycling its cross-cluster connections (`frontend.keepAliveMaxConnectionAge`, default 5 minutes). 
+> The recycling keeps replication connections spread evenly across your frontend pods, so one pod doesn't end up carrying most of them. 
+> It is not a replication-performance setting.
+>
+> You can raise it (up to around 24 hours) to make the reconnects — and these errors — much less frequent. 
+> The trade-off: when connections recycle less often, they can build up unevenly, with some frontend pods holding far more replication connections than others. So only keep it short if you actually see that imbalance; if load across your frontend pods is already even, raising it is safe and quiets the noise.
+>
+> If you run a proxy or load balancer in front of your clusters, it may enforce its own connection age limit that also forces these reconnects — in that case you have to raise it there too, not just in Temporal.
+>
+> Bottom line: don't change this just to silence the errors. Decide based on whether replication is actually falling behind — check **Stream Stuck** and the lag panels.
 
 #### 1.3. Is replication lag low enough to proceed?
 

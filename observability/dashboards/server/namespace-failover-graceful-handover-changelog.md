@@ -1,5 +1,18 @@
 # Changelog — Temporal Namespace Failover — Graceful Handover Dashboard
 
+## v1.5.0 — 2026-08-24
+
+### Added
+
+- **Row 1 — Pre-Flight**: new **Replication Latency — Time Behind (Standby)** full-width time series panel (`replication_latency` p50 and p99 on `$standby_cluster`). Thresholds: green, orange ≥ 5s, red ≥ 20s (red aligns with alert `FAILOVER-PRE-07`). This is the time-based "how many seconds is the standby behind" signal — the dashboard previously tracked lag only in task count (`replication_tasks_lag`). Use it to distinguish benign replication-stream reconnect churn from churn that is actually keeping the standby behind. See playbook section 1.3.
+
+### Changed
+
+- **Row 1 — Pre-Flight**: added a panel row below the lag gauge/trend; Rows 2a–4 shifted down accordingly. No existing panels changed.
+- Dashboard `version` incremented.
+
+---
+
 ## v1.4.0 — 2026-06-26
 
 ### Added

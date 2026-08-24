@@ -18,7 +18,7 @@ Comprehensive cluster monitoring: throughput, persistence, service latencies, th
 
 ---
 
-### Temporal Standby Cluster — Replication Health — v2.0.0
+### Temporal Standby Cluster — Replication Health — v2.1.0
 
 Dedicated standby-side monitoring: replication lag, DLQ depth, standby task retries, stream health, and failover readiness.
 
@@ -54,7 +54,7 @@ Decision guide for tuning `history.shardIOConcurrency`: shard IO semaphore healt
 
 ---
 
-### Namespace Failover — Graceful Handover Dashboard — v1.4.0
+### Namespace Failover — Graceful Handover Dashboard — v1.5.0
 
 Pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, flip confirmation, and post-handover health for planned namespace failovers using `namespace-handover-v2`. Multi-cluster replication only.
 

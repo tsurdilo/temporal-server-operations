@@ -15,7 +15,7 @@ Throughout this document, **Step N** refers to the internal activity steps of th
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v1.4.0 — see [CHANGELOG](./namespace-failover-graceful-handover-changelog.md)
+> **Current version:** v1.5.0 — see [CHANGELOG](./namespace-failover-graceful-handover-changelog.md)
 
 The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`](../../../playbooks/namespace-failover-graceful-handover.md).
 
@@ -37,6 +37,7 @@ The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`
   - [Send Backlog (Active)](#panel-send-backlog-active-stat)
   - [Send Channel Full (Active)](#panel-send-channel-full-active-stat)
   - [Replication Lag Trend](#panel-replication-lag-trend-time-series)
+  - [Replication Latency p99](#panel-replication-latency-p99-time-series)
 - [Row 2a — WaitReplication (Steps 1–3)](#row-2a--waitreplication-steps-13--no-client-impact)
   - [Catchup Progress %](#panel-catchup-progress--gauge)
   - [Handover Progress — Combined](#panel-handover-progress--catchup--drain-combined-time-series)
@@ -239,10 +240,10 @@ See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handov
 
 ### Panel: Replication Latency p99 (time series)
 
-**Metric:** `histogram_quantile(0.99, sum(rate(replication_latency_bucket{source_cluster="$active_cluster"}[$__rate_interval])) by (le))`  
+**Metrics:** p50 and p99 of `replication_latency_bucket{source_cluster="$active_cluster"}`  
 **Cluster:** standby  
 **Thresholds:** green < 10s, orange ≥ 10s, red ≥ 20s  
-p99 end-to-end replication latency — time from task creation on the active to task application on the standby. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window and the handover is guaranteed to roll back.
+End-to-end replication latency — wall-clock time from task creation on the active to task application on the standby (server source: `service/history/replication/executable_task.go`). The p99 is the time-based "how many seconds is the standby behind" signal, complementing the task-count `replication_tasks_lag` panels above. Use it to distinguish benign replication-stream reconnect churn from churn that is actually keeping the standby behind. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window and the handover is guaranteed to roll back.
 
 **Alert:** [FAILOVER-PRE-07](../../../observability/alerts/server/alerts-index.md#alert-failover-pre-07--replication-latency-too-high-for-safe-handover) — fires at p99 ≥ 20s, severity critical.
 
