@@ -115,7 +115,7 @@ Multi-cluster replication only. All five alerts link to the [Namespace Failover 
 |---|---|---|---|---|
 | FAILOVER-PRE-01 | Replication Stream Stuck | Pre-flight | critical | 2m |
 | FAILOVER-PRE-02 | Replication DLQ Enqueue Failing | Pre-flight | critical | 2m |
-| FAILOVER-PRE-03 | Replication Stream Errors Sustained | Pre-flight | critical | 2m |
+| FAILOVER-PRE-03 | Replication Stream Reconnect Rate Elevated | Pre-flight | warning | 2m |
 | FAILOVER-PRE-04 | Receiver Backlog At Flow Control Limit | Pre-flight | critical | 1m |
 | FAILOVER-PRE-05 | Receiver Backlog Near Flow Control Limit | Pre-flight | warning | 2m |
 | FAILOVER-PRE-06 | Standby Task Discards Detected | Pre-flight | warning | 2m |
@@ -139,7 +139,7 @@ All thresholds and `for` durations are starting points based on Temporal's defau
 | 12 | p99 persistence latency > 1s | Dashboard threshold reference |
 | 25 | Any panic | Binary |
 | 27 | Error rate > 30% sustained 2m | Ratio-based |
-| 30 | Any `RESOURCE_EXHAUSTED_CAUSE_SYSTEM_OVERLOADED` or `RESOURCE_EXHAUSTED_CAUSE_CIRCUIT_BREAKER_OPEN` error | Binary |
+| 30 | Any `SystemOverloaded` or `CircuitBreakerOpen` error | Binary |
 | 34 | Shard creation with zero restarts in 8m window | Compound |
 | 34b | p99 immediate queue lag > 3M tasks | Dashboard red threshold |
 | 34f | Any `dd_current_suspected_deadlocks > 0` | Binary; noDataState OK (event-driven) |

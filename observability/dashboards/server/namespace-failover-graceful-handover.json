@@ -329,7 +329,7 @@
                 "value": null
               },
               {
-                "color": "red",
+                "color": "orange",
                 "value": 1
               }
             ]
@@ -345,7 +345,7 @@
       },
       "id": 104,
       "title": "Stream Errors (gRPC)",
-      "description": "rate(replication_stream_error) on standby. Alert FAILOVER-PRE-03. See playbook section 1.2.",
+      "description": "Rate of replication stream reconnects on the standby (both send- and recv-side StreamErrors). A steady non-zero rate is EXPECTED \u2014 the cross-cluster connection is recycled by frontend.keepAliveMaxConnectionAge (default 5m) and the stream re-establishes within ~2s. Orange = reconnect activity present (advisory), never a hard blocker on its own. The real 'stream broken' signal is Stream Stuck (replication_stream_stuck). Alert FAILOVER-PRE-03 (warning). See playbook section 1.2.",
       "type": "stat",
       "options": {
         "reduceOptions": {
@@ -1861,7 +1861,7 @@
   "timepicker": {},
   "timezone": "browser",
   "description": "Operator dashboard for executing and monitoring a planned graceful namespace failover using the namespace-handover-v2 workflow. Playbook: playbooks/namespace-failover-graceful-handover.md. Alerts: observability/alerts/server/temporal-failover-alerts.yaml.",
-  "title": "Temporal Namespace Failover \u2014 Graceful Handover v1.5.0",
+  "title": "Temporal Namespace Failover \u2014 Graceful Handover v1.6.0",
   "uid": "temporal-ns-failover-handover",
   "version": 4,
   "weekStart": ""

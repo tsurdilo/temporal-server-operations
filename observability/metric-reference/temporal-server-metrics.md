@@ -102,7 +102,7 @@ This document lists all OSS Temporal server metrics defined in `metrics_defs.go`
 | `persistence_errors` | Counter | Persistence errors. |
 | `persistence_error_with_type` | Counter | Persistence errors, keyed by `error_type`. |
 | `persistence_latency` | Timer | Persistence latency, keyed by `operation`. |
-| `persistence_shard_rps` | Histogram | Per-shard persistence RPS. |
+| `persistence_shard_rps` | Histogram | Per-shard persistence RPS, recorded as a distribution across shards (no `shard_id` label). Default-on (`system.persistenceHealthSignalMetricsEnabled=true`), emitted every 30s per history host. Read the tail (p99/p999 vs p50) as a hot-shard detector — a wide spread means uneven per-shard load. |
 | `persistence_errors_resource_exhausted` | Counter | Persistence resource exhausted errors. |
 | `cassandra_init_session_latency` | Timer | Cassandra session initialization latency. |
 | `cassandra_session_refresh_failures` | Counter | Cassandra session refresh failures. |
@@ -526,9 +526,9 @@ This document lists all OSS Temporal server metrics defined in `metrics_defs.go`
 | `visibility_archiver_archive_non_retryable_error` | Counter | Non-retryable visibility archiver errors. |
 | `visibility_archiver_archive_transient_error` | Counter | Transient visibility archiver errors. |
 | `visibility_archiver_archive_success` | Counter | Successful visibility archivals. |
-| `scavenger_success` | Counter | Successful scavenger runs. |
-| `scavenger_errors` | Counter | Scavenger errors. |
-| `scavenger_skips` | Counter | Scavenger skips. |
+| `scavenger_success` | Counter | History scavenger only (`operation="HistoryScavenger"`). Per **branch** handled without error — **kept or deleted** (not "successful runs", and not deletions specifically). |
+| `scavenger_errors` | Counter | History scavenger only. Per branch that errored (unreadable branch token, or the mutable-state lookup / history-branch delete failed). |
+| `scavenger_skips` | Counter | History scavenger only. Per branch skipped **because it is younger than `worker.historyScannerDataMinAge`** (default 60 days). |
 | `executions_outstanding` | Gauge | Outstanding executions count. |
 | `scavenger_validation_requests` | Counter | Scavenger validation requests. |
 | `scavenger_validation_failures` | Counter | Scavenger validation failures. |

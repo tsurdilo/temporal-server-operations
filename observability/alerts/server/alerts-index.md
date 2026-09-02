@@ -30,7 +30,7 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 0 — History Host Health](#section-0--history-host-health) (#0a, #0b, #0b-critical, #0c)
 - [Section 1 — Cluster Throughput](#section-1--cluster-throughput) (#1–#6)
 - [Section 2 — Shard and Workflow Lock Latencies](#section-2--shard-and-workflow-lock-latencies) (#7–#10)
-- [Section 3 — Persistence](#section-3--persistence) (#11–#18)
+- [Section 3 — Persistence](#section-3--persistence) (#11–#18, #84)
 - [Section 4 — Service Latencies](#section-4--service-latencies) (#19–#24)
 - [Section 5 — Service Requests and Errors](#section-5--service-requests-and-errors) (#25–#28)
 - [Section 6 — Throttling and Limits](#section-6--throttling-and-limits) (#29–#30)
@@ -407,6 +407,22 @@ p99 persistence latency has exceeded 1s for a critical-path DB operation. Persis
 
 ---
 
+### Alert 84 — Hot Shard: Uneven Per-Shard Load
+
+| Field | Value |
+|---|---|
+| Status | 📋 Planned |
+| Severity | warning |
+| Panel | Per-Shard Persistence RPS Distribution (Hot-Shard Detector) (2304), Hottest Shard RPS (2305) |
+
+**Condition:** `histogram_quantile(1.00, sum by (le) (rate(persistence_shard_rps_bucket{service_name="history"}[5m]))) > 200 and (histogram_quantile(1.00, sum by (le) (rate(persistence_shard_rps_bucket{service_name="history"}[5m]))) / clamp_min(histogram_quantile(0.50, sum by (le) (rate(persistence_shard_rps_bucket{service_name="history"}[5m]))), 1)) > 8` for 15m.
+
+At least one history shard is doing far more persistence work than the rest — the **hottest** shard (`max`) is above a meaningful floor (200 requests/sec) and at least 8× the typical shard (`p50`). Uses `max` (not p999) so it catches a **single** hot shard even on a large fleet, where one hot shard sits above the 99.9th percentile and p999 would miss it. This detects a hot shard early, before it surfaces as shard-lock latency (alerts 7 / 8) or queue lag (alerts 34a–34d). No metric carries a shard id, so this fires on the distribution shape; use the playbook to find which shard and what is driving it. **Caveats:** `max` is coarse (rounded to the histogram bucket boundary), so the ratio's magnitude is approximate; the metric only reflects shards active in the window, so this needs a **busy fleet of many active shards** to be meaningful (noisy on tiny or idle clusters); and both numbers are cluster-specific starting points — **tune the floor and the ratio to your cluster's normal skew before enabling.** The metric `persistence_shard_rps` is default-on (`system.persistenceHealthSignalMetricsEnabled`) and works on both SQL and Cassandra.
+
+**Playbook:** [Hot Shard — Detection & Remediation](../../../playbooks/hot-shard-detection-remediation.md)
+
+---
+
 ## Section 4 — Service Latencies
 
 > **Dashboard panels:** Frontend/History/Matching Service Latency panels
@@ -569,7 +585,7 @@ More than 30% of frontend requests are returning errors for a namespace. Check S
 | Severity | warning |
 | Panel | Resource Exhausted with Cause (121) |
 
-**Condition:** `sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~"RESOURCE_EXHAUSTED_CAUSE_RPS_LIMIT|RESOURCE_EXHAUSTED_CAUSE_PERSISTENCE_LIMIT"}[5m])) > 0`
+**Condition:** `sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~"RpsLimit|PersistenceLimit"}[5m])) > 0`
 
 Resource exhausted errors with cause `RpsLimit` or `QpsLimit` — configured rate limits are being hit.
 
@@ -586,7 +602,7 @@ Resource exhausted errors with cause `RpsLimit` or `QpsLimit` — configured rat
 | `for` | 1m |
 | `noDataState` | NoData |
 
-**Condition:** `sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~"RESOURCE_EXHAUSTED_CAUSE_SYSTEM_OVERLOADED|RESOURCE_EXHAUSTED_CAUSE_CIRCUIT_BREAKER_OPEN"}[5m])) > 0`
+**Condition:** `sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~"SystemOverloaded|CircuitBreakerOpen"}[5m])) > 0`
 
 Resource exhausted errors with cause `SYSTEM_OVERLOADED` or `CIRCUIT_BREAKER_OPEN`. Unlike configured RPS/QPS limits, these are dynamic self-protection responses — the cluster is actively shedding load because it cannot keep up.
 
@@ -1715,17 +1731,21 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 
 ---
 
-### Alert FAILOVER-PRE-03 — Replication Stream Errors Sustained
+### Alert FAILOVER-PRE-03 — Replication Stream Reconnect Rate Elevated
 
 | Field | Value |
 |---|---|
 | Status | ✅ Implemented |
 | UID | `temporal-alert-failover-pre-03` |
-| Severity | critical |
+| Severity | warning |
 | `for` | 2m |
 | `noDataState` | OK |
 
 **Condition:** `sum(rate(replication_stream_error{}[5m])) > 0`
+
+**Advisory, not a blocker.** A steady non-zero `replication_stream_error` rate is expected: it is the cross-cluster connection being recycled by `frontend.keepAliveMaxConnectionAge` (default 5m), which tears down and re-establishes the replication stream every few minutes. The stream resumes from its watermark within ~2s and no data is lost. This alert only flags that the reconnect rate is elevated.
+
+**The hard "stream is broken" blocker is [FAILOVER-PRE-01](#alert-failover-pre-01--replication-stream-stuck-pre-handover)** (`replication_stream_stuck` = acknowledged position not advancing). Treat PRE-03 as actionable only if PRE-01 is also firing or replication lag/latency is rising. Operators may raise the threshold above their measured recycle baseline to make it actionable.
 
 `noDataState: OK` — absence of this metric is healthy (no errors).
 
@@ -1893,11 +1913,11 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 | Status | Count |
 |---|---|
 | ✅ Implemented | 22 |
-| 📋 Planned | 81 |
-| **Total** | **103** |
+| 📋 Planned | 82 |
+| **Total** | **104** |
 
 | Severity | Implemented | Planned | Total |
 |---|---|---|---|
 | 🔴 Critical | 18 | 33 | 51 |
-| ⚠️ Warning | 5 | 48 | 53 |
-| **Total** | **23** | **81** | **104** |
+| ⚠️ Warning | 5 | 49 | 54 |
+| **Total** | **23** | **82** | **105** |

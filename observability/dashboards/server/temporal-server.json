@@ -975,6 +975,123 @@
               "refId": "A"
             }
           ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 34
+          },
+          "id": 2304,
+          "title": "Per-Shard Persistence RPS Distribution (Hot-Shard Detector)",
+          "description": "Distribution of per-shard persistence request rate across the history fleet, from the `persistence_shard_rps` histogram (default-on via `system.persistenceHealthSignalMetricsEnabled=true`; emitted every 30s per history host; backend-agnostic). The metric has NO `shard_id` or `namespace` label — only shards that had traffic in the window are in it — so this shows the shape of load across ACTIVE shards, not any single shard. Read the gap between the lines: `max` is the single hottest shard; `p50` is the typical shard. When `max` sits far above `p50`, at least one shard is hot. When `p99` is also far above `p50`, MANY shards are hot (broad concentration / too few shards). Why `max` and not p99/p999: on a large fleet a SINGLE hot shard is above the 99.9th percentile, so p999 misses it — `max` catches one hot shard regardless of fleet size (it is coarse, rounded up to the histogram bucket boundary). Needs a reasonable number of ACTIVE shards to be meaningful; on tiny or lightly-loaded clusters the quantiles are noisy. Detects THAT a hot shard exists, not WHICH one — get the shard id from the `\"Shard queue lag exceeds warn threshold.\"` WARN log (enable `history.emitShardLagLog`) or `tdbg`.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(persistence_shard_rps_bucket{service_name=\"history\"}[$__rate_interval])))",
+              "legendFormat": "p50 (typical shard)",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(persistence_shard_rps_bucket{service_name=\"history\"}[$__rate_interval])))",
+              "legendFormat": "p99 (many shards hot)",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(1.00, sum by (le) (rate(persistence_shard_rps_bucket{service_name=\"history\"}[$__rate_interval])))",
+              "legendFormat": "max (hottest single shard)",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 200
+                  },
+                  {
+                    "color": "red",
+                    "value": 500
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 34
+          },
+          "id": 2305,
+          "title": "Hottest Shard RPS",
+          "description": "The single busiest shard's persistence request rate right now — `max` of `persistence_shard_rps`. The one-number companion to the distribution panel: it answers \"how hot is the hottest shard?\" directly, in req/s. Compare it against a typical shard's rate on the panel to the left (p50): if the hottest shard is doing far more than typical, you have a hot shard. Uses `max` so it catches a single hot shard on any fleet size (a single hot shard sits above the 99.9th percentile, so p99/p999 would miss it). `max` is coarse — it rounds up to the metric's histogram bucket boundary (a shard at 219 req/s reads as ~500), so read it as a ballpark, not an exact rate. Reads near the baseline when no shard is hot. The orange (200) / red (500) thresholds are illustrative starting points — set them relative to what a busy-but-healthy shard does on your cluster. Only meaningful with enough active shards in the window; noisy on tiny or idle clusters.",
+          "type": "stat",
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "graphMode": "area",
+            "colorMode": "value",
+            "textMode": "value"
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(1.00, sum by (le) (rate(persistence_shard_rps_bucket{service_name=\"history\"}[$__rate_interval])))",
+              "legendFormat": "hottest shard",
+              "refId": "A"
+            }
+          ]
         }
       ]
     },
@@ -7119,6 +7236,148 @@
           ]
         }
       ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 2300,
+      "title": "History Scavenger",
+      "type": "row",
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 41
+          },
+          "id": 2301,
+          "title": "",
+          "type": "text",
+          "options": {
+            "mode": "markdown",
+            "content": "**History Scavenger** — Temporal's built-in cleanup for leftover workflow history: `history_tree` / `history_node` rows whose workflow execution has already been deleted. It runs about every 12 hours. **`scavenger_skips`** = branches skipped only because they are younger than `worker.historyScannerDataMinAge` (default 60 days); **`scavenger_success`** = branches handled without error — **kept or deleted** (not just deleted); **`scavenger_errors`** = branches that failed. If **skipped** towers over **handled** for short-lived workflows, the 60-day wait is blocking cleanup and history piles up — lower `worker.historyScannerDataMinAge`. See the [XDC Standby Database Growth playbook](https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/xdc-standby-database-growth.md)."
+          }
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 45
+          },
+          "id": 2302,
+          "title": "Scavenger Activity — Skipped vs Handled",
+          "description": "Per-branch rates from the history scavenger. 'skipped' = branches younger than worker.historyScannerDataMinAge (default 60d) that the scavenger left untouched; 'handled' = branches processed without error (kept OR deleted). When skipped dwarfs handled, the 60-day wait is blocking cleanup and history_tree/history_node grow. Lower worker.historyScannerDataMinAge to let the scavenger reclaim leftovers.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(scavenger_skips{operation=\"HistoryScavenger\"}[$__rate_interval]))",
+              "legendFormat": "skipped — too young (/s)",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(scavenger_success{operation=\"HistoryScavenger\"}[$__rate_interval]))",
+              "legendFormat": "handled — kept or deleted (/s)",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 45
+          },
+          "id": 2303,
+          "title": "Scavenger Errors",
+          "description": "Rate of branches the scavenger failed to process (couldn't read the branch, or the mutable-state lookup / history-branch delete failed). Should sit at ~0. A sustained non-zero rate is a different problem from the 60-day wait: cleanup is stalling because the scavenger's operations are erroring.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(scavenger_errors{operation=\"HistoryScavenger\"}[$__rate_interval]))",
+              "legendFormat": "errors/s",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -7211,8 +7470,8 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.11.0",
+  "title": "Temporal Server Dashboard v2.14.0",
   "uid": "temporal-overview-v1",
-  "version": 8,
+  "version": 11,
   "weekStart": ""
 }

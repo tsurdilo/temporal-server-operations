@@ -6,7 +6,7 @@
 
 ### What this alert detects
 
-Any non-zero rate of `service_errors_resource_exhausted` with cause `RESOURCE_EXHAUSTED_CAUSE_SYSTEM_OVERLOADED` or `RESOURCE_EXHAUSTED_CAUSE_CIRCUIT_BREAKER_OPEN` for 1 consecutive minute.
+Any non-zero rate of `service_errors_resource_exhausted` with cause `SystemOverloaded` or `CircuitBreakerOpen` for 1 consecutive minute.
 
 ### Why it matters
 

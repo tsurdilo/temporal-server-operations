@@ -39,7 +39,7 @@ Quick reference — all recommendations below are explained in detail in the sec
 
 ### Dashboard and workflow steps
 
-**Dashboard:** [Temporal — Namespace Failover: Graceful Handover](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — v1.5.0
+**Dashboard:** [Temporal — Namespace Failover: Graceful Handover](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — v1.6.0
 
 | Row | What you are watching for |
 |---|---|

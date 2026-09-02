@@ -481,7 +481,7 @@ groups:
             datasourceUid: Prometheus
             model:
               editorMode: code
-              expr: "sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~\"RESOURCE_EXHAUSTED_CAUSE_SYSTEM_OVERLOADED|RESOURCE_EXHAUSTED_CAUSE_CIRCUIT_BREAKER_OPEN\"}[5m]))"
+              expr: "sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~\"SystemOverloaded|CircuitBreakerOpen\"}[5m]))"
               instant: true
               intervalMs: 1000
               maxDataPoints: 43200

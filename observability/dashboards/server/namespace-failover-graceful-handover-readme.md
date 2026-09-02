@@ -15,7 +15,7 @@ Throughout this document, **Step N** refers to the internal activity steps of th
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v1.5.0 — see [CHANGELOG](./namespace-failover-graceful-handover-changelog.md)
+> **Current version:** v1.6.0 — see [CHANGELOG](./namespace-failover-graceful-handover-changelog.md)
 
 The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`](../../../playbooks/namespace-failover-graceful-handover.md).
 
@@ -159,12 +159,12 @@ See [playbook section 1.5](../../../playbooks/namespace-failover-graceful-handov
 
 **Metric:** `rate(replication_stream_error{cluster="$standby_cluster"})`  
 **Cluster:** standby  
-**Thresholds:** green = 0, red > 0  
-gRPC protocol-layer errors on the replication stream on the standby cluster, distinct from application-level errors (`replication_service_error`). `StreamError` is non-retryable — a single occurrence causes the stream to die and reconnect immediately via the outer `WrapEventLoop` loop.
+**Thresholds:** green = 0, orange > 0 (advisory — never a red hard-blocker)  
+Rate of replication stream reconnects on the standby (each `StreamError` tears the stream down and it re-establishes immediately via the outer `WrapEventLoop` loop). **A steady non-zero rate is expected**, not a fault: it is the cross-cluster connection being recycled by `frontend.keepAliveMaxConnectionAge` (default 5m), reconnecting every few minutes and resuming from its watermark within ~2s — no data lost. On its own this is advisory. It only signals a problem when paired with stalled progress: cross-check the **Stream Stuck** panel (`replication_stream_stuck` = acknowledged position not advancing — the real "stream broken" signal) and the **Replication Lag / Replication Latency** panels.
 
 > **Note on the `cluster` label:** `cluster` here is a scrape-level label added by Prometheus configuration, not a server-emitted dimension. The actual server-emitted labels for filtering by stream direction are `from_cluster_id` and `to_cluster_id` (integer cluster IDs).
 
-**Alert:** [FAILOVER-PRE-03](../../../observability/alerts/server/alerts-index.md#alert-failover-pre-03--replication-stream-errors-sustained) — fires after 2 minutes sustained, severity critical.
+**Alert:** [FAILOVER-PRE-03](../../../observability/alerts/server/alerts-index.md#alert-failover-pre-03--replication-stream-reconnect-rate-elevated) — fires after 2 minutes sustained, severity **warning** (advisory). The hard blocker is `FAILOVER-PRE-01` (Stream Stuck).
 
 See [playbook section 1.2](../../../playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy) for interpretation and go/no-go guidance.
 

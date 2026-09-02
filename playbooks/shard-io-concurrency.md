@@ -40,6 +40,8 @@ There is a direct tradeoff: as you increase `shardIOConcurrency`, semaphore late
 
 This playbook walks you through the dashboard panels in order to reach a yes or no decision — and if yes, tells you what value to set and how to apply it safely.
 
+> **Not the same as a hot shard.** `shardIOConcurrency` fixes *write serialization within a shard* — it cannot fix an *uneven distribution* where one shard carries far more load than the rest. Raising it on a hot shard just fires more concurrent writes at the same overloaded DB partition. If you suspect uneven load, first check the **Per-Shard Persistence RPS Distribution (Hot-Shard Detector)** panel on the [Temporal Server dashboard](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors): a p999 far above p50 means a hot shard, and the lever there is **more shards**, not this setting.
+
 ---
 
 ## Step 1 — Open the dashboard and check Row 1

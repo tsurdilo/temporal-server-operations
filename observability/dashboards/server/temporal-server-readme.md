@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.11.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.14.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -35,6 +35,8 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
   - [Cluster Replication](#18-cluster-replication)
   - [Authorization](#19-authorization)
   - [History Task DLQ / Terminal Failures](#20-history-task-dlq--terminal-failures)
+  - [Archival Health](#21-archival-health)
+  - [History Scavenger](#22-history-scavenger)
 - [Related Resources](#related-resources)
 
 ---
@@ -135,6 +137,14 @@ Tracks all interactions with the primary Temporal persistence database. Database
 | **SQL DB Connection Pool** | Current state of the SQL database connection pool: configured maximum, open, idle, and in-use connections. A pool consistently at its maximum indicates DB saturation. **Only applicable for SQL backends (MySQL, PostgreSQL). Not emitted for Cassandra.** |
 | **Persistence Errors Total by Operation** | Total rate of persistence errors across the entire cluster broken down by operation and error type. Useful for identifying cluster-wide error patterns regardless of namespace filter. |
 | **Persistence Availability** | Percentage of persistence requests that succeeded (no errors), shown as a gauge. Thresholds: 99% green, 95% orange. Any value below 99% should be investigated. |
+| **Per-Shard Persistence RPS Distribution (Hot-Shard Detector)** | Distribution of per-shard persistence request rate across the history fleet, as **p50 (typical shard) / p99 (many shards hot) / max (hottest single shard)** lines from the `persistence_shard_rps` histogram. Read the gap: when **`max` sits far above `p50`**, at least one shard is hot; when **`p99` is also far above `p50`**, MANY shards are hot (broad concentration / too few shards). Detects **that** a hot shard exists, not **which** one. See the hot-shard notes below. |
+| **Hottest Shard RPS** | The single busiest shard's persistence request rate (`max` of `persistence_shard_rps`) as a stat, in req/s. Answers "how hot is the hottest shard?" directly — compare it against a typical shard (p50) on the distribution panel. `max` is coarse (rounds up to the histogram bucket boundary), so read it as a ballpark. Orange (200) / red (500) thresholds are illustrative — set them relative to a busy-but-healthy shard on your cluster. |
+
+**Hot-shard detection notes.** `persistence_shard_rps` is a histogram of per-shard persistence RPS, computed per shard but recorded **without a `shard_id` (or `namespace`) label** — Temporal deliberately does not tag metrics by shard (cardinality), so no metric names an individual shard. Only shards that had traffic in the 30s window appear in it. It is default-on (`system.persistenceHealthSignalMetricsEnabled`, default `true`), emitted every 30s per history host, and backend-agnostic (Cassandra and SQL alike). The two panels are cluster-wide and ignore the `$namespace` variable.
+
+> **Why these panels use `max`, not p999 — and their limits.** A **single** hot shard sits at percentile `(N−1)/N` among `N` active shards. On a large fleet that is *above* the 99.9th percentile (e.g. 1 hot shard among 2048 active = the 99.95th percentile), so **`p999` lands on a normal shard and misses it** — which is exactly the common "one hot workflow id → one hot shard" case. **`max` catches a single hot shard regardless of fleet size**, so the hottest-shard line and the Hottest Shard RPS stat use `max`. Trade-off: `max` is **coarse** — it returns the histogram *bucket boundary* the hottest shard falls in (e.g. a shard at 219 rps reads as ~500), so treat the magnitude as approximate. Both panels also need **enough active shards** to be meaningful: on a tiny cluster (few shards) or a lightly-loaded one (few shards carrying traffic) the histogram has too few observations and the quantiles are noisy — the detector is built for a busy fleet of hundreds-plus active shards. `p99` remains the signal for the *many-shards-hot* case (it catches the top 1%).
+
+To find **which** shard is hot, enable `history.emitShardLagLog` and read the `"Shard queue lag exceeds warn threshold."` WARN log (it carries the `shard-id`), or derive it from a known hot workflow id with `tdbg history-host get-shardid`. The usual root cause is a workflow id that hashes to one shard at high frequency; the fix is app-side or more shards, not `history.shardIOConcurrency`. See the **[Hot Shard playbook](../../../playbooks/hot-shard-detection-remediation.md)**.
 
 ---
 
@@ -412,6 +422,19 @@ Detection surface for a **sustained archival-backend (S3 / GCS / custom provider
 | **Archival Attempts by Status (ok / err / rate_limit_exceeded)** | `archiver_archive_latency` broken down by `status`. Confirms whether archival is succeeding at all and separates a genuine backend outage (`err`) from archival rate-limiting (`rate_limit_exceeded`). Context for Signal 1. |
 | **Signal 2 — History Task DLQ Writes & Write Failures** | `dlq_writes{operation="ArchivalTaskArchiveExecution"}` (archival tasks reaching the DLQ after 70 failed attempts) and `task_dlq_failures` (writes to the single-partition DLQ themselves failing — database distress). Backs essential alert 82. |
 | **Archival Errors by Type (non-retryable vs transient)** | `history_archiver_archive_non_retryable_error` / `_transient_error` and the `visibility_archiver_archive_*` equivalents. Non-retryable (e.g. bad endpoint / DNS NXDOMAIN) = a hard, sustained outage; transient (timeouts, connection resets) may be a passing blip. Use to judge whether the failure is sustained before pausing. Emitted by the built-in S3/GCS archivers; a custom archival provider must emit these counters itself or this panel stays empty. |
+
+---
+
+### 22. History Scavenger
+
+Detection surface for **unbounded history growth when the history scavenger falls behind** — most often on an XDC standby. The scavenger is Temporal's built-in cleanup for leftover history (`history_tree` / `history_node` rows whose workflow execution has already been deleted). It runs on every cluster about every 12 hours and skips any branch younger than `worker.historyScannerDataMinAge` (default **60 days**). For short-lived, high-volume workflows almost every branch is younger than 60 days, so the scavenger skips nearly all of them and history piles up. Full mechanism, diagnosis, and remediation are in the **[XDC Standby Database Growth playbook](../../../playbooks/xdc-standby-database-growth.md)**.
+
+These three counters are emitted **only** by the history scavenger (the metric names are shared in code but only `service/worker/scanner/history/scavenger.go` records them), so they always carry `operation="HistoryScavenger"`. Note `scavenger_success` counts branches **handled** — kept *or* deleted — not deletions; no counter isolates actual deletions.
+
+| Panel | Description |
+|---|---|
+| **Scavenger Activity — Skipped vs Handled** | `scavenger_skips` (branches skipped only because they are younger than `worker.historyScannerDataMinAge`) versus `scavenger_success` (branches handled without error — kept or deleted). When skipped dwarfs handled, the 60-day wait is blocking cleanup — lower `worker.historyScannerDataMinAge`. |
+| **Scavenger Errors** | `scavenger_errors` — branches the scavenger failed to process (unreadable branch, or the mutable-state lookup / history-branch delete failed). Should sit at ~0; a sustained non-zero rate is a different problem from the 60-day wait. |
 
 ---
 

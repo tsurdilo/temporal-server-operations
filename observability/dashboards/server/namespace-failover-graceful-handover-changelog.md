@@ -1,5 +1,13 @@
 # Changelog — Temporal Namespace Failover — Graceful Handover Dashboard
 
+## v1.6.0 — 2026-08-24
+
+### Changed
+
+- **Row 1 — Pre-Flight**: **Stream Errors (gRPC)** panel (id 104) threshold changed from **red ≥ 1** to **orange ≥ 1**. A steady non-zero `replication_stream_error` rate is expected — it is the cross-cluster connection being recycled by `frontend.keepAliveMaxConnectionAge` (default 5m), and the stream re-establishes within ~2s. Reconnect activity is advisory, never a red hard-blocker on its own; the real "stream broken" signal is **Stream Stuck** (`replication_stream_stuck`). Panel description updated to match.
+- Alignment with the demotion of alert **FAILOVER-PRE-03** from critical to warning (advisory reconnect-rate signal), and the corresponding playbook §1.2 reframe.
+- Dashboard `version` incremented.
+
 ## v1.5.0 — 2026-08-24
 
 ### Added

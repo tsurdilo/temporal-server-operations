@@ -4,7 +4,7 @@ A dedicated Grafana dashboard for monitoring Temporal standby clusters in a mult
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.1.0 — see [CHANGELOG](./temporal-standby-changelog.md)
+> **Current version:** v2.2.0 — see [CHANGELOG](./temporal-standby-changelog.md)
 
 ---
 
@@ -23,6 +23,7 @@ A dedicated Grafana dashboard for monitoring Temporal standby clusters in a mult
     - [Namespace Replication](#5-namespace-replication)
     - [Standby Task Processing Behavior](#6-standby-task-processing-behavior)
     - [Standby Cluster Infrastructure](#7-standby-cluster-infrastructure)
+    - [History Scavenger](#8-history-scavenger)
 - [Key Dynamic Config Reference](#key-dynamic-config-reference)
 - [Relationship to the Server Dashboard](#relationship-to-the-server-dashboard)
 - [Related Resources](#related-resources)
@@ -214,6 +215,19 @@ The standby cluster maintains its own persistence layer and shard assignments ev
 | **Shard Movement** | Timeseries. Shard creation and removal rate. Heavy churn is expected during a failover event. Unexpected churn during normal standby operation may indicate history host instability. |
 | **Service Restarts** | Timeseries. Rate of service restarts by service on the standby cluster. Frequent History service restarts will cause shard movement and replication stream reconnections. |
 | **Persistence Availability** | Gauge. Percentage of persistence requests that succeeded. Thresholds: 99% green, 95% orange. A degraded standby persistence layer reduces replication throughput and failover readiness. |
+
+---
+
+### 8. History Scavenger
+
+The history scavenger clears **leftover history** on this standby — `history_tree` / `history_node` rows whose workflow execution has already been deleted. It runs about every 12 hours (independently on every cluster) and skips any branch younger than `worker.historyScannerDataMinAge` (default **60 days**). For short-lived, high-volume workflows almost every branch is younger than 60 days, so the scavenger skips nearly all of them and this standby's history tables grow. Full mechanism, diagnosis, and remediation are in the **[XDC Standby Database Growth playbook](../../../playbooks/xdc-standby-database-growth.md)**.
+
+These counters are emitted **only** by the history scavenger, always tagged `operation="HistoryScavenger"`. `scavenger_success` counts branches **handled** — kept *or* deleted — not deletions.
+
+| Panel | Description |
+|---|---|
+| **Scavenger Activity — Skipped vs Handled** | `scavenger_skips` (branches skipped only because they are younger than `worker.historyScannerDataMinAge`) versus `scavenger_success` (branches handled without error — kept or deleted). When skipped dwarfs handled, the 60-day wait is blocking cleanup — lower `worker.historyScannerDataMinAge`. |
+| **Scavenger Errors** | `scavenger_errors` — branches the scavenger failed to process (unreadable branch, or the mutable-state lookup / history-branch delete failed). Should sit at ~0; a sustained non-zero rate is a distinct problem from the 60-day wait. |
 
 ---
 

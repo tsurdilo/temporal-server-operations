@@ -150,9 +150,15 @@ groups:
             https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy
         isPaused: false
 
-      # FAILOVER-PRE-03 — Replication Stream Errors Sustained
+      # FAILOVER-PRE-03 — Replication Stream Reconnect Rate Elevated (advisory)
+      # A steady non-zero replication_stream_error rate is EXPECTED: it is the cross-cluster
+      # connection being recycled by frontend.keepAliveMaxConnectionAge (default 5m), which
+      # tears down and re-establishes the stream every few minutes. This is not a page.
+      # The hard "stream is broken" blocker is FAILOVER-PRE-01 (replication_stream_stuck =
+      # acknowledged position not advancing). Operators may raise the threshold below above
+      # their measured recycle baseline if they want this to be actionable.
       - uid: temporal-alert-failover-pre-03
-        title: "Temporal Failover: Replication Stream Errors Sustained"
+        title: "Temporal Failover: Replication Stream Reconnect Rate Elevated"
         condition: C
         data:
           - refId: A
@@ -192,14 +198,14 @@ groups:
         execErrState: Error
         for: 2m
         labels:
-          severity: critical
+          severity: warning
           service: temporal
           component: history
           area: dr-handover
         annotations:
           __dashboardUid__: temporal-ns-failover-handover
           __panelId__: 104
-          summary: "Temporal Failover: replication stream errors sustained"
+          summary: "Temporal Failover: replication stream reconnect rate elevated (advisory — see FAILOVER-PRE-01 for the hard blocker)"
           description: |
             Dashboard panel: Stream Errors — gRPC (Row 1 — Pre-Flight)
             https://github.com/tsurdilo/temporal-metrics/blob/main/observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat

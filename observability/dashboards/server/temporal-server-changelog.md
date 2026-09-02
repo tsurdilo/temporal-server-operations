@@ -1,5 +1,32 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.14.0 — 2026-09-02
+
+### Fixed
+- **Hot-shard detector corrected to use `max`, not p999** (both Persistence-row panels from v2.13.0). Empirical testing on a 2048-shard cluster exposed that the v2.13.0 detector **missed a single hot shard** — the primary "one hot workflow id → one hot shard" case. A single hot shard sits at percentile `(N−1)/N` among `N` active shards, which on a large fleet is *above* the 99.9th percentile (1 of 2048 = the 99.95th), so `p999` landed on a normal shard and the skew read ~1 while one shard was genuinely on fire.
+  - **Per-Shard Persistence RPS Distribution** — the hottest-shard line changed from `p999` → **`max` (`histogram_quantile(1.00, …)`)**, relabeled "max (hottest single shard)"; the `p99` line relabeled "p99 (many shards hot)" (it catches the *broad* Kind-1 case). p50 = typical shard.
+  - **Hot-Shard Skew → replaced with "Hottest Shard RPS".** The v2.13.0 skew *ratio* (`max ÷ clamp_min(p50, 1)`) was unintuitive: because a typical shard is usually below 1 req/s, the divide-by-zero guard floored the denominator to 1, so the "ratio" collapsed to just `max` and read a meaningless "1.0" when idle. Replaced it with a plain **`max`** stat — the single busiest shard's req/s — titled **Hottest Shard RPS**, unit req/s, thresholds orange 200 / red 500 (illustrative, cluster-tunable). It answers "how hot is the hottest shard?" directly; compare against p50 on the distribution panel.
+  - Panel descriptions and the readme now document: `max` is **coarse** (rounds to the histogram bucket boundary, so magnitude is approximate); both panels need **enough active shards** (busy fleet of hundreds-plus) to be meaningful and are noisy on tiny/idle clusters; `p99` is the many-shards-hot signal. Alert 84 updated in lockstep to use `max`.
+
+## v2.13.0 — 2026-08-31
+
+### Added
+- **Persistence Requests, Latencies and Errors** group — two panels for **hot-shard detection**, backing the recurring "how do I find a hot shard?" question. There is no per-shard-tagged metric in Temporal (shard id is a log dimension only, by design), so hot-shard detection is a distribution read, not a single series. Both panels use `persistence_shard_rps` — a histogram of per-shard persistence RPS, computed per shard but recorded with **no `shard_id` or `namespace` label**; default-on (`system.persistenceHealthSignalMetricsEnabled`, default `true`, verified `common/dynamicconfig/constants.go`), emitted every 30s per history host from `common/persistence/health_signal_aggregator.go`, backend-agnostic (Cassandra and SQL alike). Both panels are cluster-wide and ignore `$namespace`.
+  - **Per-Shard Persistence RPS Distribution (Hot-Shard Detector)** — p50 / p99 / p999 of `persistence_shard_rps_bucket{service_name="history"}` on one timeseries. `histogram_quantile(0.50|0.99|0.999, sum by (le) (rate(...[$__rate_interval])))`. p99/p999 far above p50 = a hot shard exists; all three together = balanced.
+  - **Hot-Shard Skew (hottest ÷ typical shard RPS)** — a stat panel: `histogram_quantile(0.999, ...) / clamp_min(histogram_quantile(0.50, ...), 1)`. One-number skew glance; orange (3) / red (10) thresholds are illustrative and cluster-tunable.
+- These panels detect **that** a hot shard exists, not **which** — the shard id comes from the `"Shard queue lag exceeds warn threshold."` WARN log (`history.emitShardLagLog`). Readme section 3 documents the full detect-then-localize flow and cross-links the Shard IO Concurrency playbook (serialization vs hot-shard distinction).
+
+## v2.12.0 — 2026-08-24
+
+### Added
+- **History Scavenger** group (new, appended as the last row): detection surface for **unbounded history growth when the history scavenger falls behind** (most often on an XDC standby). The scavenger clears leftover history (`history_tree` / `history_node` rows whose execution is already deleted) but skips any branch younger than `worker.historyScannerDataMinAge` (default 60 days); for short-lived, high-volume workflows that is nearly every branch, so history piles up. Metric names verified against server source — `scavenger_success` / `scavenger_skips` / `scavenger_errors` are recorded only by `service/worker/scanner/history/scavenger.go`, always tagged `operation="HistoryScavenger"`. `scavenger_success` counts branches **handled** (kept or deleted), not deletions. Panels (each `$__rate_interval`, `$DS_PROMETHEUS` only — these metrics carry no `namespace` label):
+  - **Scavenger Activity — Skipped vs Handled** — `sum(rate(scavenger_skips{operation="HistoryScavenger"}[$__rate_interval]))` versus `sum(rate(scavenger_success{operation="HistoryScavenger"}[$__rate_interval]))`. When skipped dwarfs handled, the 60-day wait is blocking cleanup.
+  - **Scavenger Errors** — `sum(rate(scavenger_errors{operation="HistoryScavenger"}[$__rate_interval]))`. Should sit at ~0; a sustained non-zero rate is a distinct problem from the 60-day wait.
+- Backs the new **[XDC Standby Database Growth playbook](../../../playbooks/xdc-standby-database-growth.md)**.
+
+### Fixed
+- Table of Contents now lists **21. Archival Health** (omitted when that group was added in v2.11.0) and **22. History Scavenger**.
+
 ## v2.11.0 — 2026-08-12
 
 ### Added

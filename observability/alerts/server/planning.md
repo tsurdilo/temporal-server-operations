@@ -87,7 +87,7 @@ All expressions are derived from the corresponding dashboard panel queries with 
 | 12 | 5m | `histogram_quantile(0.99, sum by (operation, le) (rate(persistence_latency_bucket{operation=~"CreateWorkflowExecution\|UpdateWorkflowExecution\|ConflictResolveWorkflowExecution\|GetWorkflowExecution\|GetCurrentExecution\|AppendHistoryNodes\|ReadHistoryBranch\|CreateTasks\|GetTasks\|GetTransferTasks\|GetTimerTasks\|CompleteTransferTask\|CompleteTimerTask"}[5m]))) > 1` |
 | 25 | 1m | `sum by (service_name) (rate(service_panics[5m])) > 0` |
 | 27 | 2m | `sum by (namespace) (rate(service_errors{service_name="frontend"}[5m])) / sum by (namespace) (rate(service_requests{service_name="frontend"}[5m])) > 0.3` |
-| 30 | 1m | `sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~"RESOURCE_EXHAUSTED_CAUSE_SYSTEM_OVERLOADED\|RESOURCE_EXHAUSTED_CAUSE_CIRCUIT_BREAKER_OPEN"}[5m])) > 0` |
+| 30 | 1m | `sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~"SystemOverloaded\|CircuitBreakerOpen"}[5m])) > 0` |
 | 33 | — | removed from Essential Set — replication-only metric, not applicable to single active cluster |
 | 34 | 10m | `(sum(rate(sharditem_created_count{service_name="history"}[5m])) + sum(rate(sharditem_removed_count{service_name="history"}[5m])) + sum(rate(shard_closed_count{service_name="history"}[5m])) > 0) unless (sum(increase(restarts{service_name="history"}[8m])) > 0)` |
 | 34b | 15m | `histogram_quantile(0.99, sum by (instance, task_category, le) (rate(shardinfo_immediate_queue_lag_bucket{service_name="history"}[11m]))) > 3000000` |
