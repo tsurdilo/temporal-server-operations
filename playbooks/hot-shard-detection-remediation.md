@@ -1,4 +1,4 @@
-# Hot Shard in a Multi-Tenant Cluster — Detection & Remediation Playbook
+# Hot Shard — Detection & Remediation Playbook
 
 **Audience**
 
