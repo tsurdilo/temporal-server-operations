@@ -808,6 +808,36 @@ Writes to the history task DLQ are themselves **failing** (`task_dlq_failures`).
 
 ---
 
+## Section 8b — History Scavenger
+
+> **Dashboard panels:** History Scavenger row — Scavenger Activity — Skipped vs Handled (panel 2302), Scavenger Errors (panel 2303)
+> **Metrics:** `scavenger_skips`, `scavenger_success`, `scavenger_errors` (tag `operation="HistoryScavenger"`; append `_total` on the OpenTelemetry reporter)
+> **Component:** worker
+
+### Alert 85 — History Scavenger Errors
+
+| Field | Value |
+|---|---|
+| Status | Documented — **not in the Essential Set** (multi-cluster-specific, warning-level, cluster-tunable threshold) |
+| UID | `temporal-alert-085` |
+| Severity | warning |
+| Panel | 2303 |
+| `for` | 30m |
+| `noDataState` | OK |
+
+**Condition:**
+```promql
+sum(increase(scavenger_errors{operation="HistoryScavenger"}[24h])) > 5
+```
+
+**Why it's not in the Essential Set:** it targets the XDC standby database-growth scenario (multi-cluster only), it's warning-level hygiene rather than an outage, the metric name is reporter-dependent (`scavenger_errors` on the tally reporter, `scavenger_errors_total` on OpenTelemetry), and the `>5 / 24h` threshold is a heuristic that wants tuning on very large clusters (there, prefer an error-*fraction* expression). Provision it only if you run global namespaces on SQL persistence.
+
+The history scavenger is erroring while processing branches (`scavenger_errors`) — it can't read a branch, can't check whether a branch's workflow still exists, or a delete is failing. Healthy baseline is ~0, so >5 errors/24h filters transient blips while catching systematic failure (usually the database under pressure). While it errors, leftover history isn't cleared and those tables can grow — a different cause than the scavenger's normal 60-day age wait. Covers only the scavenger-erroring sub-case of standby database growth; the fuller diagnosis (unreplicated deletes, the 60-day wait, comparing table sizes between clusters) is in the playbook.
+
+**Playbook:** [XDC Standby Database Growth on SQL](../../../playbooks/xdc-standby-database-growth-sql.md#11-watch-the-scavengers-own-metrics-the-history-gap)
+
+---
+
 ## Section 9 — Shard Queue Health
 
 > **Dashboard panels:** Immediate Queue Lag per Pod (panel 2109), Scheduled Queue Lag per Pod, DB Pool Refresh Failure Rate per Pod, Suspected Deadlocks per Pod (panel 2113), Task Scheduler Latency per Operation, Task Scheduler Throttled Rate per Operation

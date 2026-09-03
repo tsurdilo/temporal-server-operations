@@ -220,7 +220,7 @@ The standby cluster maintains its own persistence layer and shard assignments ev
 
 ### 8. History Scavenger
 
-The history scavenger clears **leftover history** on this standby — `history_tree` / `history_node` rows whose workflow execution has already been deleted. It runs about every 12 hours (independently on every cluster) and skips any branch younger than `worker.historyScannerDataMinAge` (default **60 days**). For short-lived, high-volume workflows almost every branch is younger than 60 days, so the scavenger skips nearly all of them and this standby's history tables grow. Full mechanism, diagnosis, and remediation are in the **[XDC Standby Database Growth playbook](../../../playbooks/xdc-standby-database-growth.md)**.
+The history scavenger clears **leftover history** on this standby — `history_tree` / `history_node` rows whose workflow execution has already been deleted. It runs about every 12 hours (independently on every cluster) and skips any branch younger than `worker.historyScannerDataMinAge` (default **60 days**). For short-lived, high-volume workflows almost every branch is younger than 60 days, so the scavenger skips nearly all of them and this standby's history tables grow. The mechanism is the same on any persistence store; diagnosis and remediation on SQL persistence are in the **[XDC Standby Database Growth on SQL playbook](../../../playbooks/xdc-standby-database-growth-sql.md)** (a Cassandra-specific playbook is planned).
 
 These counters are emitted **only** by the history scavenger, always tagged `operation="HistoryScavenger"`. `scavenger_success` counts branches **handled** — kept *or* deleted — not deletions.
 
