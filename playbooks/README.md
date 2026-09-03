@@ -6,8 +6,7 @@ Production-ready operational playbooks for self-hosted Temporal Server clusters.
 
 ## What Lives Here
 
-A playbook graduates from [`tmp/`](../tmp/) into this directory when it meets all
-of the following criteria:
+A playbook belongs in this directory once it meets all of the following criteria:
 
 | Criterion | What "done" looks like |
 |-----------|------------------------|

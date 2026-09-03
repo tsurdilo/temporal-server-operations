@@ -35,7 +35,7 @@ Raising `shardIOConcurrency` to N allows N writes to be in-flight simultaneously
 
 **This only helps when the DB has headroom.** If the DB is already saturated, raising `shardIOConcurrency` increases write pressure on an already-overloaded system and drives latency higher. The panels on this dashboard are designed to distinguish these two cases.
 
-For full context on this setting, the tradeoffs, and the comparison with increasing shard count, see [`tmp/history-shard-io-concurrency.md`](../../../tmp/history-shard-io-concurrency.md).
+For full context on this setting, the tradeoffs, and the comparison with increasing shard count, see the [Shard IO Concurrency playbook](../../../playbooks/shard-io-concurrency.md).
 
 ---
 

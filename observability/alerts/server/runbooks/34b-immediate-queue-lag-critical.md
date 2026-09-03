@@ -22,7 +22,7 @@ One shard gets stuck while others remain healthy. Alert 34b fires when one `inst
 2. Check **DB Pool Refresh Failure Rate per Pod** (panel 2111) — if this panel shows failures on the same instance, a DB connectivity loss caused the stuck shard; resolve the DB issue first
 3. Check **Suspected Deadlocks per Pod** (panel 2113) — if `dd_current_suspected_deadlocks > 0` on the same instance, alert 34f should also be firing; deadlock requires pod restart
 4. Check **Persistence Latencies** (panel 71) and **Shard Lock Latency** (panel 14) — elevated latency on the instance confirms DB-side pressure
-5. Use `tdbg` to enumerate shards on the stuck pod and identify the specific shard ID (see `tmp/stuck-shards.md` for the full enumeration procedure)
+5. Use `tdbg` to enumerate shards on the stuck pod and identify the specific shard ID
 
 ### Recovery path
 
