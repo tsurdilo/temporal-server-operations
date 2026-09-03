@@ -16,9 +16,6 @@ of the following criteria:
 | **Alerts** | Alert rules wired in `observability/alerts/server/temporal-server-alerts.yaml` |
 | **Tested** | Failure scenarios exercised against a real cluster; metric signals confirmed |
 
-Content in `tmp/` is in-progress. Do not treat it as finalized until it appears
-here.
-
 ---
 
 ## Playbook Format
