@@ -143,10 +143,15 @@ The extra history comes in two kinds.
 
 **Most of it belongs to workflows the standby still has.** These are the same workflows behind the executions gap: the standby hasn't deleted them yet, so it still stores their event history. This history is **not** a leftover — the workflows still exist. It is removed when the workflows themselves are removed: when the standby's own retention deletes them, or once their deletes are replicated from the active. (The scavenger normally leaves this history alone — it only steps in as the late retention backstop described above, for workflows that outlive retention by a wide margin.)
 
-**The rest is leftover history** — history whose workflow has already been deleted, but whose `history_tree` / `history_node` rows are still in the database. This happens in two situations:
+**The rest is leftover history** — the workflow's record (its `executions` row) has been deleted, but its history (the `history_tree` and `history_node` rows) is still there.
 
-- after you delete the stranded workflows on the standby during cleanup (the record goes, its history is left behind); or
-- when a cluster's own history-deletes keep failing under database stress.
+Normally the record and its history are removed together. Deleting a workflow isn't a single delete — it's a sequence of separate steps (remove the visibility entry, then the current-run pointer, then the record, and **last** the history), and Temporal finds the history to remove by following a pointer that is stored inside the record. A leftover appears when the earlier steps run — so the record is gone — but that final history step does not. And once the record is gone, the pointer to its history is gone too, so nothing can find that history the normal way anymore; only the scavenger, which scans the history tables directly, can still find and remove it.
+
+There are three ways the record gets removed but the history doesn't:
+
+- **The delete couldn't read the record, so it couldn't find the history to remove.** `tdbg workflow delete` reads the workflow's record first to find where its history is, then removes both. If it can't read the record — the read fails, or the record is already gone — it has no way to find the history, so it removes what it can and skips the history. The record disappears; the history stays. The history service logs this at **`WARN`** — `Unable to load mutable state. Skipping workflow history deletion.` (tagged with the namespace, workflow, and run id) — and `tdbg` also prints it in the command's own output, so you see it as you run the delete. There is **no metric** for this skip, so if you want to alert on it, it has to be log-based (e.g. Loki / your log pipeline).
+- **A cluster's own automatic delete kept failing and Temporal gave up on it.** Retention deletes (and the normal delete API) don't run inline — they run as an internal **delete task** that Temporal retries whenever the database returns an error. It doesn't retry forever: after about **70 attempts** (roughly an hour, `history.TaskDLQUnexpectedErrorAttempts`) Temporal stops retrying that task and moves it to the **history task dead-letter queue (the DLQ)** for an operator to review (the DLQ is on by default — `history.TaskDLQEnabled`). The delete task removes the record before it removes the history, so a task that got the record deleted and then kept failing on the history step — until it landed in the DLQ — leaves the record gone but the history behind.
+- **Someone removed the record rows directly in the database.** Deleting `executions` / `current_executions` rows by hand (raw SQL) skips Temporal's delete entirely, so Temporal never removes the matching history — and with the record gone, nothing points to that history anymore. Don't do this; it is exactly how history gets stranded (see [1.4](#14-count-leftover-history-branches-the-history-gap)).
 
 Leftover history is what the scavenger removes. But by default the scavenger waits until a branch is 60 days old before it will touch it (`worker.historyScannerDataMinAge`), so leftovers can sit for weeks. Clearing them promptly means lowering that wait — see [Remediate](#2-remediate--it-already-happened) and [Prevent](#3-prevent--stop-it-recurring). Leftover history can build up on the active or the standby, which is why the **History Scavenger** panels are on both dashboards.
 
@@ -327,7 +332,7 @@ For millions of workflows, write a small tool that runs the same **admin** delet
 The scavenger is what removes **leftover history** — history whose workflow has already been deleted. You have leftover history in two cases:
 
 - a cluster's own deletes failed earlier under database stress; or
-- the admin delete in [2.1](#21-clear-the-left-behind-workflows-on-the-standby-the-executions-gap) couldn't remove some branches and skipped them (on a branch-delete error it logs `Failed to delete history branch, skip` and moves on).
+- the admin delete in [2.1](#21-clear-the-left-behind-workflows-on-the-standby-the-executions-gap) couldn't remove some workflows' history — it skips a workflow's history when it can't read that workflow's record (so it can't find the history) or when a history delete returns an error (it logs `Failed to delete history branch, skip` at `WARN` and moves on). These skips are logged only — there's no metric for them.
 
 By default the scavenger won't touch a branch until it is 60 days old, so leftovers can sit for weeks. Lower that wait so it clears them promptly:
 
