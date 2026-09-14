@@ -22,7 +22,8 @@ This playbook covers **one specific cause**: the cleanup of **completed and dele
 
 It is **not** a retention mismatch. For a global namespace, retention is replicated configuration: as long as it is only ever changed on the active cluster, it is identical on the active and the standby. The size gap is cleanup falling behind, not a shorter retention on the standby.
 
-<a id="which-database-tables"></a>
+> If your **history** tables (`history_node` / `history_tree`) are growing but the larger cluster is the **active** one (or you run a single cluster), the cause may be **duplicate workflow starts** leaving history behind — a different, store-agnostic problem that is not standby-specific. See [History Growth from Duplicate Workflow Starts](./history-growth-duplicate-workflow-starts.md).
+
 **Which database tables this playbook covers**
 
 This playbook is about a few tables in Temporal's **main database** getting large on the standby. Both groups below can grow — the history tables usually account for most of the excess:
@@ -133,7 +134,7 @@ Why an operator would use it: the `executions` table keeps one row per execution
 
 `current_executions` grows on the standby the same way, but stays smaller. A single workflow (one `workflow_id`) can run as a chain of **runs** — each continue-as-new, retry, or reset starts a new run with its own `run_id`. `executions` keeps a row for **every run**, while `current_executions` keeps **one row per `workflow_id`**, holding just a pointer to that workflow's current run. So it has far fewer rows, and it's deleted along with the workflow.
 
-**The catch: in Temporal 1.31, these API deletes are not replicated to the standby by default.** The setting that turns this on, `history.enableDeleteWorkflowExecutionReplication`, is **off by default.** (On 1.30 and earlier the setting doesn't exist, so these deletes can't be replicated at all; in a future Temporal version it becomes automatic — full breakdown in [Server version differences](#server-version-differences).) So the active deletes a workflow soon after it closes, but with the flag off the standby doesn't receive a delete event for it. The standby then keeps that workflow until its **own** retention removes it, at the workflow's close time plus the retention period. How far behind the standby falls depends on how early the janitor deleted the workflow on the active: delete it right after it closes and the standby holds it for nearly the whole retention period; delete it close to when retention would fire anyway and the gap is small. That lag is the `executions` gap — it clears on its own eventually, but with aggressive early deletion it can grow large and look permanent.
+**The catch: in Temporal 1.31, these API deletes are not replicated to the standby by default.** The setting that turns this on, `history.enableDeleteWorkflowExecutionReplication`, is **off by default.** (On 1.30 and earlier the setting doesn't exist, so these deletes can't be replicated at all; from 1.32.0 it is automatic — full breakdown in [Server version differences](#server-version-differences).) So the active deletes a workflow soon after it closes, but with the flag off the standby doesn't receive a delete event for it. The standby then keeps that workflow until its **own** retention removes it, at the workflow's close time plus the retention period. How far behind the standby falls depends on how early the janitor deleted the workflow on the active: delete it right after it closes and the standby holds it for nearly the whole retention period; delete it close to when retention would fire anyway and the gap is small. That lag is the `executions` gap — it clears on its own eventually, but with aggressive early deletion it can grow large and look permanent.
 
 ### The history gap
 
@@ -252,7 +253,7 @@ What you're looking for, and what it points at:
 | `history_node`, `history_tree` | history of workflows the standby is still holding (plus any leftover history) | [the history gap](#the-history-gap) |
 | `executions`, `current_executions` | workflows deleted on the active but still present on the standby | [the executions gap](#the-executions-gap) |
 
-If instead the table that's growing is in the **visibility** store (`executions_visibility` / Elasticsearch), this is a different problem — see [Which database tables this playbook covers](#which-database-tables).
+If instead the table that's growing is in the **visibility** store (`executions_visibility` / Elasticsearch), this is a different problem — see **Which database tables this playbook covers** near the top of this playbook.
 
 ### 1.4 Count leftover history branches (the history gap)
 
@@ -371,7 +372,7 @@ After this, a delete on the active is copied to the standby, so both clusters re
 
 > This setting only addresses the executions gap (deletes that never reach the standby). It does **not** cover leftover history from failed deletes: if a cluster's own history-deletes keep failing under database stress, history is left behind regardless of this setting — on the active or the standby. That is the scavenger's job; keep its wait short as in [Keep the scavenger's wait short enough](#32-keep-the-scavengers-wait-short-enough-the-history-gap).
 
-> In a future Temporal version, `history.enableDeleteWorkflowExecutionReplication` is removed and delete replication is always on, so there's no setting to turn on. See [Server version differences](#server-version-differences).
+> From 1.32.0, `history.enableDeleteWorkflowExecutionReplication` is removed and delete replication is always on, so there's no setting to turn on. See [Server version differences](#server-version-differences).
 
 ### 3.2 Keep the scavenger's wait short enough (the history gap)
 
@@ -412,8 +413,8 @@ After the fixes above, don't expect the standby's database to exactly match the 
 | Version | Behavior |
 |---|---|
 | 1.30 and earlier | Setting does **not exist** — deletes on the active are never replicated to the standby, and you can't turn replication on. |
-| 1.31 (current) | Setting exists, **defaults to `false`**. Early deletes are **not** replicated unless you set it `true`. |
-| A future version | Setting **removed** — replicating deletes is **always on** (for namespaces active in the cluster). No action needed. |
+| 1.31 | Setting exists, **defaults to `false`**. Early deletes are **not** replicated unless you set it `true`. |
+| 1.32.0 and later | Setting **removed** — replicating deletes is **always on** (for namespaces active in the cluster). No action needed. |
 
 **`worker.historyScannerDataMinAge`** (the history gap): default **60 days**, and this default is the same on all versions here (1.30 through current). It's a setting you adjust, not something tied to a version. Lower it as in [Keep the scavenger's wait short enough](#32-keep-the-scavengers-wait-short-enough-the-history-gap).
 
@@ -425,7 +426,7 @@ After the fixes above, don't expect the standby's database to exactly match the 
 
 | Key | Default | Effect |
 |---|---|---|
-| `history.enableDeleteWorkflowExecutionReplication` | `false` (1.31; removed / always-on in a future version) | When true, a workflow deleted on the active is also deleted on the standby. |
+| `history.enableDeleteWorkflowExecutionReplication` | `false` (1.31; removed / always-on from 1.32.0) | When true, a workflow deleted on the active is also deleted on the standby. |
 | `worker.historyScannerDataMinAge` | `60` days | The scavenger skips any history branch created more recently than this. Lower it (e.g. `1h`) so leftovers are removed promptly. |
 | `worker.historyScannerEnabled` | `true` | Whether the history scavenger runs. On by default on every cluster, including the standby. |
 | `worker.historyScannerVerifyRetention` | `true` | When true, the scavenger also deletes completed workflows older than retention plus `executionDataDurationBuffer` — a late retention backstop. |
