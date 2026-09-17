@@ -12,7 +12,6 @@
 
 - [What this alert detects](#what-this-alert-detects)
 - [Why it matters](#why-it-matters)
-- [Triage steps](#triage-steps)
 - [WorkflowWorker](#workflowworker)
 - [ActivityWorker](#activityworker)
 - [LocalActivityWorker](#localactivityworker)

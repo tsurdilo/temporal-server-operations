@@ -14,7 +14,7 @@
     - [Frontend](#frontend-1)
     - [History](#history-1)
     - [Matching](#matching-1)
-    - [System](#system-1)
+    - [System](#system)
     - [Limits](#limits)
     - [Worker](#worker-1)
 - [Configs That Require a Host Restart](#configs-that-require-a-host-restart)

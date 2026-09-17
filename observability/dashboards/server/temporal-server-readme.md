@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.14.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.15.2 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -330,17 +330,40 @@ Tracks the number of concurrent long-poll requests from SDK workers to the Front
 
 ### 16. Visibility
 
-Tracks the performance and availability of the Temporal Visibility store, which powers workflow search and listing APIs. Backed by either Elasticsearch (advanced visibility) or the primary database (standard visibility). When dual visibility is enabled, the three store-level panels split by `visibility_index_name` to distinguish primary from secondary store health.
+Tracks the performance and availability of the Temporal Visibility store, which powers workflow search and listing APIs. Backed by either Elasticsearch or a SQL database. When dual visibility is enabled, the store-level panels split by `visibility_index_name` to distinguish primary from secondary store health — the label value is the SQL database name or the Elasticsearch index name, whichever you configured.
 
-| Panel | Description |
-|---|---|
-| **Visibility Latencies per Operation** | Latency of visibility tasks on the History service broken down by operation at the selected percentile. High values affect the freshness of workflow search results and the performance of list/search APIs. |
-| **Visibility Availability** | Percentage of visibility-related service requests that succeeded, shown as a gauge. Covers `ListWorkflowExecutions`, `CountWorkflowExecutions`, `ScanWorkflowExecutions` and similar. Thresholds: 99% green, 95% orange. |
-| **Visibility Task End-to-End Latencies** | End-to-end queue latency for visibility tasks — from when a task is generated to when it is processed. High values mean workflow state changes are taking longer to appear in visibility search results. |
-| **Visibility Task Processing by Operation** | Processing latency of individual visibility tasks broken down by operation. Isolates the time spent in the visibility write itself, separate from time spent waiting in the queue. |
-| **Visibility Write Request Rate per Store** | Rate of visibility persistence write requests split by `visibility_index_name` (primary vs secondary) and operation. A flat line on one store while the other continues indicates that store has stopped receiving writes — either it is down or dual write mode has changed. Only meaningful when dual visibility is enabled. |
-| **Visibility Write Error Rate per Store** | Rate of visibility persistence errors split by `visibility_index_name` and operation. Any sustained non-zero value on a store is the primary alert signal for a visibility store outage. History retries indefinitely (backoff: 1s initial, 1.1× coefficient, 3-minute cap). Orange > 0.1 req/s, red > 1 req/s. |
-| **Visibility Write Latency per Store** | P-selected percentile write latency per visibility store split by `visibility_index_name` and operation. Divergence between primary and secondary latency indicates one store is under pressure or recovering. Use alongside the error rate panel to distinguish a slow store from a failed one. Orange > 3s, red > 5s. |
+Each panel below is marked with the store types it applies to. Panels marked **Elasticsearch only** rely on metrics that a SQL visibility store never emits, and will be empty on a SQL cluster.
+
+Under dual visibility, note which metric family a panel is built on. Only the
+`visibility_persistence_*` family carries the `visibility_index_name` label, so
+only those panels can tell you **which** of the two stores is involved. Every
+`elasticsearch_bulk_processor_*` panel is store-blind — the bulk processor tags
+its metrics with the operation and HTTP status but not the index, so both
+stores report into one series. Use the ES panels for *how* a store is failing
+and **Visibility Errors by Type per Store** for *which*.
+
+Full operational procedures for running two stores — failure scenarios, recovery, moving reads and writes between stores, and the permanent-data-loss window — are in the [Dual Visibility playbook](../../../playbooks/dual-visibility.md).
+
+| Panel | Stores | Description |
+|---|---|---|
+| **Visibility Latencies per Operation** | SQL + ES | Latency of visibility tasks on the History service broken down by operation at the selected percentile. High values affect the freshness of workflow search results and the performance of list/search APIs. |
+| **Visibility Availability** | SQL + ES | Percentage of visibility-related service requests that succeeded, shown as a gauge. Covers `ListWorkflowExecutions`, `CountWorkflowExecutions` and similar. Thresholds: 99% green, 95% orange. |
+| **Visibility Task End-to-End Latencies** | SQL + ES | End-to-end queue latency for visibility tasks — from when a task is generated to when it is processed. High values mean workflow state changes are taking longer to appear in visibility search results. |
+| **Visibility Task Processing by Operation** | SQL + ES | Processing latency of individual visibility tasks broken down by operation. Isolates the time spent in the visibility write itself, separate from time spent waiting in the queue. |
+| **Visibility Write Request Rate per Store** | SQL + ES | Rate of visibility persistence **write** requests split by `visibility_index_name` and operation. A flat line on one store while the other continues means that store has stopped receiving writes — either it is down or the write mode changed. **Both** lines flat at zero while `task_errors_internal` rises means `system.secondaryVisibilityWritingMode` holds an invalid value. |
+| **Visibility Write Error Rate per Store** | SQL + ES | Rate of visibility persistence errors split by `visibility_index_name` and operation. **This counts only a subset of errors** — it excludes timeouts, rate-limit rejections, not-found and invalid-argument. A flat line here is not proof of health; pair it with **Visibility Errors by Type per Store**. Orange > 0.1 req/s, red > 1 req/s. |
+| **Visibility Write Latency per Store** | SQL + ES | Selected percentile write latency per store, split by `visibility_index_name` and operation. Divergence between the two stores indicates one is under pressure or recovering. Orange > 3s, red > 5s. |
+| **Visibility Read Request Rate per Store** | SQL + ES | Rate of visibility **read** requests (list, count, describe) split by store and by the service issuing them. The write panels filter to the History service, so this is the only view of the read path. Shows which store is actually serving reads: only the primary by default, moving to the secondary for namespaces where `system.enableReadFromSecondaryVisibility` is set. Both stores reporting reads at once means `system.visibilityEnableShadowReadMode` is on. |
+| **Visibility Read Error Rate per Store** | SQL + ES | Rate of visibility read errors per store, operation and service. Read failures happen on frontend, matching and worker — **not** History — so alerts 059a/059b/059c never fire on them. This is the only place a broken workflow list shows up per store. Orange > 0.1 req/s, red > 1 req/s. |
+| **Visibility Read Latency per Store** | SQL + ES | Selected percentile read latency per store. Use before moving reads to a store: enable shadow read mode so the candidate store receives a copy of real read traffic, then compare the two lines. Orange > 3s, red > 5s. |
+| **Visibility Errors by Type per Store** | SQL + ES | **Every** visibility error, split by store and `error_type`. Strictly wider than the Write Error Rate panel. Values are the Go error type with dots replaced by underscores: `serviceerror_Unavailable` = store unreachable or rejecting; `serviceerror_ResourceExhausted` = throttled; `persistence_TimeoutError` = an Elasticsearch write never confirmed within `worker.ESProcessorAckTimeout`. The short forms match nothing. `persistence_TimeoutError` appears on **neither** the Write Error Rate panel nor the ES Bulk Processor Errors panel, so this is the only place a hung Elasticsearch shows up. Orange > 0.1 req/s, red > 1 req/s. |
+| **Visibility Rate Limit Rejections per Store** | SQL + ES | Requests rejected by Temporal's own rate limiters, split by store and cause. Budgets are `system.visibilityPersistenceMaxWriteQPS` and `system.visibilityPersistenceMaxReadQPS` (both 9000 default), applied **per store**. Absent from the Write Error Rate panel. Orange > 0.1 req/s, red > 1 req/s. |
+| **Visibility Task Retry Depth (approaching DLQ)** | SQL + ES | Deepest attempt count reached by visibility tasks, from the `task_attempt` histogram. Every task records its attempt count on completion, so a healthy cluster reads **about 1 and is not empty** — the signal is the line climbing. At `history.TaskDLQUnexpectedErrorAttempts` (70 default, roughly 70 minutes) the task is dead-lettered and its record stops being written. Thresholds mark 30 and 70, but buckets step 1/2/5/10/20/50/100 so readings are coarse and the thresholds trigger on the bucket above. Cluster-wide — ignores `$namespace`. |
+| **Visibility Tasks Dead-Lettered by Task Type** | SQL + ES | Visibility tasks written to the history task DLQ, split by task type. Above zero means those tasks gave up retrying — on **Elasticsearch** the buffered document may still have been indexed after recovery, so verify against the store before assuming loss (on SQL there is no buffer and the write really did not land). A dropped `Start` or `Upsert` is rebuilt by the workflow's next visibility write; a dropped `CloseExecution` never is, and a dropped `DeleteExecution` leaves a record that outlives its workflow. Recover with `tdbg dlq read` / `merge --dlq-type visibility`. Narrower than the Dead-Lettered Tasks panels in group 20, which blend visibility with retention and workflow-task-timeout operations. |
+| **Visibility Task Failures & Internal Errors** | SQL + ES | Unexpected errors processing visibility tasks. `task_errors_internal` rising while the Write Request Rate panel sits at zero on **both** stores is the signature of an invalid `system.secondaryVisibilityWritingMode` value. It counts attempts, so it falls back to zero once tasks are dead-lettered even though writes stay broken — the durable signals are a flat Write Request Rate on both stores and new workflows never appearing — only `off`, `on` and `dual` are accepted, and anything else is rejected before either store is touched, so no `visibility_persistence_*` error metric fires. Reads keep working, so the cluster looks healthy. |
+| **ES Bulk Processor Errors by HTTP Status** | **Elasticsearch only** | Bulk write failures by the HTTP status Elasticsearch returned. `0` = Elasticsearch **gone** (address stopped resolving or refused), `429` = overloaded, `400` = mapping problem, `404` = index does not exist (never self-recovers). **Stays empty when Elasticsearch is reachable but hung** — the bulk never completes so no status is recorded; use Visibility Errors by Type per Store for that case. Carries no store label, so two ES stores cannot be told apart here. |
+| **ES Bulk Processor Queue Depth** | **Elasticsearch only** | Documents waiting inside the bulk processor after each flush. Climbing means the processor cannot keep up: handing a document over blocks once it is busy, stalling History's visibility workers. Tune `worker.ESProcessorBulkActions` / `BulkSize` / `FlushInterval` / `NumOfWorkers` — read by **History** despite the `worker.` prefix, and all four need a History restart. Carries no store label, so under dual visibility the two ES stores cannot be told apart here. |
+| **ES Write Confirm Latency vs Ack Timeout** | **Elasticsearch only** | Time from handing a document to the bulk processor until Elasticsearch confirms the write. The red line marks `worker.ESProcessorAckTimeout` (30s default); anything reaching it fails the task as a timeout, which does **not** appear on the Write Error Rate panel but does count toward the 70-attempt DLQ threshold. Carries no store label, so under dual visibility the two ES stores cannot be told apart here. Orange > 10s, red > 30s. |
 
 ---
 
@@ -526,6 +549,15 @@ The following panels have threshold reference lines configured:
 | **Visibility Task Processing by Operation** | 2s | 5s |
 | **Visibility Write Error Rate per Store** | 0.1 req/s | 1 req/s |
 | **Visibility Write Latency per Store** | 3s | 5s |
+| **Visibility Read Error Rate per Store** | 0.1 req/s | 1 req/s |
+| **Visibility Read Latency per Store** | 3s | 5s |
+| **Visibility Errors by Type per Store** | 0.1 req/s | 1 req/s |
+| **Visibility Rate Limit Rejections per Store** | 0.1 req/s | 1 req/s |
+| **Visibility Task Retry Depth (approaching DLQ)** | 30 attempts | 70 attempts |
+| **Visibility Tasks Dead-Lettered by Task Type** | — | any non-zero |
+| **Visibility Task Failures & Internal Errors** | 0.1 req/s | 1 req/s |
+| **ES Bulk Processor Errors by HTTP Status** | 0.1 req/s | 1 req/s |
+| **ES Write Confirm Latency vs Ack Timeout** | 10s | 30s (ack timeout) |
 
 ### Cluster Replication
 

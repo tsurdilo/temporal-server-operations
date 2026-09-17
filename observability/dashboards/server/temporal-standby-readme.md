@@ -19,14 +19,13 @@ A dedicated Grafana dashboard for monitoring Temporal standby clusters in a mult
     - [Stream Health](#1-stream-health)
     - [Replication Lag](#2-replication-lag)
     - [Task Pipeline Health](#3-task-pipeline-health)
-    - [Replication DLQ](#4-replication-dlq-cassandra-only)
+    - [Replication DLQ](#4-replication-dlq--cassandra-only)
     - [Namespace Replication](#5-namespace-replication)
     - [Standby Task Processing Behavior](#6-standby-task-processing-behavior)
     - [Standby Cluster Infrastructure](#7-standby-cluster-infrastructure)
     - [History Scavenger](#8-history-scavenger)
 - [Key Dynamic Config Reference](#key-dynamic-config-reference)
 - [Relationship to the Server Dashboard](#relationship-to-the-server-dashboard)
-- [Related Resources](#related-resources)
 
 ---
 

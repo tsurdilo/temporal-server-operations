@@ -4998,7 +4998,7 @@
           "type": "text",
           "options": {
             "mode": "markdown",
-            "content": "**Visibility** tracks your Temporal Visibility store latencies and availability."
+            "content": "**Visibility** tracks the visibility store write and read paths, per-store health when running two stores (dual visibility), how close visibility tasks are to being dropped, and Elasticsearch bulk write health. Only the `visibility_persistence_*` panels carry a store label \u2014 the ES bulk processor panels cannot tell two stores apart."
           }
         },
         {
@@ -5433,6 +5433,717 @@
             {
               "expr": "histogram_quantile($p, sum(rate(visibility_persistence_latency_bucket{service_name=\"history\"}[$__rate_interval])) by (visibility_index_name, operation, le))",
               "legendFormat": "{{visibility_index_name}} / {{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 37
+          },
+          "id": 2122,
+          "title": "Visibility Read Request Rate per Store",
+          "description": "Rate of visibility READ requests split by store and by the service issuing them. The Write Request Rate panel filters to the history service, so this is the only view of the read path. Shows which store is actually serving reads right now: with system.enableReadFromSecondaryVisibility false you should see only the primary, and after turning it on for a namespace that namespace's reads move to the secondary. Both stores reporting read traffic at once means system.visibilityEnableShadowReadMode is on. Reads are issued by frontend, matching and worker. Applies to both SQL and Elasticsearch visibility stores.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(visibility_persistence_requests{operation=~\"ListWorkflowExecutions|CountWorkflowExecutions|GetWorkflowExecution|ListChasmExecutions|CountChasmExecutions\"}[$__rate_interval])) by (visibility_index_name, service_name)",
+              "legendFormat": "{{visibility_index_name}} / {{service_name}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1.0
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 37
+          },
+          "id": 2123,
+          "title": "Visibility Read Error Rate per Store",
+          "description": "Rate of visibility READ errors split by store, operation and service. Read failures happen outside the history service, so alerts 059a / 059b / 059c - which filter service_name=history - never fire on them. This panel is the only place a broken workflow list shows up per store. Applies to both SQL and Elasticsearch visibility stores.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(visibility_persistence_errors{operation=~\"ListWorkflowExecutions|CountWorkflowExecutions|GetWorkflowExecution|ListChasmExecutions|CountChasmExecutions\"}[$__rate_interval])) by (visibility_index_name, operation, service_name)",
+              "legendFormat": "{{visibility_index_name}} / {{operation}} / {{service_name}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 3
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 37
+          },
+          "id": 2124,
+          "title": "Visibility Read Latency per Store",
+          "description": "Selected percentile of visibility READ latency per store. Use this before moving reads to a store: turn on system.visibilityEnableShadowReadMode so the candidate store receives a copy of real read traffic, then compare the two lines here. Shadow read results are discarded, so this panel and the Read Error Rate panel are the only way to see whether that store can serve your queries. Applies to both SQL and Elasticsearch visibility stores.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum(rate(visibility_persistence_latency_bucket{operation=~\"ListWorkflowExecutions|CountWorkflowExecutions|GetWorkflowExecution|ListChasmExecutions|CountChasmExecutions\"}[$__rate_interval])) by (visibility_index_name, operation, le))",
+              "legendFormat": "{{visibility_index_name}} / {{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1.0
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 44
+          },
+          "id": 2125,
+          "title": "Visibility Errors by Type per Store",
+          "description": "Every visibility error, split by store and error type. This is a strictly wider signal than the Write Error Rate panel, which counts only a subset: it drops timeouts, rate-limit rejections, not-found and invalid-argument errors. Read error_type to tell failures apart. The values are the Go error type with dots turned into underscores, so query serviceerror_Unavailable (store unreachable or rejecting), persistence_TimeoutError (an Elasticsearch write never confirmed inside worker.ESProcessorAckTimeout, 30s default) and serviceerror_ResourceExhausted (throttled). The short forms - Unavailable, TimeoutError - match nothing. persistence_TimeoutError is the one that matters most: the Write Error Rate panel does not record it at all, and neither does the ES Bulk Processor Errors panel, so this panel is the ONLY place a hung Elasticsearch shows up. Applies to both SQL and Elasticsearch visibility stores.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(visibility_persistence_error_with_type[$__rate_interval])) by (visibility_index_name, error_type, service_name)",
+              "legendFormat": "{{visibility_index_name}} / {{error_type}} / {{service_name}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1.0
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 44
+          },
+          "id": 2126,
+          "title": "Visibility Rate Limit Rejections per Store",
+          "description": "Visibility requests rejected by Temporal's own rate limiters, split by store and cause. Budgets are system.visibilityPersistenceMaxWriteQPS and system.visibilityPersistenceMaxReadQPS (both 9000 default) and each store gets its own budget from the same setting. These rejections do not appear on the Write Error Rate panel. Turning on shadow read mode roughly doubles read load and can push a store into throttling here. Applies to both SQL and Elasticsearch visibility stores.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(visibility_persistence_resource_exhausted[$__rate_interval])) by (visibility_index_name, resource_exhausted_cause)",
+              "legendFormat": "{{visibility_index_name}} / {{resource_exhausted_cause}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 30
+                  },
+                  {
+                    "color": "red",
+                    "value": 70
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 51
+          },
+          "id": 2127,
+          "title": "Visibility Task Retry Depth (approaching DLQ)",
+          "description": "Deepest attempt count reached by visibility tasks, read as the top bucket of the task_attempt histogram. Every task records its attempt count when it completes, and tasks still retrying past 30 attempts also report in flight - so on a healthy cluster this sits at about 1 and is NOT expected to be empty. The signal is the line climbing. At history.TaskDLQUnexpectedErrorAttempts (70 default) a task is dead-lettered and its record is no longer written; 70 attempts takes roughly 70 minutes at default retry gaps. The value is coarse because histogram buckets step 1, 2, 5, 10, 20, 50, 100 - a task at 35 attempts reads as 50 and one at 70 reads as 100, so the thresholds trigger on the bucket above them. Read it as a magnitude, not an exact count. Empty means no visibility tasks completed in the window (an idle cluster), not that nothing is retrying. At history.TaskDLQUnexpectedErrorAttempts (70 default) a task is dead-lettered and its record is no longer written; 70 attempts takes roughly 70 minutes at default retry gaps. Threshold lines mark 30 (reporting begins) and 70 (records start being dropped). Cluster-wide - ignores $namespace. Applies to both SQL and Elasticsearch visibility stores.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(1.00, sum by (operation, le) (rate(task_attempt_bucket{operation=~\"VisibilityTask.*\",service_name=\"history\"}[$__rate_interval])))",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 51
+          },
+          "id": 2128,
+          "title": "Visibility Tasks Dead-Lettered by Task Type",
+          "description": "Visibility tasks written to the history task dead letter queue, split by task type. Above zero means those tasks gave up retrying. On ELASTICSEARCH that does not necessarily mean the records are missing: the bulk processor holds documents in memory, so a write that timed out may still be flushed and indexed once Elasticsearch recovers, after the task has already been dead-lettered. Verified on a test cluster - twelve dead-lettered tasks, all twelve records present in both stores afterwards. Check the store for the records before replaying. On SQL there is no such buffer, so a dead-lettered task there does mean the write never landed. The task type matters: a dropped Start or Upsert is rebuilt by the workflow's next visibility write, but a dropped CloseExecution is the last task that workflow ever emits and nothing rebuilds it, and a dropped DeleteExecution leaves a record that outlives its workflow. Recover with tdbg dlq read / merge --dlq-type visibility. The Dead-Lettered Tasks panels in the History Task DLQ row blend visibility with retention and workflow-task-timeout operations; this panel is visibility only. Cluster-wide - ignores $namespace. Applies to both SQL and Elasticsearch visibility stores.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(dlq_writes{operation=~\"VisibilityTask.*\"}[$__rate_interval])) by (operation)",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1.0
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 51
+          },
+          "id": 2129,
+          "title": "Visibility Task Failures & Internal Errors",
+          "description": "Unexpected errors while processing visibility tasks. task_errors_internal rising while the Write Request Rate panel sits at zero on BOTH stores is the signature of an invalid system.secondaryVisibilityWritingMode value - only off, on and dual are accepted, anything else is rejected before either store is touched, so no visibility_persistence_* error metric fires and the dashboard just looks quiet. The history log names the bad value: 'Unknown secondary visibility writing mode: <value>'. Reads keep working throughout, so the cluster looks healthy. CAVEAT: this panel counts failing attempts, so it only moves while tasks are still retrying - once they exhaust history.TaskDLQUnexpectedErrorAttempts the line drops back to zero while writes remain completely broken. A quiet panel is not an all-clear; the durable signals are the Write Request Rate panel flat on both stores and new workflows never appearing. Cluster-wide - ignores $namespace. Applies to both SQL and Elasticsearch visibility stores.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(task_errors{operation=~\"VisibilityTask.*\",service_name=\"history\"}[$__rate_interval]))",
+              "legendFormat": "task_errors",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(task_errors_internal{operation=~\"VisibilityTask.*\",service_name=\"history\"}[$__rate_interval]))",
+              "legendFormat": "task_errors_internal (bad write-mode value)",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1.0
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 58
+          },
+          "id": 2130,
+          "title": "ES Bulk Processor Errors by HTTP Status (Elasticsearch only)",
+          "description": "Elasticsearch bulk write failures split by the HTTP status Elasticsearch returned. Read the status to identify the failure: 0 means Elasticsearch was GONE - the address stopped resolving or refused the connection (look for 'Unable to commit bulk ES request.' in history logs); 429 means Elasticsearch is overloaded and shedding; 400 means a mapping problem; 404 means the index does not exist, which never recovers on its own. IMPORTANT: this panel stays completely EMPTY when Elasticsearch is reachable but hung, because the bulk request never completes and no HTTP status is ever recorded. A flat panel here does not mean the write path is healthy - check Visibility Errors by Type per Store for persistence_TimeoutError. ELASTICSEARCH ONLY - this metric is emitted only when a visibility store is Elasticsearch, and only by the history service. It carries no store label, so with two Elasticsearch stores both report into the same series and cannot be told apart here; use panel 2125 for per-store attribution.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(elasticsearch_bulk_processor_errors{service_name=\"history\"}[$__rate_interval])) by (http_status)",
+              "legendFormat": "http {{http_status}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 58
+          },
+          "id": 2131,
+          "title": "ES Bulk Processor Queue Depth (Elasticsearch only)",
+          "description": "Documents waiting inside the Elasticsearch bulk processor after each flush, read as the top bucket of the histogram (coarse - rounds up to the bucket boundary). A climbing line means the processor cannot keep up: handing a document over blocks once it is busy, which stalls the history service's visibility workers, and a document not confirmed within worker.ESProcessorAckTimeout (30s default) fails as a timeout that the Write Error Rate panel does not record. Tune with worker.ESProcessorBulkActions (500), worker.ESProcessorBulkSize (16MB), worker.ESProcessorFlushInterval (1s) and worker.ESProcessorNumOfWorkers (2) - despite the worker. prefix these are read by the history service, and all four need a history restart to take effect. ELASTICSEARCH ONLY - this metric is emitted only when a visibility store is Elasticsearch, and only by the history service. It carries no store label, so with two Elasticsearch stores both report into the same series and cannot be told apart here; use panel 2125 for per-store attribution.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(1.00, sum by (le) (rate(elasticsearch_bulk_processor_queued_requests_bucket{service_name=\"history\"}[$__rate_interval])))",
+              "legendFormat": "queued documents",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 10
+                  },
+                  {
+                    "color": "red",
+                    "value": 30
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 58
+          },
+          "id": 2132,
+          "title": "ES Write Confirm Latency vs Ack Timeout (Elasticsearch only)",
+          "description": "Selected percentile of the time from handing a document to the bulk processor until Elasticsearch confirms it was written. The red line marks worker.ESProcessorAckTimeout (30s default): anything reaching it fails the visibility task as a timeout, which does NOT appear on the Write Error Rate panel and counts toward the 70-attempt dead-letter threshold. If this climbs while the Write Error Rate panel stays flat, that is exactly the blind spot - confirm on the Errors by Type panel with error_type=TimeoutError. ELASTICSEARCH ONLY - this metric is emitted only when a visibility store is Elasticsearch, and only by the history service. It carries no store label, so with two Elasticsearch stores both report into the same series and cannot be told apart here; use panel 2125 for per-store attribution.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum(rate(elasticsearch_bulk_processor_request_latency_bucket{service_name=\"history\"}[$__rate_interval])) by (le))",
+              "legendFormat": "p$p confirm latency",
               "refId": "A"
             }
           ]
@@ -7470,7 +8181,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.14.0",
+  "title": "Temporal Server Dashboard v2.15.2",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

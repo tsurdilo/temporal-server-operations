@@ -173,7 +173,9 @@ Shutdown is immediate — no conditions, no delay. The pod flips gRPC health to 
 
 ---
 
-## 3. Dynamic config thresholds (all tunable at runtime without restart)
+## 3. Dynamic config thresholds
+
+Every key in this section is tunable at runtime without a restart.
 
 ### Per-host thresholds (control when a single pod flips to NOT_SERVING)
 
@@ -495,7 +497,9 @@ ENTRYPOINT ["/poller"]
 
 ---
 
-## 9. Quick reference — what to check when `host_health` alerts
+## 9. Quick reference
+
+What to check when `host_health` alerts.
 
 **First action for any alert: open the [History Host Health Dashboard](../observability/dashboards/server/history-health-dashboard.json).** The dashboard tells you which pods are affected, when it happened, and which row (Persistence Health, History RPC Health, Shard Acquisition) shows the cause. Sections 6 and 7 of this playbook have the full diagnosis and failover guidance.
 

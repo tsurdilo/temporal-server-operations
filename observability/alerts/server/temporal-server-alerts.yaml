@@ -899,20 +899,31 @@ groups:
         annotations:
           __dashboardUid__: temporal-overview-v1
           __panelId__: "2118"
-          summary: "Temporal: visibility write errors on {{ $labels.visibility_index_name }} ({{ $value | humanize }} req/s)"
+          summary: "Temporal: visibility write errors on {{ $labels.visibility_index_name }}{{ if $value }} ({{ $value | humanize }} req/s){{ end }}"
           description: |
-            Visibility store {{ $labels.visibility_index_name }} is returning write errors
-            at {{ $value | humanize }} req/s. History retries indefinitely (backoff: 1s
-            initial, 1.1× coefficient, 3-minute cap) — workflows are unaffected but
-            visibility data is accumulating in the retry queue.
+            Visibility store {{ $labels.visibility_index_name }} is returning write errors.
+            Workflows are unaffected and keep running, but visibility records for that
+            store are backing up in the retry queue.
 
-            Identify which store failed:
-            - temporal_visibility → primary store down. workflow list/describe will degrade.
-            - temporal_visibility_secondary → secondary store down. workflow list still works.
+            This does NOT retry forever. After history.TaskDLQUnexpectedErrorAttempts
+            unexpected attempts (70 by default, roughly 70 minutes) the task is moved to
+            the history task dead letter queue and the record stops being written. Alert
+            83 fires when that happens; the Visibility Tasks Dead-Lettered by Task Type
+            panel shows it broken down by task type.
 
-            Check pod health:
-            - Primary:   kubectl get pod temporal-stack-postgresql-visibility-0 -n temporal
-            - Secondary: kubectl get pod temporal-stack-postgresql-visibility-secondary-0 -n temporal
+            The store label above is your configured SQL database name or Elasticsearch
+            index name. Compare it against your persistence config to tell whether the
+            failing store is the primary (workflow list and describe degrade) or the
+            secondary (list keeps working, unless you moved reads to it).
+
+            This alert covers the write path on the history service only. It does not fire
+            on read failures (alert 85 does) and it does not fire on Elasticsearch writes
+            that time out without being confirmed (alert 84 does, because timeouts are not
+            counted as errors by this metric). If this alert is quiet but visibility looks
+            wrong, check the Visibility Errors by Type per Store panel, which counts every
+            error and names the store.
+
+            Then check that the store is reachable, however you run it.
 
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/59a-visibility-store-write-errors.md
         isPaused: false
@@ -964,7 +975,7 @@ groups:
         annotations:
           __dashboardUid__: temporal-overview-v1
           __panelId__: "2118"
-          summary: "Temporal: visibility store {{ $labels.visibility_index_name }} critical write error rate ({{ $value | humanize }} req/s)"
+          summary: "Temporal: visibility store {{ $labels.visibility_index_name }} critical write error rate{{ if $value }} ({{ $value | humanize }} req/s){{ end }}"
           description: |
             Visibility store {{ $labels.visibility_index_name }} write error rate has
             exceeded 1 req/s — the store is effectively unavailable for writes.
@@ -1036,7 +1047,7 @@ groups:
         annotations:
           __dashboardUid__: temporal-shard-io-v1
           __panelId__: "1"
-          summary: "Temporal: shard IO semaphore health ping latency high on {{ $labels.instance }} (p99 {{ $value | humanizeDuration }}) — deadlock detector approaching 40s threshold"
+          summary: "Temporal: shard IO semaphore health ping latency high on {{ $labels.instance }}{{ if $value }} (p99 {{ $value | humanizeDuration }}){{ end }} — deadlock detector approaching 40s threshold"
           description: |
             The deadlock detector's shard IO semaphore health ping p99 latency has exceeded
             20s on {{ $labels.instance }}. The deadlock detector timeout is 40s (10s DB op
@@ -1224,7 +1235,7 @@ groups:
         annotations:
           __dashboardUid__: temporal-overview-v1
           __panelId__: "2119"
-          summary: "Temporal: visibility write latency high on {{ $labels.visibility_index_name }} (p99 {{ $value | humanizeDuration }})"
+          summary: "Temporal: visibility write latency high on {{ $labels.visibility_index_name }}{{ if $value }} (p99 {{ $value | humanizeDuration }}){{ end }}"
           description: |
             p99 write latency to {{ $labels.visibility_index_name }} has exceeded 3s.
             This may indicate the store is recovering from an outage (draining backlog),
@@ -1414,4 +1425,201 @@ groups:
             for: 5m at any rate > 0 — DLQ-write failures indicate active database distress; treat as critical.
 
             Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/82-history-task-dlq-write-failures.md
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # Alert 83 — Visibility Tasks Dead-Lettered
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-083
+        title: "Temporal: Visibility Tasks Dead-Lettered"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(dlq_writes{operation=~\"VisibilityTask.*\"}[5m])) by (operation)"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: critical
+          service: temporal
+          component: history
+        annotations:
+          __dashboardUid__: temporal-overview-v1
+          __panelId__: "2128"
+          summary: "Temporal: visibility tasks being dead-lettered{{ if $labels.operation }} ({{ $labels.operation }}){{ end }}{{ if $value }} ({{ $value | printf \"%.3f\" }} tasks/s){{ end }}"
+          description: |
+            Visibility tasks have stopped being retried and are being written to the history task DLQ. A dead-lettered task is removed from the active queue and is NOT auto-retried, so the visibility record it carried is not written until an operator redrives the DLQ or rebuilds it.
+
+            This is the end of the clock that starts when a visibility store breaks: unexpected errors retry up to history.TaskDLQUnexpectedErrorAttempts (default 70, roughly 70 minutes with jitter) and then stop. Workflows themselves are unaffected and keep running normally — what is lost is the visibility record.
+
+            Which records stay wrong depends on the operation label. VisibilityTaskStartExecution and VisibilityTaskUpsertExecution repair themselves on the workflow's next update or close, because every visibility write is a full snapshot. VisibilityTaskCloseExecution and VisibilityTaskDeleteExecution do NOT: a dropped close leaves the workflow listed as running forever, and a dropped delete leaves a record that should have been removed.
+
+            IMPORTANT — on Elasticsearch this alert can over-report data loss. The bulk processor holds documents in memory; the store gives up waiting at worker.ESProcessorAckTimeout and fails the task, possibly into the DLQ, while the document is still buffered and gets flushed once Elasticsearch recovers. This has been observed directly: twelve tasks dead-lettered during an outage, and after recovery all twelve records were present. Verify against the store before declaring records lost. SQL has no such buffer, so on SQL a dead-lettered task really did lose the write.
+
+            Alert 80 does NOT cover this — it matches only timer and transfer operations and excludes visibility by design.
+
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/83-visibility-tasks-dead-lettered.md
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # Alert 84 — Visibility Store Not Acknowledging Writes
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-084
+        title: "Temporal: Visibility Store Not Acknowledging Writes"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(visibility_persistence_error_with_type{service_name=\"history\",error_type=\"persistence_TimeoutError\"}[5m])) by (visibility_index_name)"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: warning
+          service: temporal
+          component: history
+        annotations:
+          __dashboardUid__: temporal-overview-v1
+          __panelId__: "2125"
+          summary: "Temporal: visibility writes not being acknowledged on {{ $labels.visibility_index_name }}{{ if $value }} ({{ $value | humanize }} req/s){{ end }}"
+          description: |
+            Elasticsearch visibility writes to {{ $labels.visibility_index_name }} are not being confirmed inside worker.ESProcessorAckTimeout (default 30s). The store is reachable enough to accept the connection but is not completing the write.
+
+            This alert exists because NOTHING ELSE CATCHES THIS. persistence.TimeoutError is skipped by the visibility error classifier, so it does not appear on visibility_persistence_errors and therefore never fires alerts 59a/59b/59c. It also records no HTTP status, so the ES bulk processor error panel stays empty too. Confirmed on a live cluster: pausing Elasticsearch left both error panels flat while only this metric moved.
+
+            Every failing attempt still counts toward history.TaskDLQUnexpectedErrorAttempts, so the same 70-minute data-loss clock is running as for a store that is fully down. Treat a sustained firing the same way you would treat alert 59b.
+
+            Usual causes: Elasticsearch overloaded or garbage-collecting, an index flipped to read-only by a disk watermark, or a bulk processor that cannot keep up — check ES Bulk Processor Queue Depth and ES Write Confirm Latency vs Ack Timeout.
+
+            SQL clusters will not fire this alert; SQL visibility writes are synchronous and fail with an unavailable error instead, which alerts 59a/59b do catch.
+
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/84-visibility-store-not-acknowledging-writes.md
+        isPaused: false
+
+      # ---------------------------------------------------------------------------
+      # Alert 85 — Visibility Read Errors
+      # ---------------------------------------------------------------------------
+      - uid: temporal-alert-085
+        title: "Temporal: Visibility Read Errors"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+            model:
+              editorMode: code
+              expr: "sum(rate(visibility_persistence_errors{operation=~\"ListWorkflowExecutions|CountWorkflowExecutions|GetWorkflowExecution|ListChasmExecutions|CountChasmExecutions\"}[5m])) by (visibility_index_name, service_name)"
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.1]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: C
+              type: classic_conditions
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: critical
+          service: temporal
+          component: frontend
+        annotations:
+          __dashboardUid__: temporal-overview-v1
+          __panelId__: "2123"
+          summary: "Temporal: visibility reads failing on {{ $labels.visibility_index_name }}{{ if $labels.service_name }} from {{ $labels.service_name }}{{ end }}{{ if $value }} ({{ $value | humanize }} req/s){{ end }}"
+          description: |
+            Visibility queries against {{ $labels.visibility_index_name }} are failing. This is user-facing: workflow list, count and describe are served by these operations, from the CLI, the Web UI and the SDKs.
+
+            This alert deliberately does NOT filter on service_name="history". Reads are issued by frontend, worker and matching — never by history — which is exactly why alerts 59a/59b/59c cannot fire on read failures: all three filter to the history service and therefore only ever see writes.
+
+            Under dual visibility there is NO read fallback. A visibility read goes to exactly one store, chosen by system.enableReadFromSecondaryVisibility, and if that store is failing the read fails — even when the other store holds the same records. Verified on a live cluster: workflow list returned "context deadline exceeded" while the secondary store held every record.
+
+            Remediation, in order: move reads to the other store with system.enableReadFromSecondaryVisibility (a dynamic config change, effective in seconds, no restart) to give users a working workflow list, then fix the failing store. Be aware the other store only holds records written since dual writing was enabled, so the list may be shorter than expected — that is usually still better than a failing one.
+
+            If service_name is worker, the failing reads are background work (schedules, batch operations, deletion) rather than user queries, which is less urgent but the same underlying store problem.
+
+            Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/dual-visibility.md
+
+            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/85-visibility-read-errors.md
         isPaused: false

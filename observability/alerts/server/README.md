@@ -6,7 +6,7 @@ Grafana alerting provisioning rules for a self-hosted Temporal Server cluster.
 
 | File | When to use |
 |---|---|
-| [`temporal-server-alerts.yaml`](./temporal-server-alerts.yaml) | All deployments — 20 implemented alerts covering core server health, persistence, shard queues, visibility, and pollers |
+| [`temporal-server-alerts.yaml`](./temporal-server-alerts.yaml) | All deployments — 25 implemented alerts covering core server health, persistence, shard queues, visibility (write path, read path and dual-visibility data loss), and pollers |
 | [`temporal-failover-alerts.yaml`](./temporal-failover-alerts.yaml) | Multi-cluster replication only — 8 implemented alerts for graceful handover pre-flight, drain, and post-flip health. Drop alongside the core file if you run global namespaces with active-standby replication. Single-cluster deployments can skip it. |
 
 See [alerts-index.md](./alerts-index.md) for the full planned inventory and design decisions.
@@ -104,6 +104,9 @@ component: <frontend | history | persistence | server | matching>
 | 80 | [History Task DLQ Stranding](./runbooks/80-history-task-dlq-stranding.md) | history | [Dead-Lettered Tasks — Execution-Stranding](../../dashboards/server/temporal-server-readme.md) | 10m |
 | 81 | [Archival Backend Failing](./runbooks/81-archival-backend-failing.md) | history | [Archival Health — Signal 1](../../dashboards/server/temporal-server-readme.md) | 10m |
 | 82 | [History Task DLQ Write Failures](./runbooks/82-history-task-dlq-write-failures.md) | history | [Archival Health — Signal 2](../../dashboards/server/temporal-server-readme.md) | 5m |
+| 83 | [Visibility Tasks Dead-Lettered](./runbooks/83-visibility-tasks-dead-lettered.md) | history | [Visibility Tasks Dead-Lettered by Task Type](../../dashboards/server/temporal-server-readme.md) | 5m |
+| 84 | [Visibility Store Not Acknowledging Writes](./runbooks/84-visibility-store-not-acknowledging-writes.md) | history | [Visibility Errors by Type per Store](../../dashboards/server/temporal-server-readme.md) | 5m |
+| 85 | [Visibility Read Errors](./runbooks/85-visibility-read-errors.md) | frontend | [Visibility Read Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 2m |
 
 ---
 
