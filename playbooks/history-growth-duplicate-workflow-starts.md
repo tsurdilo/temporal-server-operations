@@ -73,6 +73,8 @@ When you start a workflow, Temporal does two things, in this order:
 
 These two steps are separate. The history in step 1 is saved before the check in step 2 runs, and step 1 is not undone if step 2 fails.
 
+**This ordering is deliberate — a performance choice, not a bug.** Temporal could wrap both writes in a single all-or-nothing transaction, which would leave nothing behind, but a transaction is slower. It skips it and does the two writes one after the other because that makes **every** workflow start faster. This is safe because Temporal only ever finds a run's history *through* its record: if step 2 never happens, the history from step 1 just sits there with nothing pointing to it — harmless to reads, and cleaned up later by the scavenger. So the leftover history is a deliberate trade for faster starts: the cost falls only on rejected or deduplicated starts, while the speed-up applies to all of them.
+
 So when the workflow id is already in use and the start is turned away, step 1 has already written a fresh history, but step 2 created no workflow record. That history is now left behind, with nothing pointing to it. The normal cleanup that removes a workflow's history follows the workflow record — and there is no record here, so it never applies. This is the same whether the start was **rejected** or **deduplicated**: in both, the history was written before Temporal decided the start could not create a new run.
 
 The **deduplicated** case is the less obvious one. Even though the caller gets back the run that already exists, Temporal still tried to create a new run first — step 1 wrote the history — and only then found the id was taken and returned the existing run. The history it wrote is left behind, just like a rejected start.
