@@ -21,7 +21,12 @@ Both leave history behind in the same way (explained in [Why a duplicate start l
 
 This usually shows up when your application starts the same workflow id many times and relies on a reuse policy to keep the repeats out. That check only works while the previous run is still in the database — within the namespace's retention period. After retention deletes the previous run, the same id counts as new again, so the start is allowed and leaves nothing behind.
 
-This playbook covers the operations that start a workflow: **StartWorkflowExecution**, **SignalWithStartWorkflowExecution** (when it has to start a new run rather than signal one that is already running), and **Update-with-Start** (`ExecuteMultiOperation`, likewise only when it has to start a new run rather than update one that is already running).
+This mainly involves the operations that create a run **optimistically** — they write the new run's history first and check the id afterward, so a rejected or deduplicated one leaves history behind:
+
+- **StartWorkflowExecution**
+- **Update-with-Start** (`ExecuteMultiOperation`) — it uses the same start path
+
+**SignalWithStartWorkflowExecution** works the other way around: it looks for a running workflow **first** and signals it if one exists, so on the duplicate path it never writes a new run and leaves nothing behind. It only leaves history behind in the rarer case where no run exists, it creates one, and that create fails partway (see [Other ways a start leaves history behind](#other-ways-a-start-leaves-history-behind)).
 
 **Which cluster this affects**
 
@@ -44,7 +49,7 @@ The signals this playbook uses to detect the problem (see [Detect](#1-detect)) a
 
 - [Why a duplicate start leaves history behind](#why-a-duplicate-start-leaves-history-behind)
   - [What "duplicate" means](#what-duplicate-means)
-  - [Two more ways a start leaves history behind](#two-more-ways-a-start-leaves-history-behind)
+  - [Other ways a start leaves history behind](#other-ways-a-start-leaves-history-behind)
   - [What does not leave history behind](#what-does-not-leave-history-behind)
 - [1. Detect](#1-detect)
   - [1.1 Confirm the rate of rejected duplicate starts](#11-confirm-the-rate-of-rejected-duplicate-starts)
@@ -66,14 +71,14 @@ First, some background on what a duplicate start even is. Inside a namespace, a 
 
 Temporal checks these rules on every start — the exact policies that decide each case are laid out in [What "duplicate" means](#what-duplicate-means) below. When a rule says the start is not allowed, Temporal turns it away — either **rejected** or **deduplicated**, the two outcomes described under **When to use** above. Turning starts away is a normal, wanted feature. The leftover history is not caused by the turning-away itself — it comes from the **order** in which Temporal does the work, which the rest of this section explains.
 
-When you start a workflow, Temporal does two things, in this order:
+When you start a workflow with **StartWorkflowExecution** or **Update-with-Start**, Temporal takes an *optimistic* path: it assumes the id is free and writes the new run first, then checks. (SignalWithStart is the opposite — it checks for a running workflow first; see **When to use** near the top.) Two things happen, in this order:
 
 1. It **writes the new run's history** (rows in `history_tree` and `history_node`).
 2. It then **creates the workflow's record and checks whether the workflow id is already in use.**
 
 These two steps are separate. The history in step 1 is saved before the check in step 2 runs, and step 1 is not undone if step 2 fails.
 
-**This ordering is deliberate — a performance choice, not a bug.** Temporal could wrap both writes in a single all-or-nothing transaction, which would leave nothing behind, but a transaction is slower. It skips it and does the two writes one after the other because that makes **every** workflow start faster. This is safe because Temporal only ever finds a run's history *through* its record: if step 2 never happens, the history from step 1 just sits there with nothing pointing to it — harmless to reads, and cleaned up later by the scavenger. So the leftover history is a deliberate trade for faster starts: the cost falls only on rejected or deduplicated starts, while the speed-up applies to all of them.
+**This ordering is deliberate — not a bug.** Temporal could wrap both writes in a single all-or-nothing transaction, which would leave nothing behind, but it doesn't — the two writes are done one after the other, history first, for performance and persistence-layer reasons. It is safe because Temporal only ever finds a run's history *through* its record: if step 2 never happens, the history from step 1 just sits there with nothing pointing to it — harmless to reads, and cleaned up later by the scavenger. So the leftover history is an accepted trade-off of that design — and the cost falls only on rejected or deduplicated starts.
 
 So when the workflow id is already in use and the start is turned away, step 1 has already written a fresh history, but step 2 created no workflow record. That history is now left behind, with nothing pointing to it. The normal cleanup that removes a workflow's history follows the workflow record — and there is no record here, so it never applies. This is the same whether the start was **rejected** or **deduplicated**: in both, the history was written before Temporal decided the start could not create a new run.
 
@@ -142,12 +147,13 @@ A few things worth pulling out of the tables:
 - **`REJECT_DUPLICATE` leaves the most,** because it turns away *every* repeat.
 - **The default `ALLOW_DUPLICATE` is not safe against repeats while a run is still going.** `ALLOW_DUPLICATE` only decides the closed-run case; a repeat sent while the run is still active is handled by the conflict policy, which rejects by default. So even with the default settings, hammering the same id while it runs leaves history behind.
 
-### Two more ways a start leaves history behind
+### Other ways a start leaves history behind
 
-The reuse and conflict policies above are the main causes, but two other things can turn a start away *after* its history is written:
+The reuse and conflict policies above are the main causes. A few other things can also leave history behind after it has been written:
 
-- **An automatic retry of a start whose reply was lost.** Every start carries a request id. If the server creates the run but the network drops the reply on the way back, the client's SDK retries the *same* request (same request id). The server recognizes the id and does not create a second run — it returns the one it already made — but that retry attempt wrote its own history first, so a leftover remains. (This is the SDK retrying automatically, not an end user clicking twice — two clicks would be two different requests, which the policies above handle.)
-- **An optional server throttle on rapid repeat starts.** A setting called `history.enableWorkflowIdReuseStartTimeValidation` (off by default) makes the server reject a start if the same id was started again too quickly — within about a second of the last one. Operators sometimes turn it on to protect a **hot shard** (one workflow id being started over and over); see the [Hot Shard playbook](./hot-shard-detection-remediation.md). As with the cases above, a start it rejects has already written its history, so it leaves a leftover.
+- **An automatic retry after a lost reply.** If the server created the run but the response never got back to the client, the SDK re-sends the same start. The server returns the run it already made — but the retry had already written its history, so that extra copy is left behind.
+- **A repeat start stopped by an optional throttle.** The setting `history.enableWorkflowIdReuseStartTimeValidation` (off by default) rejects a start if the same id was started again within about a second. It is used to protect a busy shard (see the [Hot Shard playbook](./hot-shard-detection-remediation.md)). The rejected start had already written its history, so it is left behind.
+- **A start that failed midway.** History is written first, then the record — not together. If the server fails in between (a crash, or a database error), the history is saved but no record is. This is the only way **SignalWithStartWorkflowExecution** leaves history behind, since it otherwise checks for a running workflow first.
 
 ### What does not leave history behind
 
@@ -197,6 +203,8 @@ On Cassandra the same idea holds, but the SQL queries do not apply (a Cassandra-
 
 The scavenger is the only tool that can remove this history. There is no workflow record, so a per-workflow delete (`tdbg workflow delete`, the delete API) has nothing to point it at — it cannot find this history. Do not try to delete `history_tree` / `history_node` rows by hand; you can delete a live workflow's history that way.
 
+> **On older SQL clusters:** the history scavenger only supports SQL backends from **v1.19.0** onward. On 1.18 and earlier with SQL persistence there is no scavenger for this history at all — it just accumulates, and the only real remedy is to upgrade the server. (Cassandra has had the scavenger since long before, so this floor does not apply there.)
+
 By default the scavenger waits until history is 60 days old before it will remove it, so leftovers can sit for weeks. Lower the wait so it clears them promptly:
 
 ```yaml
@@ -235,46 +243,15 @@ Keep the scavenger's wait low (as in [Remediate](#2-remediate--clear-what-has-bu
 
 ### Server-side start limits, and what each does to leftover history
 
-Temporal has two optional server settings for slowing down rapid repeat starts of the same workflow id. Their real purpose is **load protection** — capping how fast one workflow id can be started so it can't overwhelm a shard (see the [Hot Shard playbook](./hot-shard-detection-remediation.md)); neither is meant to clean up leftover history. Still, since both act on the start path, it helps to know what each one does to leftovers. What matters is **when it stops the repeat start:** before or after that start has written its history.
+Temporal has server settings that slow down rapid repeat starts of the same workflow id. Their purpose is **load protection** — keeping one workflow id from overwhelming a shard (see the [Hot Shard playbook](./hot-shard-detection-remediation.md)) — **not** cleaning up leftover history. Don't reach for them to fix this problem. Here's why.
 
-| Dynamic config | When it stops a repeat start | What it leaves behind |
-|---|---|---|
-| **None set** — the default | Nothing stops it early; only the workflow-id check stops it, and that runs **after** the history is written. | Each stopped start leaves its history behind. |
-| `history.enableWorkflowIdReuseStartTimeValidation` — the **older** option (off by default; when on, it applies `history.workflowIdReuseMinimalInterval`, default 1 second) | **After** the history is written. And the rejection is an error the client automatically retries, so each retry writes history again. | Leaves history behind — and *more* of it once retries pile up. |
-| `history.businessIDReuseRate` — from **1.32.0**, the newer replacement for the older setting above (a number of starts per second; `0` = off, the default) | **Before** any history is written. | A stopped start writes nothing. But blocked callers retry, and the few retries the limit lets through each second do write history — so it reduces leftovers, it does not eliminate them. |
+**The older throttle — `history.enableWorkflowIdReuseStartTimeValidation`** (off by default; when on, it applies `history.workflowIdReuseMinimalInterval`, default 1 second). It rejects a repeat start that comes too soon after the last one — but only *after* the history is already written, so it does not prevent the leftover. Worse, the rejection is an error that clients automatically retry, and each retry writes history again — so turning it on for a hot id can leave **more** leftover history, not less.
 
-`history.businessIDReuseRate` is a rate limit with a burst allowance, not a hard block: a companion setting, `history.businessIDReuseBurstRatio` (default equal to the rate), lets a small burst of starts through before the limit takes hold. That burst, plus the retries mentioned above, is why it lowers the leftover count but does not drive it to zero.
+**The newer setting — `history.businessIDReuseRate`** (from 1.32.0). This is intended as the successor to the older throttle, and unlike it, the check runs *before* the history is written — so in principle it would leave less behind. **But per the Temporal server team, its implementation is not finalized in 1.32 — don't rely on it yet.** Treat it as not-ready for now, and use the app-side prevention above.
 
-You can't say one of these is simply better or worse than another, because how much history each one leaves depends on **what your workload was doing.** Two scenarios show the difference:
+**Either way, you can't detect this from the error metrics.** The rejected-start metric ([1.1](#11-confirm-the-rate-of-rejected-duplicate-starts)) does not catch these — a terminate restart *succeeds* with no error at all, and a throttled one shows up only as a generic **"resource exhausted"** error, which mixes together causes that leave history behind with ones that don't (plain frontend or persistence rate limits reject *before* the write, so they leave nothing). Don't diagnose this from error counts — watch the leftover history itself with the scavenger and database checks, [1.2](#12-confirm-the-scavenger-is-falling-behind) and [1.3](#13-confirm-the-leftover-history-in-the-database).
 
-**Example 1 — a burst of starts for the same id at once (the common case).** Say **10 starts** for one id arrive together: one wins and creates the run, and the other **9** are duplicates. With no setting, each of those 9 is rejected by the id check *after* writing history, so each leaves a leftover.
-
-| Dynamic config | Leftovers from the 10-start burst |
-|---|---|
-| None set | 9 |
-| `enableWorkflowIdReuseStartTimeValidation` (older) | 9 — no change (does not apply here; see below) |
-| `businessIDReuseRate` = 1 per second | 3–4 |
-
-Because the starts were already being rejected, moving the check *earlier* (`businessIDReuseRate`) is a clear win. The older setting makes no difference here: when the existing run is still going, these starts are handled by the conflict policy and never reach the older setting's check.
-
-**Example 2 — rapid restarts of the same id, with the workflow id reuse policy set to `TERMINATE_IF_RUNNING`.** Say a run is going and **10 restarts** arrive in quick succession. With no setting, each restart *succeeds* — it ends the running workflow and starts a fresh one — so each leaves one leftover branch (and no errors).
-
-| Dynamic config | Leftovers from 10 rapid restarts |
-|---|---|
-| None set | 10 |
-| `enableWorkflowIdReuseStartTimeValidation` (older) | ~42 |
-| `businessIDReuseRate` = 1 per second | ~38 |
-
-Here both settings make it **worse** — even worse than doing nothing. Here is why the numbers go *above* 10. With no setting, each restart simply succeeds, so there is no error and no retry: 10 restarts, 10 leftovers. Turn on either setting and the restart is instead rejected with a **"resource exhausted"** error — the throttle's way of saying "too soon" or "over the limit." SDKs automatically retry that error, so each of the 10 restarts is sent many times over. Every attempt that reaches the create step writes its history first, so the leftover count climbs well past 10. (`businessIDReuseRate` blocks some attempts before the write, but on this restart path enough still get through and are retried that it barely helps.)
-
-**What to take from this:**
-
-- `history.businessIDReuseRate` (1.32.0) helps only when your starts were already being rejected (like Example 1) — and even then it just lowers the leftovers, never to zero. Where your starts were succeeding (like Example 2), it does not help, and can make things worse: it turns those successful starts into retried errors, which write even more history.
-- The older `history.workflowIdReuseMinimalInterval` does not reduce leftover history in either case, and makes it worse when callers retry. It is off by default; there is no reason to turn it on for this problem.
-- Neither setting changes the reuse-policy rejections (`REJECT_DUPLICATE` and the others), which still write history first.
-- **You can't spot these cases from the error metrics.** The rejected-start metric ([1.1](#11-confirm-the-rate-of-rejected-duplicate-starts)) does not catch them — a plain terminate restart *succeeds* (no error at all), and a throttled one shows up only as a generic **"resource exhausted"** error, which lumps together causes that leave history behind (the older `BusyWorkflow` throttle) with causes that do not (plain frontend or persistence rate limits, and even `businessIDReuseRate`'s own rejections, which block before the write). So don't diagnose this from error counts. Detect it the reliable way — watch the leftover history itself with the scavenger and database checks, [1.2](#12-confirm-the-scavenger-is-falling-behind) and [1.3](#13-confirm-the-leftover-history-in-the-database).
-
-**Bottom line:** to actually stop leftover history, use the [app-side prevention above](#3-prevent--stop-it-recurring). These server settings still have their place — load protection for a hot workflow id — but don't count on them to fix leftover history: they only change how fast it arrives, and one of them speeds it up.
+**Bottom line:** to actually stop leftover history, use the [app-side prevention above](#3-prevent--stop-it-recurring). The server settings are for load protection, not cleanup.
 
 ---
 
