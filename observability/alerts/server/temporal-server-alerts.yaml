@@ -7,1619 +7,2036 @@
 #   - Temporal Server v1.20+ emitting Prometheus metrics
 #   - A Grafana datasource named exactly "Prometheus"
 #     If your datasource has a different name, replace the datasourceUid value
-#     on the single line marked DATASOURCE below.
+#     on every line marked DATASOURCE below.
 #   - temporal-server.json dashboard imported (UID: temporal-overview-v1)
 #     Dashboard panel links will not resolve without it.
 #
-# This file covers the Essential Alert Set (20 alerts).
-# See planning.md for the full alert inventory and design decisions.
+# This file covers the Essential Alert Set (26 alerts).
+# See alerts-index.md for the full alert inventory, and planning.md for design decisions.
 
 apiVersion: 1
-
 groups:
-  - orgId: 1
-    name: temporal-server-essential
-    folder: Temporal Server
-    interval: 1m
-    rules:
-
-      # ---------------------------------------------------------------------------
-      # Alert 1 — Total RPS Drops to Zero
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-001
-        title: "Temporal: Total RPS Drops to Zero"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(service_requests{service_name=\"frontend\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [1]
-                    type: lt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: critical
-          service: temporal
-          component: frontend
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "21"
-          summary: "Temporal: total frontend RPS dropped to zero ({{ $value | printf \"%.2f\" }} req/s)"
-          description: |
-            Total frontend RPS has dropped to zero. The frontend is up and reporting metrics
-            but receiving no requests — the cluster is unreachable from clients and from other
-            Temporal services. Check frontend pod health and service_errors rate.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/01-total-rps-zero.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 1b — Frontend Metrics Absent
-      # Companion to alert 1. Fires when the service_requests series for the
-      # frontend disappears entirely (pod crash, Prometheus scrape failure).
-      # Alert 1 cannot fire in this case because there is no value to evaluate.
-      # noDataState is OK — when the series IS present, absent() returns no data,
-      # which is the normal healthy state.
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-001b
-        title: "Temporal: Frontend Metrics Absent"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "absent(rate(service_requests{service_name=\"frontend\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 2m
-        labels:
-          severity: critical
-          service: temporal
-          component: frontend
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "21"
-          summary: "Temporal: frontend service_requests series is absent — frontend may be down or Prometheus scrape is failing"
-          description: |
-            The service_requests metric for the Temporal frontend has stopped being reported
-            entirely. All frontend pods may have crashed or are struggling to the point of not
-            reporting metrics. Alert 1 cannot detect this — it requires a series value to evaluate.
-            Check frontend pod health and Prometheus scrape targets.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/01b-frontend-metrics-absent.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 4 — Namespace RPS Drops to Zero
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-004
-        title: "Temporal: Namespace RPS Drops to Zero"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum by (namespace) (rate(service_requests{service_name=\"frontend\",namespace!=\"_unknown_\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              reducer: last
-              refId: B
-              settings:
-                mode: dropNN
-              type: reduce
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [1]
-                    type: lt
-                  operator:
-                    type: and
-                  query:
-                    params: [C]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: B
-              refId: C
-              type: threshold
-        noDataState: NoData
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: critical
-          service: temporal
-          component: frontend
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "20"
-          summary: "Temporal: RPS dropped to zero for namespace {{ $labels.namespace }} ({{ $value | printf \"%.2f\" }} req/s)"
-          description: |
-            Namespace {{ $labels.namespace }} is receiving no frontend requests. Other namespaces
-            may be healthy. Check if alert 1 is also firing — if so this is cluster-wide.
-            Otherwise check if workers for this namespace are running and connected.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/04-namespace-rps-zero.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 8 — Shard Lock Latency Critical
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-008
-        title: "Temporal: Shard Lock Latency Critical"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus
-            model:
-              editorMode: code
-              expr: "histogram_quantile(0.99, sum by (le) (rate(semaphore_latency_bucket{operation=\"ShardInfo\",service_name=\"history\"}[5m])))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0.3]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "14"
-          summary: "Temporal: p99 shard lock latency critical ({{ $value | printf \"%.3fs\" }})"
-          description: |
-            p99 shard lock latency has exceeded 300ms. This can indicate history service issues,
-            elevated DB latencies holding the lock longer, or hot shard conditions from high
-            frequency reuse of the same workflow ID. Check persistence latencies and workflow
-            lock latency for correlation.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/08-shard-lock-latency-critical.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 12 — Persistence Latency Critical
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-012
-        title: "Temporal: Persistence Latency Critical"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus
-            model:
-              editorMode: code
-              expr: "histogram_quantile(0.99, sum by (operation, le) (rate(persistence_latency_bucket{operation=~\"CreateWorkflowExecution|UpdateWorkflowExecution|ConflictResolveWorkflowExecution|GetWorkflowExecution|GetCurrentExecution|AppendHistoryNodes|ReadHistoryBranch|CreateTasks|GetTasks|GetTransferTasks|GetTimerTasks|CompleteTransferTask|CompleteTimerTask\"}[5m])))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [1]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: critical
-          service: temporal
-          component: persistence
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "71"
-          summary: "Temporal: p99 persistence latency critical ({{ $value | printf \"%.3fs\" }})"
-          description: |
-            p99 persistence latency has exceeded 1s for a critical-path DB operation.
-            Persistence latencies can cause delays writing and reading from the database,
-            causing slowness for critical operations that support forward progress of workflow
-            executions. Check the Persistence Latencies panel to identify which operation is slow.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/12-persistence-latency-critical.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 25 — Service Panic Detected
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-025
-        title: "Temporal: Service Panic Detected"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus
-            model:
-              editorMode: code
-              expr: "sum by (service_name) (rate(service_panics[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 1m
-        labels:
-          severity: critical
-          service: temporal
-          component: server
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "99"
-          summary: "Temporal: service panic detected in {{ $labels.service_name }}"
-          description: |
-            A Go panic has been detected in the {{ $labels.service_name }} service. Depending
-            on where the panic occurs this can cause shard loss, incomplete workflow state
-            transitions, or task corruption. Check pod logs — the panic stack trace is the
-            primary diagnostic artifact. Search logs for "panic".
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/25-service-panic-detected.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 27 — Service Error Rate Critical
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-027
-        title: "Temporal: Service Error Rate Critical"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum by (namespace) (rate(service_errors{service_name=\"frontend\",namespace!=\"_unknown_\"}[5m])) / sum by (namespace) (rate(service_requests{service_name=\"frontend\",namespace!=\"_unknown_\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              reducer: last
-              refId: B
-              settings:
-                mode: dropNN
-              type: reduce
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0.3]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [C]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: B
-              refId: C
-              type: threshold
-        noDataState: NoData
-        execErrState: Error
-        for: 2m
-        labels:
-          severity: critical
-          service: temporal
-          component: frontend
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "92"
-          summary: "Temporal: frontend error rate critical for {{ $labels.namespace }} ({{ $value | printf \"%.0f%%\" }})"
-          description: |
-            More than 30% of frontend requests are returning errors for namespace
-            {{ $labels.namespace }}. Service errors can significantly affect user namespaces
-            and their workflows. Check Service Errors by Namespace and Persistence Latencies
-            panels to identify root cause.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/27-service-error-rate-critical.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 30 — System Overload Throttling
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-030
-        title: "Temporal: System Overload Throttling"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus
-            model:
-              editorMode: code
-              expr: "sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~\"SystemOverloaded|CircuitBreakerOpen\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 1m
-        labels:
-          severity: critical
-          service: temporal
-          component: persistence
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "121"
-          summary: "Temporal: system overload or circuit breaker throttling active ({{ $value | printf \"%.2f\" }} errors/s)"
-          description: |
-            Resource exhausted errors with cause SYSTEM_OVERLOADED or CIRCUIT_BREAKER_OPEN
-            are being returned to clients. Unlike configured RPS/QPS limits, these are dynamic
-            self-protection responses — the cluster is actively shedding load because it cannot
-            keep up. Check Persistence Latencies and Persistence Requests Total panels.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/30-system-overload-throttling.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 34 — Unexpected Shard Movement
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-034
-        title: "Temporal: Unexpected Shard Movement"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus
-            model:
-              editorMode: code
-              expr: "(sum(rate(sharditem_created_count{service_name=\"history\"}[5m])) + sum(rate(sharditem_removed_count{service_name=\"history\"}[5m])) + sum(rate(shard_closed_count{service_name=\"history\"}[5m])) > 0) unless (sum(increase(restarts{service_name=\"history\"}[8m])) > 0)"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 10m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "60"
-          summary: "Temporal: unexpected shard movement detected without history service restarts"
-          description: |
-            Shard creation, removal, or closing detected on the history service without a
-            corresponding restart in the last 8 minutes. Unexpected shard movement typically
-            indicates DB pressure causing ownership loss, membership instability, or a history
-            pod unable to maintain shard leases. Check Shards Created/Removed/Closed and
-            Persistence Latencies panels.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34-unexpected-shard-movement.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 38 — Timer Task Scheduling Lag Critical
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-038
-        title: "Temporal: Timer Task Scheduling Lag Critical"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus
-            model:
-              editorMode: code
-              expr: "histogram_quantile(0.99, sum by (operation, le) (rate(shardinfo_scheduled_queue_lag_bucket{task_category=\"timer\",service_name=\"history\"}[5m])))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [30]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "325"
-          summary: "Temporal: timer task scheduling lag critical ({{ $value | printf \"%.1fs\" }} behind)"
-          description: |
-            Timer task scheduling lag has exceeded 30 seconds. Workflow timers, scheduled
-            activities, and workflow timeouts are firing late — deadlines, heartbeat timeouts,
-            and schedule-to-start timeouts are affected. Check Persistence Latencies and
-            Shard Lock Latency panels. Note: sparse data on idle clusters can produce
-            non-zero p99 artifacts — confirm there is actual timer activity before investigating.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/38-timer-scheduling-lag-critical.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 57 — All Pollers Disconnected
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-057
-        title: "Temporal: All Pollers Disconnected"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum by (namespace) (service_pending_requests{service_name=\"frontend\",namespace!=\"_unknown_\",operation=~\"PollWorkflowTaskQueue|PollActivityTaskQueue\"})"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              reducer: last
-              refId: B
-              settings:
-                mode: dropNN
-              type: reduce
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [1]
-                    type: lt
-                  operator:
-                    type: and
-                  query:
-                    params: [C]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: B
-              refId: C
-              type: threshold
-        noDataState: NoData
-        execErrState: Error
-        for: 1m
-        labels:
-          severity: critical
-          service: temporal
-          component: frontend
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "162"
-          summary: "Temporal: all pollers disconnected for namespace {{ $labels.namespace }}"
-          description: |
-            No workers are actively polling for workflow or activity tasks in namespace
-            {{ $labels.namespace }}. Workflows stall at every task boundary. Queued tasks
-            are persisted to the database by the matching service, adding DB pressure while
-            pollers are absent. Check worker process health for this namespace.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/57-all-pollers-disconnected.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 34b — Immediate Queue Lag Critical
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-034b
-        title: "Temporal: Immediate Queue Lag Critical"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "histogram_quantile(0.99, sum by (instance, task_category, le) (rate(shardinfo_immediate_queue_lag_bucket{service_name=\"history\"}[11m])))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [3000000]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 15m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2109"
-          summary: "Temporal: immediate queue lag critical on {{ $labels.instance }} / {{ $labels.task_category }} ({{ $value | printf \"%.0f\" }} tasks)"
-          description: |
-            The p99 immediate task queue lag on history pod {{ $labels.instance }}
-            for category {{ $labels.task_category }} has exceeded 3,000,000 tasks for
-            15 minutes. A shard on this pod is stuck — tasks are queuing but not being
-            processed. Workers may report workflows created but no tasks dispatched.
-
-            Immediate action:
-            1. Check DB Pool Refresh Failure Rate panel — if non-zero, fix DB connectivity first; the shard recovers within seconds of DB stability (if still in the 5-min retry window) or ≤1 min (if shard dropped and awaiting controller re-acquisition).
-            2. If DB is healthy: run tdbg history-host describe --host-address <pod> to list shard IDs, then tdbg shard describe --shard-id <ID> to find the one with frozen ack levels.
-            3. Run tdbg shard close-shard --shard-id <ID> to force re-acquisition.
-            4. If tdbg does not resolve: restart the history pod.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34b-immediate-queue-lag-critical.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 34f — Shard Deadlock Detected
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-034f
-        title: "Temporal: Shard Deadlock Detected"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 120
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum by (instance) (dd_current_suspected_deadlocks{service_name=\"history\"})"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 1m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2113"
-          summary: "Temporal: shard deadlock detected on {{ $labels.instance }} ({{ $value | printf \"%.0f\" }} suspected)"
-          description: |
-            The deadlock detector has reported {{ $value | printf "%.0f" }} unresolved
-            suspected deadlock(s) on history pod {{ $labels.instance }}. A shard's
-            rwLock or ioSemaphore ping timed out — the lock is currently held and
-            blocking all operations on the affected shard(s).
-
-            Immediate action:
-            1. Check pod logs for the goroutine dump — emitted automatically when system.deadlock.DumpGoroutines=true (default).
-            2. Restart the history pod {{ $labels.instance }}. Do not rely on tdbg close-shard alone — the close path may block on the held lock.
-            3. To automate future recovery: set system.deadlock.FailHealthCheck=true in dynamic config to pull the pod from the load balancer automatically on detection.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34f-shard-deadlock-detected.md
-        isPaused: false
-
-      # -----------------------------------------------------------------------
-      # Section 16 — Visibility (Dual Visibility Store Health)
-      # -----------------------------------------------------------------------
-
-      - uid: temporal-alert-059a
-        title: "Temporal: Visibility Store Write Errors (Warning)"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(visibility_persistence_errors{service_name=\"history\"}[5m])) by (visibility_index_name)"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0.1]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 2m
-        labels:
-          severity: warning
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2118"
-          summary: "Temporal: visibility write errors on {{ $labels.visibility_index_name }}{{ if $value }} ({{ $value | humanize }} req/s){{ end }}"
-          description: |
-            Visibility store {{ $labels.visibility_index_name }} is returning write errors.
-            Workflows are unaffected and keep running, but visibility records for that
-            store are backing up in the retry queue.
-
-            This does NOT retry forever. After history.TaskDLQUnexpectedErrorAttempts
-            unexpected attempts (70 by default, roughly 70 minutes) the task is moved to
-            the history task dead letter queue and the record stops being written. Alert
-            83 fires when that happens; the Visibility Tasks Dead-Lettered by Task Type
-            panel shows it broken down by task type.
-
-            The store label above is your configured SQL database name or Elasticsearch
-            index name. Compare it against your persistence config to tell whether the
-            failing store is the primary (workflow list and describe degrade) or the
-            secondary (list keeps working, unless you moved reads to it).
-
-            This alert covers the write path on the history service only. It does not fire
-            on read failures (alert 85 does) and it does not fire on Elasticsearch writes
-            that time out without being confirmed (alert 84 does, because timeouts are not
-            counted as errors by this metric). If this alert is quiet but visibility looks
-            wrong, check the Visibility Errors by Type per Store panel, which counts every
-            error and names the store.
-
-            Then check that the store is reachable, however you run it.
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/59a-visibility-store-write-errors.md
-        isPaused: false
-
-      - uid: temporal-alert-059b
-        title: "Temporal: Visibility Store Write Errors (Critical)"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(visibility_persistence_errors{service_name=\"history\"}[5m])) by (visibility_index_name)"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [1]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 1m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2118"
-          summary: "Temporal: visibility store {{ $labels.visibility_index_name }} critical write error rate{{ if $value }} ({{ $value | humanize }} req/s){{ end }}"
-          description: |
-            Visibility store {{ $labels.visibility_index_name }} write error rate has
-            exceeded 1 req/s — the store is effectively unavailable for writes.
-
-            If visibility_index_name = temporal_visibility (primary):
-              - workflow list/describe/count operations will fail immediately.
-              - Temporal Web UI workflow list will be empty or return errors.
-              - Restore the primary store first to unblock read operations.
-
-            If visibility_index_name = temporal_visibility_secondary (secondary):
-              - workflow list/describe still works (reads from primary only).
-              - Secondary data is diverging; backfill required after recovery.
-
-            Recovery:
-            1. kubectl scale statefulset <store-statefulset> -n temporal --replicas=1
-            2. kubectl wait pod/<store-pod>-0 -n temporal --for=condition=Ready --timeout=5m
-            3. Wait 30-60s for connection pool refresh — errors will stop automatically.
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/59a-visibility-store-write-errors.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 34j — Shard IO Semaphore Deadlock Approaching
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-034j
-        title: "Temporal: Shard IO Semaphore Deadlock Approaching"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "histogram_quantile(0.99, sum(rate(dd_shard_io_semaphore_latency_bucket{service_name=\"history\"}[5m])) by (instance, le))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [20]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: warning
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-shard-io-v1
-          __panelId__: "1"
-          summary: "Temporal: shard IO semaphore health ping latency high on {{ $labels.instance }}{{ if $value }} (p99 {{ $value | humanizeDuration }}){{ end }} — deadlock detector approaching 40s threshold"
-          description: |
-            The deadlock detector's shard IO semaphore health ping p99 latency has exceeded
-            20s on {{ $labels.instance }}. The deadlock detector timeout is 40s (10s DB op
-            timeout + 30s grace, from source). If the ping cannot acquire the semaphore
-            within 40s, the shard is declared a suspected deadlock (alert 34f fires) and
-            the pod must be restarted.
-
-            This alert fires at 20s — half the threshold — to allow time to act before
-            the deadlock is declared.
-
-            Immediate checks:
-            1. Check semaphore_latency{operation="ShardInfo",priority="0"} p99 — if elevated,
-               active write traffic is saturating the semaphore
-            2. Check persistence_latency on UpdateWorkflowExecution and AddTasks — if elevated,
-               DB writes are slow and holding semaphore slots longer; fix DB first
-            3. Check persistence_sql_in_use / persistence_sql_max_open_conn — if approaching
-               1.0, connection pool is under pressure
-            4. Check semaphore_failures — if non-zero, callers are already giving up waiting
-
-            Do NOT raise history.shardIOConcurrency while DB metrics are unhealthy.
-            If DB is healthy and backend is SQL, consider raising shardIOConcurrency
-            (requires history host rolling restart).
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34j-shard-io-semaphore-deadlock-approaching.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 78 — Shard Fleet Deficit
-      # IMPORTANT: The expr hardcodes 2048 as total shard count. Update this to
-      # match your cluster's configured NumberOfShards.
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-078
-        title: "Temporal: Shard Fleet Deficit"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 900
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(numshards_gauge{service_name=\"history\"}) < 2048"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 15m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2120"
-          summary: "Temporal: shard fleet deficit — {{ $value | printf \"%.0f\" }} shards owned, below configured total"
-          description: |
-            Total owned shards across the history fleet has stayed below the cluster's configured shard count for 15 minutes — a genuinely unowned shard, not just a slow one.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/78-shard-fleet-deficit.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 79 — Shard Ownership Loss Persisting
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-079
-        title: "Temporal: Shard Ownership Loss Persisting"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 900
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(persistence_error_with_type{service_name=\"history\",operation=\"UpdateShard\",error_type=\"persistence.ShardOwnershipLostError\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: NoData
-        execErrState: Error
-        for: 10m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "77"
-          summary: "Temporal: shard ownership CAS failures persisting for 10+ minutes ({{ $value | printf \"%.2f\" }} errors/s)"
-          description: |
-            UpdateShard is failing with ShardOwnershipLostError continuously for at least 10 minutes — a single occurrence during a normal ownership handoff is expected, a sustained rate is not.
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/79-shard-ownership-loss-persisting.md
-        isPaused: false
-
-      - uid: temporal-alert-059c
-        title: "Temporal: Visibility Store Write Latency High"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "histogram_quantile(0.99, sum(rate(visibility_persistence_latency_bucket{service_name=\"history\"}[5m])) by (visibility_index_name, le))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [3]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: warning
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2119"
-          summary: "Temporal: visibility write latency high on {{ $labels.visibility_index_name }}{{ if $value }} (p99 {{ $value | humanizeDuration }}){{ end }}"
-          description: |
-            p99 write latency to {{ $labels.visibility_index_name }} has exceeded 3s.
-            This may indicate the store is recovering from an outage (draining backlog),
-            under disk/IO pressure, or approaching connection pool exhaustion.
-
-            Latency divergence between temporal_visibility and temporal_visibility_secondary
-            indicates one store is under pressure while the other is healthy — check
-            the Visibility Write Error Rate per Store panel for accompanying errors.
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/59a-visibility-store-write-errors.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 80 — History Task DLQ Stranding
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-080
-        title: "Temporal: History Task DLQ Stranding"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(dlq_writes{operation=~\"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 10m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2202"
-          summary: "Temporal: history tasks being dead-lettered and stranding executions ({{ $value | printf \"%.3f\" }} tasks/s)"
-          description: |
-            Execution-stranding history tasks are being written to the history task DLQ (activity retry/timeout timers or activity/workflow-task dispatch). A DLQ'd task is removed from the active queue and is NOT auto-retried — for a retrying activity this strands the activity until an operator redrives the DLQ or pause/unpauses it. This is typically triggered by a prolonged database outage/overload driving persistence operations to time out (context deadline exceeded), which counts toward history.TaskDLQUnexpectedErrorAttempts (default 70 ≈ 1h). DB-agnostic (Cassandra and SQL alike).
-
-            This condition is intentionally strict (any rate > 0 sustained 10m). If your cluster legitimately produces occasional stranding-type DLQ writes, raise the threshold or the `for` window to suit — see the runbook.
-
-            Not paged here (informational only): visibility, retention (DeleteHistoryEvent), and workflow-task-timeout DLQ writes, and rate-limit rejections (ResourceExhausted, which are excused and never dead-lettered). Use the "Dead-Lettered Tasks" panels to see the per-operation breakdown.
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/80-history-task-dlq-stranding.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 81 — Archival Backend Failing
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-081
-        title: "Temporal: Archival Backend Failing"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(archiver_archive_latency_count{status=\"err\"}[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 10m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2211"
-          summary: "Temporal: archival backend is failing ({{ $value | printf \"%.3f\" }} archive errors/s)"
-          description: |
-            Archival attempts to the configured backend (S3 / GCS / custom provider) are failing (archiver_archive_latency with status="err"). Archival normally succeeds, so a sustained non-zero error rate means the archival backend is unreachable or erroring. This is the EARLIEST signal — it fires ~1 hour before failing archival tasks reach the history task DLQ.
-
-            See the runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/81-archival-backend-failing.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 82 — History Task DLQ Write Failures
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-082
-        title: "Temporal: History Task DLQ Write Failures"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(task_dlq_failures[5m]))"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2213"
-          summary: "Temporal: history task DLQ writes are failing ({{ $value | printf \"%.3f\" }} failures/s)"
-          description: |
-            Writes to the history task DLQ are themselves FAILING (task_dlq_failures). This is general — it applies to any history task type (transfer, timer, visibility, archival, outbound) — and severe: it means the database cannot even accept DLQ writes, typically because it is overloaded (e.g. a flood of tasks being dead-lettered onto the single-partition DLQ, driving lightweight-transaction / row-lock contention). Failed DLQ writes are retried indefinitely, adding still more load.
-
-            Identify the source of the DLQ flood and relieve the database. A common cause is a sustained archival-backend outage under load (in which case pause archival — see the playbook). Related: Alert 80 fires when tasks are being written to the DLQ; this alert fires when those writes are failing (a worse, database-under-pressure condition).
-
-            for: 5m at any rate > 0 — DLQ-write failures indicate active database distress; treat as critical.
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/82-history-task-dlq-write-failures.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 83 — Visibility Tasks Dead-Lettered
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-083
-        title: "Temporal: Visibility Tasks Dead-Lettered"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(dlq_writes{operation=~\"VisibilityTask.*\"}[5m])) by (operation)"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: critical
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2128"
-          summary: "Temporal: visibility tasks being dead-lettered{{ if $labels.operation }} ({{ $labels.operation }}){{ end }}{{ if $value }} ({{ $value | printf \"%.3f\" }} tasks/s){{ end }}"
-          description: |
-            Visibility tasks have stopped being retried and are being written to the history task DLQ. A dead-lettered task is removed from the active queue and is NOT auto-retried, so the visibility record it carried is not written until an operator redrives the DLQ or rebuilds it.
-
-            This is the end of the clock that starts when a visibility store breaks: unexpected errors retry up to history.TaskDLQUnexpectedErrorAttempts (default 70, roughly 70 minutes with jitter) and then stop. Workflows themselves are unaffected and keep running normally — what is lost is the visibility record.
-
-            Which records stay wrong depends on the operation label. VisibilityTaskStartExecution and VisibilityTaskUpsertExecution repair themselves on the workflow's next update or close, because every visibility write is a full snapshot. VisibilityTaskCloseExecution and VisibilityTaskDeleteExecution do NOT: a dropped close leaves the workflow listed as running forever, and a dropped delete leaves a record that should have been removed.
-
-            IMPORTANT — on Elasticsearch this alert can over-report data loss. The bulk processor holds documents in memory; the store gives up waiting at worker.ESProcessorAckTimeout and fails the task, possibly into the DLQ, while the document is still buffered and gets flushed once Elasticsearch recovers. This has been observed directly: twelve tasks dead-lettered during an outage, and after recovery all twelve records were present. Verify against the store before declaring records lost. SQL has no such buffer, so on SQL a dead-lettered task really did lose the write.
-
-            Alert 80 does NOT cover this — it matches only timer and transfer operations and excludes visibility by design.
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/83-visibility-tasks-dead-lettered.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 84 — Visibility Store Not Acknowledging Writes
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-084
-        title: "Temporal: Visibility Store Not Acknowledging Writes"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(visibility_persistence_error_with_type{service_name=\"history\",error_type=\"persistence_TimeoutError\"}[5m])) by (visibility_index_name)"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0.1]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 5m
-        labels:
-          severity: warning
-          service: temporal
-          component: history
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2125"
-          summary: "Temporal: visibility writes not being acknowledged on {{ $labels.visibility_index_name }}{{ if $value }} ({{ $value | humanize }} req/s){{ end }}"
-          description: |
-            Elasticsearch visibility writes to {{ $labels.visibility_index_name }} are not being confirmed inside worker.ESProcessorAckTimeout (default 30s). The store is reachable enough to accept the connection but is not completing the write.
-
-            This alert exists because NOTHING ELSE CATCHES THIS. persistence.TimeoutError is skipped by the visibility error classifier, so it does not appear on visibility_persistence_errors and therefore never fires alerts 59a/59b/59c. It also records no HTTP status, so the ES bulk processor error panel stays empty too. Confirmed on a live cluster: pausing Elasticsearch left both error panels flat while only this metric moved.
-
-            Every failing attempt still counts toward history.TaskDLQUnexpectedErrorAttempts, so the same 70-minute data-loss clock is running as for a store that is fully down. Treat a sustained firing the same way you would treat alert 59b.
-
-            Usual causes: Elasticsearch overloaded or garbage-collecting, an index flipped to read-only by a disk watermark, or a bulk processor that cannot keep up — check ES Bulk Processor Queue Depth and ES Write Confirm Latency vs Ack Timeout.
-
-            SQL clusters will not fire this alert; SQL visibility writes are synchronous and fail with an unavailable error instead, which alerts 59a/59b do catch.
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/84-visibility-store-not-acknowledging-writes.md
-        isPaused: false
-
-      # ---------------------------------------------------------------------------
-      # Alert 85 — Visibility Read Errors
-      # ---------------------------------------------------------------------------
-      - uid: temporal-alert-085
-        title: "Temporal: Visibility Read Errors"
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
-            model:
-              editorMode: code
-              expr: "sum(rate(visibility_persistence_errors{operation=~\"ListWorkflowExecutions|CountWorkflowExecutions|GetWorkflowExecution|ListChasmExecutions|CountChasmExecutions\"}[5m])) by (visibility_index_name, service_name)"
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params: [0.1]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    params: []
-                    type: last
-                  type: query
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              refId: C
-              type: classic_conditions
-        noDataState: OK
-        execErrState: Error
-        for: 2m
-        labels:
-          severity: critical
-          service: temporal
-          component: frontend
-        annotations:
-          __dashboardUid__: temporal-overview-v1
-          __panelId__: "2123"
-          summary: "Temporal: visibility reads failing on {{ $labels.visibility_index_name }}{{ if $labels.service_name }} from {{ $labels.service_name }}{{ end }}{{ if $value }} ({{ $value | humanize }} req/s){{ end }}"
-          description: |
-            Visibility queries against {{ $labels.visibility_index_name }} are failing. This is user-facing: workflow list, count and describe are served by these operations, from the CLI, the Web UI and the SDKs.
-
-            This alert deliberately does NOT filter on service_name="history". Reads are issued by frontend, worker and matching — never by history — which is exactly why alerts 59a/59b/59c cannot fire on read failures: all three filter to the history service and therefore only ever see writes.
-
-            Under dual visibility there is NO read fallback. A visibility read goes to exactly one store, chosen by system.enableReadFromSecondaryVisibility, and if that store is failing the read fails — even when the other store holds the same records. Verified on a live cluster: workflow list returned "context deadline exceeded" while the secondary store held every record.
-
-            Remediation, in order: move reads to the other store with system.enableReadFromSecondaryVisibility (a dynamic config change, effective in seconds, no restart) to give users a working workflow list, then fix the failing store. Be aware the other store only holds records written since dual writing was enabled, so the list may be shorter than expected — that is usually still better than a failing one.
-
-            If service_name is worker, the failing reads are background work (schedules, batch operations, deletion) rather than user queries, which is less urgent but the same underlying store problem.
-
-            Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/dual-visibility.md
-
-            Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/85-visibility-read-errors.md
-        isPaused: false
+- orgId: 1
+  name: temporal-server-essential
+  folder: Temporal Server
+  interval: 1m
+  rules:
+
+  # ---------------------------------------------------------------------------
+  # Alert 1 — Total RPS Drops to Zero
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-001
+    title: 'Temporal: Total RPS Drops to Zero'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(service_requests{service_name="frontend"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id001
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id001
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+      service: temporal
+      component: frontend
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '21'
+      summary: 'Temporal: total frontend RPS dropped to zero ({{ $values.B.Value | printf "%.2f" }} req/s)'
+      description: 'Total frontend RPS has dropped to zero. The frontend is up and reporting metrics
+
+        but receiving no requests — the cluster is unreachable from clients and from other
+
+        Temporal services. Check frontend pod health and service_errors rate.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/01-total-rps-zero.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 1b — Frontend Metrics Absent
+  # Companion to alert 1. Fires when the service_requests series for the
+  # frontend disappears entirely (pod crash, Prometheus scrape failure).
+  # Alert 1 cannot fire in this case because there is no value to evaluate.
+  # noDataState is OK — when the series IS present, absent() returns no data,
+  # which is the normal healthy state.
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-001b
+    title: 'Temporal: Frontend Metrics Absent'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: absent(rate(service_requests{service_name="frontend"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        refId: C
+        type: classic_conditions
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: critical
+      service: temporal
+      component: frontend
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '21'
+      summary: 'Temporal: frontend service_requests series is absent — frontend may be down or Prometheus scrape is failing'
+      description: 'The service_requests metric for the Temporal frontend has stopped being reported
+
+        entirely. All frontend pods may have crashed or are struggling to the point of not
+
+        reporting metrics. Alert 1 cannot detect this — it requires a series value to evaluate.
+
+        Check frontend pod health and Prometheus scrape targets.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/01b-frontend-metrics-absent.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 4 — Namespace RPS Drops to Zero
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-004
+    title: 'Temporal: Namespace RPS Drops to Zero'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (namespace) (rate(service_requests{service_name="frontend",namespace!="_unknown_"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        settings:
+          mode: dropNN
+        type: reduce
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        refId: C
+        type: threshold
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+      service: temporal
+      component: frontend
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '20'
+      summary: 'Temporal: RPS dropped to zero for namespace {{ $labels.namespace }} ({{ $values.B.Value | printf "%.2f" }} req/s)'
+      description: 'Namespace {{ $labels.namespace }} is receiving no frontend requests. Other namespaces
+
+        may be healthy. Check if alert 1 is also firing — if so this is cluster-wide.
+
+        Otherwise check if workers for this namespace are running and connected.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/04-namespace-rps-zero.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 8 — Shard Lock Latency Critical
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-008
+    title: 'Temporal: Shard Lock Latency Critical'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: histogram_quantile(0.99, sum by (le) (rate(semaphore_latency_bucket{operation="ShardInfo",service_name="history"}[5m]))) > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id002
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id002
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0.3
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '14'
+      summary: 'Temporal: p99 shard lock latency critical ({{ $values.B.Value | printf "%.3fs" }})'
+      description: 'p99 shard lock latency has exceeded 300ms. This can indicate history service issues,
+
+        elevated DB latencies holding the lock longer, or hot shard conditions from high
+
+        frequency reuse of the same workflow ID. Check persistence latencies and workflow
+
+        lock latency for correlation.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/08-shard-lock-latency-critical.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 12 — Persistence Latency Critical
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-012
+    title: 'Temporal: Persistence Latency Critical'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: histogram_quantile(0.99, sum by (operation, le) (rate(persistence_latency_bucket{operation=~"CreateWorkflowExecution|UpdateWorkflowExecution|ConflictResolveWorkflowExecution|GetWorkflowExecution|GetCurrentExecution|AppendHistoryNodes|ReadHistoryBranch|CreateTasks|GetTasks|GetTransferTasks|GetTimerTasks|CompleteTransferTask|CompleteTimerTask"}[5m]))) > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id003
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id003
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+      service: temporal
+      component: persistence
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '71'
+      summary: 'Temporal: p99 persistence latency critical ({{ $values.B.Value | printf "%.3fs" }})'
+      description: 'p99 persistence latency has exceeded 1s for a critical-path DB operation.
+
+        Persistence latencies can cause delays writing and reading from the database,
+
+        causing slowness for critical operations that support forward progress of workflow
+
+        executions. Check the Persistence Latencies panel to identify which operation is slow.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/12-persistence-latency-critical.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 25 — Service Panic Detected
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-025
+    title: 'Temporal: Service Panic Detected'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (service_name) (rate(service_panics[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id004
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id004
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: critical
+      service: temporal
+      component: server
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '99'
+      summary: 'Temporal: service panic detected in {{ $labels.service_name }}'
+      description: 'A Go panic has been detected in the {{ $labels.service_name }} service. Depending
+
+        on where the panic occurs this can cause shard loss, incomplete workflow state
+
+        transitions, or task corruption. Check pod logs — the panic stack trace is the
+
+        primary diagnostic artifact. Search logs for "panic".
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/25-service-panic-detected.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 27 — Service Error Rate Critical
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-027
+    title: 'Temporal: Service Error Rate Critical'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (namespace) (rate(service_errors{service_name="frontend",namespace!="_unknown_"}[5m])) / sum by (namespace) (rate(service_requests{service_name="frontend",namespace!="_unknown_"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        settings:
+          mode: dropNN
+        type: reduce
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0.3
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        refId: C
+        type: threshold
+    noDataState: NoData
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: critical
+      service: temporal
+      component: frontend
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '92'
+      summary: 'Temporal: frontend error rate critical for {{ $labels.namespace }} ({{ $values.B.Value | printf "%.0f%%" }})'
+      description: 'More than 30% of frontend requests are returning errors for namespace
+
+        {{ $labels.namespace }}. Service errors can significantly affect user namespaces
+
+        and their workflows. Check Service Errors by Namespace and Persistence Latencies
+
+        panels to identify root cause.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/27-service-error-rate-critical.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 30 — System Overload Throttling
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-030
+    title: 'Temporal: System Overload Throttling'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(service_errors_resource_exhausted{resource_exhausted_cause=~"SystemOverloaded|CircuitBreakerOpen"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id005
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id005
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: critical
+      service: temporal
+      component: persistence
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '121'
+      summary: 'Temporal: system overload or circuit breaker throttling active ({{ $values.B.Value | printf "%.2f" }} errors/s)'
+      description: 'Resource exhausted errors with cause SYSTEM_OVERLOADED or CIRCUIT_BREAKER_OPEN
+
+        are being returned to clients. Unlike configured RPS/QPS limits, these are dynamic
+
+        self-protection responses — the cluster is actively shedding load because it cannot
+
+        keep up. Check Persistence Latencies and Persistence Requests Total panels.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/30-system-overload-throttling.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 34 — Unexpected Shard Movement
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-034
+    title: 'Temporal: Unexpected Shard Movement'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: (sum(rate(sharditem_created_count{service_name="history"}[5m])) + sum(rate(sharditem_removed_count{service_name="history"}[5m])) + sum(rate(shard_closed_count{service_name="history"}[5m])) > 0) unless (sum(increase(restarts{service_name="history"}[8m])) > 0)
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - A
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        refId: C
+        type: classic_conditions
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '60'
+      summary: 'Temporal: unexpected shard movement detected without history service restarts'
+      description: 'Shard creation, removal, or closing detected on the history service without a
+
+        corresponding restart in the last 8 minutes. Unexpected shard movement typically
+
+        indicates DB pressure causing ownership loss, membership instability, or a history
+
+        pod unable to maintain shard leases. Check Shards Created/Removed/Closed and
+
+        Persistence Latencies panels.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34-unexpected-shard-movement.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 38 — Timer Task Scheduling Lag Critical
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-038
+    title: 'Temporal: Timer Task Scheduling Lag Critical'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: histogram_quantile(0.99, sum by (operation, le) (rate(shardinfo_scheduled_queue_lag_bucket{task_category="timer",service_name="history"}[5m]))) > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id006
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id006
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 30
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '325'
+      summary: 'Temporal: timer task scheduling lag critical ({{ $values.B.Value | printf "%.1fs" }} behind)'
+      description: 'Timer task scheduling lag has exceeded 30 seconds. Workflow timers, scheduled
+
+        activities, and workflow timeouts are firing late — deadlines, heartbeat timeouts,
+
+        and schedule-to-start timeouts are affected. Check Persistence Latencies and
+
+        Shard Lock Latency panels. Note: sparse data on idle clusters can produce
+
+        non-zero p99 artifacts — confirm there is actual timer activity before investigating.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/38-timer-scheduling-lag-critical.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 57 — All Pollers Disconnected
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-057
+    title: 'Temporal: All Pollers Disconnected'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (namespace) (service_pending_requests{service_name="frontend",namespace!="_unknown_",operation=~"PollWorkflowTaskQueue|PollActivityTaskQueue"})
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        reducer: last
+        refId: B
+        settings:
+          mode: dropNN
+        type: reduce
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: B
+        refId: C
+        type: threshold
+    noDataState: NoData
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: critical
+      service: temporal
+      component: frontend
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '162'
+      summary: 'Temporal: all pollers disconnected for namespace {{ $labels.namespace }}'
+      description: 'No workers are actively polling for workflow or activity tasks in namespace
+
+        {{ $labels.namespace }}. Workflows stall at every task boundary. Queued tasks
+
+        are persisted to the database by the matching service, adding DB pressure while
+
+        pollers are absent. Check worker process health for this namespace.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/57-all-pollers-disconnected.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 34b — Immediate Queue Lag Critical
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-034b
+    title: 'Temporal: Immediate Queue Lag Critical'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: histogram_quantile(0.99, sum by (instance, task_category, le) (rate(shardinfo_immediate_queue_lag_bucket{service_name="history"}[11m]))) > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id007
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id007
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 3000000
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 15m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2109'
+      summary: 'Temporal: immediate queue lag critical on {{ $labels.instance }} / {{ $labels.task_category }} ({{ $values.B.Value | printf "%.0f" }} tasks)'
+      description: 'The p99 immediate task queue lag on history pod {{ $labels.instance }}
+
+        for category {{ $labels.task_category }} has exceeded 3,000,000 tasks for
+
+        15 minutes. A shard on this pod is stuck — tasks are queuing but not being
+
+        processed. Workers may report workflows created but no tasks dispatched.
+
+
+        Immediate action:
+
+        1. Check DB Pool Refresh Failure Rate panel — if non-zero, fix DB connectivity first; the shard recovers within seconds of DB stability (if still in the 5-min retry window) or ≤1 min (if shard dropped and awaiting controller re-acquisition).
+
+        2. If DB is healthy: run tdbg history-host describe --host-address <pod> to list shard IDs, then tdbg shard describe --shard-id <ID> to find the one with frozen ack levels.
+
+        3. Run tdbg shard close-shard --shard-id <ID> to force re-acquisition.
+
+        4. If tdbg does not resolve: restart the history pod.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34b-immediate-queue-lag-critical.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 34f — Shard Deadlock Detected
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-034f
+    title: 'Temporal: Shard Deadlock Detected'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 120
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (instance) (dd_current_suspected_deadlocks{service_name="history"})
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id008
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id008
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2113'
+      summary: 'Temporal: shard deadlock detected on {{ $labels.instance }} ({{ $values.B.Value | printf "%.0f" }} suspected)'
+      description: 'The deadlock detector has reported {{ $values.B.Value | printf "%.0f" }} unresolved
+
+        suspected deadlock(s) on history pod {{ $labels.instance }}. A shard''s
+
+        rwLock or ioSemaphore ping timed out — the lock is currently held and
+
+        blocking all operations on the affected shard(s).
+
+
+        Immediate action:
+
+        1. Check pod logs for the goroutine dump — emitted automatically when system.deadlock.DumpGoroutines=true (default).
+
+        2. Restart the history pod {{ $labels.instance }}. Do not rely on tdbg close-shard alone — the close path may block on the held lock.
+
+        3. To automate future recovery: set system.deadlock.FailHealthCheck=true in dynamic config to pull the pod from the load balancer automatically on detection.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34f-shard-deadlock-detected.md
+
+        '
+    isPaused: false
+  - uid: temporal-alert-059a
+    title: 'Temporal: Visibility Store Write Errors (Warning)'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(visibility_persistence_errors{service_name="history"}[5m])) by (visibility_index_name)
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id009
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id009
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0.1
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: warning
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2118'
+      summary: 'Temporal: visibility write errors on {{ $labels.visibility_index_name }}{{ if $value }} ({{ $values.B.Value | humanize }} req/s){{ end }}'
+      description: 'Visibility store {{ $labels.visibility_index_name }} is returning write errors.
+
+        Workflows are unaffected and keep running, but visibility records for that
+
+        store are backing up in the retry queue.
+
+
+        This does NOT retry forever. After history.TaskDLQUnexpectedErrorAttempts
+
+        unexpected attempts (70 by default, roughly 70 minutes) the task is moved to
+
+        the history task dead letter queue and the record stops being written. Alert
+
+        83 fires when that happens; the Visibility Tasks Dead-Lettered by Task Type
+
+        panel shows it broken down by task type.
+
+
+        The store label above is your configured SQL database name or Elasticsearch
+
+        index name. Compare it against your persistence config to tell whether the
+
+        failing store is the primary (workflow list and describe degrade) or the
+
+        secondary (list keeps working, unless you moved reads to it).
+
+
+        This alert covers the write path on the history service only. It does not fire
+
+        on read failures (alert 85 does) and it does not fire on Elasticsearch writes
+
+        that time out without being confirmed (alert 84 does, because timeouts are not
+
+        counted as errors by this metric). If this alert is quiet but visibility looks
+
+        wrong, check the Visibility Errors by Type per Store panel, which counts every
+
+        error and names the store.
+
+
+        Then check that the store is reachable, however you run it.
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/59a-visibility-store-write-errors.md
+
+        '
+    isPaused: false
+  - uid: temporal-alert-059b
+    title: 'Temporal: Visibility Store Write Errors (Critical)'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(visibility_persistence_errors{service_name="history"}[5m])) by (visibility_index_name)
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id010
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id010
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2118'
+      summary: 'Temporal: visibility store {{ $labels.visibility_index_name }} critical write error rate{{ if $value }} ({{ $values.B.Value | humanize }} req/s){{ end }}'
+      description: "Visibility store {{ $labels.visibility_index_name }} write error rate has\nexceeded 1 req/s — the store is effectively unavailable for writes.\n\nIf visibility_index_name = temporal_visibility (primary):\n  - workflow list/describe/count operations will fail immediately.\n  - Temporal Web UI workflow list will be empty or return errors.\n  - Restore the primary store first to unblock read operations.\n\nIf visibility_index_name = temporal_visibility_secondary (secondary):\n  - workflow list/describe still works (reads from primary only).\n  - Secondary data is diverging; backfill required after recovery.\n\nRecovery:\n1. kubectl scale statefulset <store-statefulset> -n temporal --replicas=1\n2. kubectl wait pod/<store-pod>-0 -n temporal --for=condition=Ready --timeout=5m\n3. Wait 30-60s for connection pool refresh — errors will stop automatically.\n\nRunbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/59a-visibility-store-write-errors.md\n"
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 34j — Shard IO Semaphore Deadlock Approaching
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-034j
+    title: 'Temporal: Shard IO Semaphore Deadlock Approaching'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: histogram_quantile(0.99, sum(rate(dd_shard_io_semaphore_latency_bucket{service_name="history"}[5m])) by (instance, le)) > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id011
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id011
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 20
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-shard-io-v1
+      __panelId__: '1'
+      summary: 'Temporal: shard IO semaphore health ping latency high on {{ $labels.instance }}{{ if $value }} (p99 {{ $values.B.Value | humanizeDuration }}){{ end }} — deadlock detector approaching 40s threshold'
+      description: "The deadlock detector's shard IO semaphore health ping p99 latency has exceeded\n20s on {{ $labels.instance }}. The deadlock detector timeout is 40s (10s DB op\ntimeout + 30s grace, from source). If the ping cannot acquire the semaphore\nwithin 40s, the shard is declared a suspected deadlock (alert 34f fires) and\nthe pod must be restarted.\n\nThis alert fires at 20s — half the threshold — to allow time to act before\nthe deadlock is declared.\n\nImmediate checks:\n1. Check semaphore_latency{operation=\"ShardInfo\",priority=\"0\"} p99 — if elevated,\n   active write traffic is saturating the semaphore\n2. Check persistence_latency on UpdateWorkflowExecution and AddTasks — if elevated,\n   DB writes are slow and holding semaphore slots longer; fix DB first\n3. Check persistence_sql_in_use / persistence_sql_max_open_conn — if approaching\n   1.0, connection pool is under pressure\n4. Check semaphore_failures — if non-zero, callers are already giving up waiting\n\nDo NOT raise history.shardIOConcurrency while DB metrics are unhealthy.\nIf DB is healthy and backend is SQL, consider raising shardIOConcurrency\n(requires history host rolling restart).\n\nRunbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34j-shard-io-semaphore-deadlock-approaching.md\n"
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 78 — Shard Fleet Deficit
+  # IMPORTANT: The expr hardcodes 2048 as total shard count. Update this to
+  # match your cluster's configured NumberOfShards.
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-078
+    title: 'Temporal: Shard Fleet Deficit'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 900
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(numshards_gauge{service_name="history"}) < 2048
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id012
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id012
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 15m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2120'
+      summary: 'Temporal: shard fleet deficit — {{ $values.B.Value | printf "%.0f" }} shards owned, below configured total'
+      description: 'Total owned shards across the history fleet has stayed below the cluster''s configured shard count for 15 minutes — a genuinely unowned shard, not just a slow one.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/78-shard-fleet-deficit.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 79 — Shard Ownership Loss Persisting
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-079
+    title: 'Temporal: Shard Ownership Loss Persisting'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 900
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(persistence_error_with_type{service_name="history",operation="UpdateShard",error_type="persistence.ShardOwnershipLostError"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id013
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id013
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: NoData
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '77'
+      summary: 'Temporal: shard ownership CAS failures persisting for 10+ minutes ({{ $values.B.Value | printf "%.2f" }} errors/s)'
+      description: 'UpdateShard is failing with ShardOwnershipLostError continuously for at least 10 minutes — a single occurrence during a normal ownership handoff is expected, a sustained rate is not.
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/79-shard-ownership-loss-persisting.md
+
+        '
+    isPaused: false
+  - uid: temporal-alert-059c
+    title: 'Temporal: Visibility Store Write Latency High'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: histogram_quantile(0.99, sum(rate(visibility_persistence_latency_bucket{service_name="history"}[5m])) by (visibility_index_name, le)) > 0
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id014
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id014
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 3
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2119'
+      summary: 'Temporal: visibility write latency high on {{ $labels.visibility_index_name }}{{ if $value }} (p99 {{ $values.B.Value | humanizeDuration }}){{ end }}'
+      description: 'p99 write latency to {{ $labels.visibility_index_name }} has exceeded 3s.
+
+        This may indicate the store is recovering from an outage (draining backlog),
+
+        under disk/IO pressure, or approaching connection pool exhaustion.
+
+
+        Latency divergence between temporal_visibility and temporal_visibility_secondary
+
+        indicates one store is under pressure while the other is healthy — check
+
+        the Visibility Write Error Rate per Store panel for accompanying errors.
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/59a-visibility-store-write-errors.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 80 — History Task DLQ Stranding
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-080
+    title: 'Temporal: History Task DLQ Stranding'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(dlq_writes{operation=~"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id015
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id015
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2202'
+      summary: 'Temporal: history tasks being dead-lettered and stranding executions ({{ $values.B.Value | printf "%.3f" }} tasks/s)'
+      description: 'Execution-stranding history tasks are being written to the history task DLQ (activity retry/timeout timers or activity/workflow-task dispatch). A DLQ''d task is removed from the active queue and is NOT auto-retried — for a retrying activity this strands the activity until an operator redrives the DLQ or pause/unpauses it. This is typically triggered by a prolonged database outage/overload driving persistence operations to time out (context deadline exceeded), which counts toward history.TaskDLQUnexpectedErrorAttempts (default 70 ≈ 1h). DB-agnostic (Cassandra and SQL alike).
+
+
+        This condition is intentionally strict (any rate > 0 sustained 10m). If your cluster legitimately produces occasional stranding-type DLQ writes, raise the threshold or the `for` window to suit — see the runbook.
+
+
+        Not paged here (informational only): visibility, retention (DeleteHistoryEvent), and workflow-task-timeout DLQ writes, and rate-limit rejections (ResourceExhausted, which are excused and never dead-lettered). Use the "Dead-Lettered Tasks" panels to see the per-operation breakdown.
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/80-history-task-dlq-stranding.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 81 — Archival Backend Failing
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-081
+    title: 'Temporal: Archival Backend Failing'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(archiver_archive_latency_count{status="err"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id016
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id016
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2211'
+      summary: 'Temporal: archival backend is failing ({{ $values.B.Value | printf "%.3f" }} archive errors/s)'
+      description: 'Archival attempts to the configured backend (S3 / GCS / custom provider) are failing (archiver_archive_latency with status="err"). Archival normally succeeds, so a sustained non-zero error rate means the archival backend is unreachable or erroring. This is the EARLIEST signal — it fires ~1 hour before failing archival tasks reach the history task DLQ.
+
+
+        See the runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/81-archival-backend-failing.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 82 — History Task DLQ Write Failures
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-082
+    title: 'Temporal: History Task DLQ Write Failures'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(task_dlq_failures[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id017
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id017
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2213'
+      summary: 'Temporal: history task DLQ writes are failing ({{ $values.B.Value | printf "%.3f" }} failures/s)'
+      description: 'Writes to the history task DLQ are themselves FAILING (task_dlq_failures). This is general — it applies to any history task type (transfer, timer, visibility, archival, outbound) — and severe: it means the database cannot even accept DLQ writes, typically because it is overloaded (e.g. a flood of tasks being dead-lettered onto the single-partition DLQ, driving lightweight-transaction / row-lock contention). Failed DLQ writes are retried indefinitely, adding still more load.
+
+
+        Identify the source of the DLQ flood and relieve the database. A common cause is a sustained archival-backend outage under load (in which case pause archival — see the playbook). Related: Alert 80 fires when tasks are being written to the DLQ; this alert fires when those writes are failing (a worse, database-under-pressure condition).
+
+
+        for: 5m at any rate > 0 — DLQ-write failures indicate active database distress; treat as critical.
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/82-history-task-dlq-write-failures.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 83 — Visibility Tasks Dead-Lettered
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-083
+    title: 'Temporal: Visibility Tasks Dead-Lettered'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(dlq_writes{operation=~"VisibilityTask.*"}[5m])) by (operation)
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id018
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id018
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2128'
+      summary: 'Temporal: visibility tasks being dead-lettered{{ if $labels.operation }} ({{ $labels.operation }}){{ end }}{{ if $value }} ({{ $values.B.Value | printf "%.3f" }} tasks/s){{ end }}'
+      description: 'Visibility tasks have stopped being retried and are being written to the history task DLQ. A dead-lettered task is removed from the active queue and is NOT auto-retried, so the visibility record it carried is not written until an operator redrives the DLQ or rebuilds it.
+
+
+        This is the end of the clock that starts when a visibility store breaks: unexpected errors retry up to history.TaskDLQUnexpectedErrorAttempts (default 70, roughly 70 minutes with jitter) and then stop. Workflows themselves are unaffected and keep running normally — what is lost is the visibility record.
+
+
+        Which records stay wrong depends on the operation label. VisibilityTaskStartExecution and VisibilityTaskUpsertExecution repair themselves on the workflow''s next update or close, because every visibility write is a full snapshot. VisibilityTaskCloseExecution and VisibilityTaskDeleteExecution do NOT: a dropped close leaves the workflow listed as running forever, and a dropped delete leaves a record that should have been removed.
+
+
+        IMPORTANT — on Elasticsearch this alert can over-report data loss. The bulk processor holds documents in memory; the store gives up waiting at worker.ESProcessorAckTimeout and fails the task, possibly into the DLQ, while the document is still buffered and gets flushed once Elasticsearch recovers. This has been observed directly: twelve tasks dead-lettered during an outage, and after recovery all twelve records were present. Verify against the store before declaring records lost. SQL has no such buffer, so on SQL a dead-lettered task really did lose the write.
+
+
+        Alert 80 does NOT cover this — it matches only timer and transfer operations and excludes visibility by design.
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/83-visibility-tasks-dead-lettered.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 84 — Visibility Store Not Acknowledging Writes
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-084
+    title: 'Temporal: Visibility Store Not Acknowledging Writes'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(visibility_persistence_error_with_type{service_name="history",error_type="persistence_TimeoutError"}[5m])) by (visibility_index_name)
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id019
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id019
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0.1
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2125'
+      summary: 'Temporal: visibility writes not being acknowledged on {{ $labels.visibility_index_name }}{{ if $value }} ({{ $values.B.Value | humanize }} req/s){{ end }}'
+      description: 'Elasticsearch visibility writes to {{ $labels.visibility_index_name }} are not being confirmed inside worker.ESProcessorAckTimeout (default 30s). The store is reachable enough to accept the connection but is not completing the write.
+
+
+        This alert exists because NOTHING ELSE CATCHES THIS. persistence.TimeoutError is skipped by the visibility error classifier, so it does not appear on visibility_persistence_errors and therefore never fires alerts 59a/59b/59c. It also records no HTTP status, so the ES bulk processor error panel stays empty too. Confirmed on a live cluster: pausing Elasticsearch left both error panels flat while only this metric moved.
+
+
+        Every failing attempt still counts toward history.TaskDLQUnexpectedErrorAttempts, so the same 70-minute data-loss clock is running as for a store that is fully down. Treat a sustained firing the same way you would treat alert 59b.
+
+
+        Usual causes: Elasticsearch overloaded or garbage-collecting, an index flipped to read-only by a disk watermark, or a bulk processor that cannot keep up — check ES Bulk Processor Queue Depth and ES Write Confirm Latency vs Ack Timeout.
+
+
+        SQL clusters will not fire this alert; SQL visibility writes are synchronous and fail with an unavailable error instead, which alerts 59a/59b do catch.
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/84-visibility-store-not-acknowledging-writes.md
+
+        '
+    isPaused: false
+
+  # ---------------------------------------------------------------------------
+  # Alert 85 — Visibility Read Errors
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-085
+    title: 'Temporal: Visibility Read Errors'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(visibility_persistence_errors{operation=~"ListWorkflowExecutions|CountWorkflowExecutions|GetWorkflowExecution|ListChasmExecutions|CountChasmExecutions"}[5m])) by (visibility_index_name, service_name)
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id020
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id020
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0.1
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: critical
+      service: temporal
+      component: frontend
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2123'
+      summary: 'Temporal: visibility reads failing on {{ $labels.visibility_index_name }}{{ if $labels.service_name }} from {{ $labels.service_name }}{{ end }}{{ if $value }} ({{ $values.B.Value | humanize }} req/s){{ end }}'
+      description: 'Visibility queries against {{ $labels.visibility_index_name }} are failing. This is user-facing: workflow list, count and describe are served by these operations, from the CLI, the Web UI and the SDKs.
+
+
+        This alert deliberately does NOT filter on service_name="history". Reads are issued by frontend, worker and matching — never by history — which is exactly why alerts 59a/59b/59c cannot fire on read failures: all three filter to the history service and therefore only ever see writes.
+
+
+        Under dual visibility there is NO read fallback. A visibility read goes to exactly one store, chosen by system.enableReadFromSecondaryVisibility, and if that store is failing the read fails — even when the other store holds the same records. Verified on a live cluster: workflow list returned "context deadline exceeded" while the secondary store held every record.
+
+
+        Remediation, in order: move reads to the other store with system.enableReadFromSecondaryVisibility (a dynamic config change, effective in seconds, no restart) to give users a working workflow list, then fix the failing store. Be aware the other store only holds records written since dual writing was enabled, so the list may be shorter than expected — that is usually still better than a failing one.
+
+
+        If service_name is worker, the failing reads are background work (schedules, batch operations, deletion) rather than user queries, which is less urgent but the same underlying store problem.
+
+
+        Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/dual-visibility.md
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/85-visibility-read-errors.md
+
+        '
+    isPaused: false
+  # ---------------------------------------------------------------------------
+  # Alert 86 — History Database Calls Rejected
+  # ---------------------------------------------------------------------------
+  - uid: temporal-alert-086
+    title: 'Temporal: History Database Calls Rejected'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum(rate(persistence_errors_resource_exhausted{service_name="history"}[5m])) by (resource_exhausted_scope, resource_exhausted_cause)
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id021
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id021
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 10
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: warning
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2405'
+      summary: 'Temporal: history persistence rejecting {{ $values.B.Value | humanize }} database calls/s (cause {{ $labels.resource_exhausted_cause }}, {{ $labels.resource_exhausted_scope }} scope)'
+      description: 'Database calls from the history service are being rejected before they reach the store.
+
+
+        Check the cause label first. PersistenceLimit means Temporal''s own rate limiter turned the call away — the database is not failing, Temporal is choosing not to send the queries, and that is what the playbook and runbook below are about. Any other cause (SystemOverloaded, PersistenceStorageLimit) means the store itself pushed back, which is a different problem — see alert 30, System Overload Throttling.
+
+
+        The scope label says which limit: System is the per-pod limit, Namespace is the per-namespace or per-shard one.
+
+
+        Do not judge the size of this from the Resource Exhausted with Cause panel — that counts requests that failed, and most rejections never fail a request. This alert uses the metric that counts every rejection.
+
+
+        Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/history-persistence-qps-limits.md
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/86-history-database-calls-rejected.md
+
+        '
+    isPaused: false

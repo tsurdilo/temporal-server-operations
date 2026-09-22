@@ -19,22 +19,9 @@ A playbook belongs in this directory once it meets all of the following criteria
 
 ## Playbook Format
 
-Every playbook in this directory follows the same header block:
-
-```
-## References
-
-**Dashboard:** <dashboard name and version>
-- Panel <id> — <panel name> — <what to look for>
-
-**Alerts:**
-- `<alert-uid>` — <alert name> — <what triggers it>
-
-**Related config:** <dynconfig keys if applicable>
-```
-
-This makes it possible to jump directly from an alert firing to the right panel
-and back.
+There is no fixed template — each playbook is shaped around how its problem presents. What they all
+do is name the dashboard groups and panels they rely on, and the alerts that fire for them, so you
+can get from an alert to the right panel and back. A few are procedural and have neither.
 
 ---
 
@@ -52,3 +39,4 @@ and back.
 | [Hot Shard — Detection & Remediation](./hot-shard-detection-remediation.md) | One or a few history shards doing far more work than the rest, slowing every workflow on them and overloading a history host. Covers the two kinds (many workflow IDs crowding a shard vs one hot workflow ID), how to find the shard and the cause, and how to remediate. Cassandra and SQL alike. | [Temporal Server](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors) v2.14.0+ | 84 (planned) |
 | [History Growth from Duplicate Workflow Starts](./history-growth-duplicate-workflow-starts.md) | The `history_node` / `history_tree` tables growing because duplicate workflow starts leave history behind (a start writes its history before the duplicate is detected). How to detect it, clear it with the scavenger, and prevent it. Any persistence store; single- or multi-cluster. | [Temporal Server](../observability/dashboards/server/temporal-server-readme.md#5-service-requests-and-errors) v2.14.0+ | 85 (optional) |
 | [XDC Standby Database Growth on SQL](./xdc-standby-database-growth-sql.md) | A standby cluster's database growing much larger than the active for a global namespace, because completed-workflow cleanup falls behind. How to detect the two gaps (leftover records and leftover history), remediate, and prevent recurrence. SQL persistence only (Cassandra playbook TBD). | [Temporal Server](../observability/dashboards/server/temporal-server-readme.md#22-history-scavenger) v2.14.0+ / [Temporal Standby](../observability/dashboards/server/temporal-standby-readme.md#8-history-scavenger) v2.2.0+ | 85 (optional — documented, not in essential set) |
+| [History Persistence QPS Limits — Rejected Database Calls](./history-persistence-qps-limits.md) | `RESOURCE_EXHAUSTED` with cause `PersistenceLimit` — the history service's own limiter turning database calls away before they reach the store. How the five settings interact, which one is doing the rejecting, and whether to raise it or leave it alone. Any persistence store. | [Temporal Server](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors) v2.16.0+ | 86 |

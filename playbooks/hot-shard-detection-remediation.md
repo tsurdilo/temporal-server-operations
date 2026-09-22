@@ -78,7 +78,44 @@ Open the **Per-Shard Persistence RPS Distribution (Hot-Shard Detector)** panel o
 
 > **This panel needs a busy fleet of many active shards to be reliable.** The hottest-shard line uses **`max`** on purpose: a single hot shard sits above the 99.9th percentile on a large cluster, so a p999 line would land on a normal shard and miss it. But `max` is **coarse** — it rounds up to the metric's histogram bucket, so read it as "one shard is way up there," not an exact rate. And the metric only counts shards that had traffic in the window, so on a small cluster (few shards) or a lightly-loaded one (few shards active) there are too few data points and the lines get noisy — the detector is meant for a cluster with hundreds-plus active shards.
 
-The **Hottest Shard RPS** panel next to it shows one number — the single busiest shard's request rate right now. Compare it to a typical shard (the `p50` line on the panel to its left): if the hottest shard is doing far more than typical, you have a hot shard. (Same caveats: `max` is coarse — a ballpark, not an exact rate — and it needs a busy fleet to be meaningful.)
+The **Hottest Shard RPS** panel next to it shows one number — the single busiest shard's request rate right now.
+
+> ### Check the absolute number before you trust the shape
+>
+> The shape on the left tells you how **uneven** load is. Hottest Shard RPS tells you how **much**
+> the busiest shard is actually doing. **A hot shard needs both.** An uneven shape with a low
+> absolute number is not a hot shard.
+>
+> Work out what fraction of one history host's database budget that shard is using:
+>
+> ```
+> hottest shard share  =  Hottest Shard RPS  ÷  effective per-host persistence limit
+> ```
+>
+> The effective limit is `history.persistenceMaxQPS` — default **9000** per host — unless
+> `history.persistenceGlobalMaxQPS` is set, in which case that replaces it. **For the history
+> service a global limit is divided by shard ownership, not by host count**: a pod's real rate is
+> `persistenceGlobalMaxQPS × (shards it owns ÷ numHistoryShards)`. Dividing by host count gives you
+> the average, which is close enough for this rough share check but not the number any individual
+> pod is enforcing — see
+> [a global limit replaces the per-pod one](./history-persistence-qps-limits.md#25-a-global-limit-replaces-the-per-pod-one).
+>
+> **If the share is only a few percent, no single shard is overloading anything.** Take that shard's
+> entire load away and nothing changes. Whatever the three lines look like, this is not a hot shard.
+>
+> This was measured on a cluster deliberately built with **no hot shard** — evenly spread workflow
+> IDs, a burst of parent workflows each spawning children. The distribution read `max` at 10x `p50`
+> and `p99` at 4x `p50`, which the table below would call "many shards hot". The hottest shard was
+> doing **5 requests per second** — on that cluster, deliberately limited to 300/s per host, that is
+> **1.7% of one host's budget** (against the 9000 default it would be 0.06%). The shape came from
+> histogram bucket boundaries and ordinary hash spread.
+>
+> **An uneven shape next to a low absolute rate is not a hot shard.** If nothing is being rejected,
+> nothing is wrong — the shape is a histogram artifact. If you *are* seeing rejected database
+> calls alongside it, the limit is the thing to look at, not the shard:
+> [History Persistence QPS Limits](./history-persistence-qps-limits.md).
+
+(Same caveats on the number itself: `max` is coarse — a ballpark, not an exact rate — and it needs a busy fleet to be meaningful.)
 
 ### Step 2 — Read the shape: one hot shard, many hot shards, or the whole cluster crowded?
 

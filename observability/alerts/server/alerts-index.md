@@ -11,7 +11,7 @@ Complete reference for all server alert definitions. Includes both implemented a
 
 Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in `temporal-failover-alerts.yaml`.
 
-> **Essential Set:** A curated subset of 22 alerts has been selected for deployment from `temporal-server-alerts.yaml`. See [README.md](./README.md) for setup instructions and runbook links.
+> **Essential Set:** A curated subset of 26 alerts has been selected for deployment from `temporal-server-alerts.yaml`. See [README.md](./README.md) for setup instructions and runbook links.
 > **Planning document:** See [planning.md](./planning.md) for design decisions and the full working notes.
 
 > **Tuning note:** All thresholds and `for` durations documented here are baselines — calibrated starting points that should work well for most production deployments. Different workloads, cluster sizes, and SLO requirements will need different values. The `for` duration controls how long a condition must hold continuously before the alert fires: shorter values catch problems faster at the cost of more noise from transient spikes; longer values reduce false positives but delay detection. Treat every value here as a starting point and adjust to your environment.
@@ -1935,6 +1935,39 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 **Dashboard panel:** [Version Mismatch Decay](../../../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-mismatch-decay-time-series) (Row 4 — Post-Handover Health)
 
 **Playbook:** [section 4 — Monitor the new active cluster after the handover](../../../playbooks/namespace-failover-graceful-handover.md#4-monitor-the-new-active-cluster-after-the-handover)
+
+---
+
+### Alert 86 — History Database Calls Rejected
+
+| | |
+|---|---|
+| Severity | Warning |
+| Component | history |
+| Status | ✅ Essential Set |
+| Metric | `persistence_errors_resource_exhausted` |
+| Dashboard | [History Rejected Database Calls Total by Scope](../../dashboards/server/temporal-server-readme.md) (v2.16.0+) — runs this alert's expression; its per-namespace twin **Rejected Database Calls by Operation and Scope** breaks it down by operation |
+| Runbook | [86-history-database-calls-rejected.md](./runbooks/86-history-database-calls-rejected.md) |
+| Playbook | [History Persistence QPS Limits — Rejected Database Calls Playbook](../../../playbooks/history-persistence-qps-limits.md) |
+
+```promql
+sum(rate(persistence_errors_resource_exhausted{service_name="history"}[5m])) by (resource_exhausted_scope, resource_exhausted_cause)
+```
+Fires above **10/s sustained for 10m**, per scope and cause.
+
+Database calls from the history service are being rejected before they reach the store.
+
+The `resource_exhausted_cause` label decides what kind of problem it is. `PersistenceLimit` is Temporal's own rate limiter — the database is not failing, Temporal is declining to send the queries. On Cassandra two other causes can reach this metric, `SystemOverloaded` and `PersistenceStorageLimit`, and both mean the store itself pushed back; those belong to alert 30, not here. On a SQL store `PersistenceLimit` is the only cause possible.
+
+**Why group by cause:** grouping by scope alone summed unrelated causes together, so on Cassandra a mix could cross the threshold when neither cause did on its own — and fire under a title blaming the rate limiter. Each cause now alerts separately.
+
+The `resource_exhausted_scope` label says which limit: `System` is the per-pod limit, `Namespace` is the per-namespace or per-shard one.
+
+**Why this rather than the service-level metric:** `service_errors_resource_exhausted` (alerts elsewhere, and the **Resource Exhausted with Cause** panel) counts requests that *failed*. Most rejections never fail a request — the call is turned away, the task retries, the request eventually succeeds. Measured on a test cluster: 90/s failed requests against 785/s rejected calls. Alerting on the service-level metric under-reports by roughly an order of magnitude.
+
+**Threshold rationale:** a brief burst that drains on its own is the limiter working as intended, so `> 0` would be noisy. 10/s sustained for 10 minutes skips those and catches a limit that is genuinely too low or a workload that is genuinely too heavy.
+
+Diagnosis and remediation are in the playbook, not duplicated here.
 
 ---
 

@@ -1,5 +1,100 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.16.0 — 2026-09-18
+
+Everything in this release came out of running the persistence QPS limits playbook against a live
+cluster. The short version: **the metrics that actually diagnose persistence throttling were not on
+this dashboard at all**, and four panels that were on it read clean or misleading while a cluster
+was being heavily throttled.
+
+### Added
+
+- **Rejected Database Calls by Operation and Scope (2401).** The gap that motivated this release.
+  **Resource Exhausted with Cause** counts requests that *failed*. Most rejections never fail a
+  request — the database call is turned away, the task waits and retries, and the request eventually
+  succeeds. Measured on a test cluster at one moment: **Resource Exhausted with Cause showed 90/s
+  while 785 database calls per second were being turned away.** Nothing on the dashboard showed the
+  785. Grouped by `resource_exhausted_scope` as well as operation and cause, because that tag is the
+  only thing that separates a per-pod limit (`System`) from a per-namespace or per-shard one
+  (`Namespace`) — and the two `Namespace`-scoped limits can otherwise only be told apart from the
+  server log message. Expect a mix of both scopes at once; different requests hit different limits.
+- **History Rejected Database Calls Total by Scope (2405).** The same metric as 2401 for the
+  history service across **all** namespaces, ignoring the `$namespace` variable, grouped by scope
+  and cause. 2401 is filtered by namespace, and a history pod's own internal work — queue loading,
+  checkpointing, shard updates — is tagged `namespace="system"`, so selecting a namespace drops
+  exactly the `System`-scope rejections that indicate the per-pod limit is the one biting.
+  Measured during heavy throttling: with `default` selected, 2401 showed System scope at
+  **271.9/s** against a true **472.2/s** — **42 per cent hidden**; a second run on the same
+  cluster read **313.5/s against 589.4/s**. `Namespace`-scope rejections read identically on both
+  panels, since those do belong to the selected namespace. The expression is identical to what
+  alert 86 evaluates, so the panel and the alert can never disagree. 2401 stays as it is — it is
+  the panel that answers *which namespace* and *which operation*.
+- **Database Calls That Reached the Database (2402).** Attempts minus rejections. **Persistence
+  Requests Total** counts rejected attempts, because the metrics client wraps *outside* the rate
+  limiter, so during throttling it overstates real database load. The query fills missing operations
+  with zero deliberately: the naive subtraction silently drops every operation that never had a
+  rejection — validated against live data, 17 series instead of 27.
+- **Adaptive Rate Limit Multiplier (2404).** The only view of adaptive backoff
+  (`history.persistenceDynamicRateLimitingParams`) short of the pod log, which carries it at INFO
+  and is therefore invisible on a cluster running at `warn`. **Empty does not mean the setting is
+  off:** the gauge is recorded only in the backoff and recovery branches of
+  `health_request_rate_limiter.go`, so an enabled limiter on a healthy database emits no series at
+  all. Measured: at the default `rateMultiMin: 0.8` the multiplier fell to 0.8 in one step and
+  never went lower; with `rateMultiMin: 0.2` the same cluster stepped 0.8, 0.5, 0.2 and held.
+- **Write-Reject Loop Indicator (2403).** Separates two causes of a `GetWorkflowExecution` spike
+  that look identical on every other panel. When a write is rejected the server empties that
+  workflow's cached state, so the retry reads it from the database again — throttling becomes a read
+  storm that feeds itself. Ordinary cache pressure produces a read spike too. The ratio
+  `workflow_context_cleared / cache_miss` tells them apart: measured **0.5 healthy, 0.9 with a cache
+  too small, 1.3 partly throttled, 9.2 in the loop**. Not namespace-filtered, because neither metric
+  carries a `namespace` label — `cache_miss` has `namespace_id` (a UUID), `workflow_context_cleared`
+  has no namespace dimension at all.
+
+### Changed
+
+- **Resource Exhausted with Cause now groups by `resource_exhausted_scope`.** The tag was already
+  being emitted and the dashboard was throwing it away. Without it there is no way to tell which of
+  the three persistence limits rejected the request.
+- **Matching Service Latency now excludes `GetTaskQueueUserData` and `PollNexusTaskQueue`.** Both
+  are long polls. `GetTaskQueueUserData` blocks for up to `matching.getUserDataLongPollTimeout`
+  (4m50s by default) and read around **485s** on a test cluster, pinning the y-axis and making
+  `AddWorkflowTask` and `AddActivityTask` unreadable. The panel already excluded the *client*-side
+  `MatchingClientGetTaskQueueUserData` but not the service-side one — so the exclusion looked
+  deliberate and complete, and was neither.
+
+### Documentation
+
+Seven descriptions corrected. All of these were measured during real throttling; each panel read in
+a way that would send an operator down the wrong path.
+
+- **Persistence Availability** read **100% throughout heavy throttling**. Its error count excludes
+  resource-exhausted, timeouts, shard-ownership-lost, not-found and condition failures. Now says so.
+- **Total Timer Tasks Errors** read **flat 0 while 470 timer tasks per second were being throttled**.
+  Throttled tasks are counted in `task_errors_throttled`, not here.
+- **Timer Task Scheduling Latency** — three separate ways to misread it, now all documented. It
+  measures the queue's **ack level**, not fire-time delay, so one stuck task holds it up. It is
+  emitted once per shard every ~5 minutes, so the line steps and drops on its own and a drop is not
+  recovery. It saturates at the histogram's top bucket, 1000s. And it has a high floor: **measured
+  at 495s on a completely idle cluster with zero workflows**, and it did not move under load or
+  under heavy throttling. Take a quiet-cluster reading as your zero.
+- **Total Timer Tasks Processed** counts attempts including retries, so it inflates under
+  throttling — and it has no namespace filter, unlike its neighbours.
+- **Timer Task Processing Latency** is per-attempt.
+- **Per-Shard Persistence RPS Distribution** is a **30-second average** on a hard-coded interval, so
+  it cannot resolve a burst shorter than that — while the limiter it gets compared against is
+  instantaneous. It also counts rejected attempts, so it shows demand rather than served rate.
+- **Hottest Shard RPS** now says to judge it against one pod's persistence budget rather than
+  against zero. Measured on a cluster deliberately built with **no hot shard in it**: the
+  distribution shape read `max` 10x `p50` while the busiest shard was doing **5 req/s — 1.7% of a
+  pod's budget**. Shape alone is not evidence of a hot shard.
+
+### Known gaps
+
+- There is **no metric for the configured persistence limit**, so an "actual vs limit" panel is not
+  possible for persistence the way it is for frontend RPS. `host_rps_limit` is frontend-only.
+- `persistence_errors_resource_exhausted` has **no alert**. It is a better signal than the
+  service-level one currently alerted on. Planned as a follow-up.
+
 ## v2.15.2 — 2026-09-16
 
 ### Changed

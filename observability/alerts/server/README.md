@@ -2,12 +2,72 @@
 
 Grafana alerting provisioning rules for a self-hosted Temporal Server cluster.
 
+## Writing a new alert — required condition pattern
+
+Use **query → reduce → threshold**. Do not use `classic_conditions`.
+
+```yaml
+data:
+  - refId: A          # the Prometheus query, grouped: sum(...) by (namespace)
+  - refId: B          # type: reduce,    reducer: last,  expression: A
+  - refId: C          # type: threshold, expression: B,  conditions: [ evaluator ]
+condition: C
+```
+
+`classic_conditions` collapses every series into one boolean. Two things follow from that, and both
+were live defects in this set until 2026-09-18:
+
+- **Labels are dropped**, so `{{ $labels.namespace }}` in an annotation renders `<no value>`.
+- **You get one alert instance no matter how many series matched**, so an alert grouped
+  `by (visibility_index_name)` could not tell you which store had failed.
+
+In annotations, reference the reduce step, not `$value`:
+
+```
+{{ $values.B.Value | humanize }}        correct
+{{ $value | humanize }}                 renders %!f(string=) — $value is a string, not a number
+```
+
+**Expect one alert instance per series.** That is the point — you learn which pod, operation or
+store is affected. It does mean a rule grouped by operation can produce several instances at once;
+group them in the notification policy rather than removing the `by (...)` clause.
+
+### Guard every `histogram_quantile` alert with `> 0`
+
+`histogram_quantile` returns `NaN` for a series with no observations in the window — an operation
+that simply had no traffic. **Grafana's threshold step treats `NaN` as breaching**, so without a
+guard the alert fires on absent data.
+
+```promql
+histogram_quantile(0.99, sum by (operation, le) (rate(..._bucket[5m]))) > 0
+```
+
+`NaN` comparisons are false in PromQL, so the guard drops those series before the threshold ever
+sees them. Series that genuinely measured `0` are dropped too, which is harmless — `0` never
+breaches a greater-than threshold.
+
+This applies to any alert whose condition is **greater-than** and whose query is a
+`histogram_quantile`. It was a live defect in this set until 2026-09-18: two latency alerts were
+firing continuously on operations that had no traffic, while the one operation with a real
+measurement sat in `Normal`.
+
+> **Do not try to fix this on the reduce step.** Setting `mode: replaceNN` with
+> `replaceWithValue: 0` looks like the answer and does nothing — the Prometheus datasource drops
+> `NaN` points when it builds the frame, so the series arrives empty and there is no value left to
+> replace. Reducing an empty series produces `NaN` again. The guard has to be in the query.
+
+Alerts whose condition is **less-than** (the "dropped to zero" alerts) must **not** get this guard —
+it would remove the very series they exist to catch. None of them use `histogram_quantile`, so the
+two rules do not collide.
+
+---
+
 ## Alert Files
 
 | File | When to use |
 |---|---|
-| [`temporal-server-alerts.yaml`](./temporal-server-alerts.yaml) | All deployments — 25 implemented alerts covering core server health, persistence, shard queues, visibility (write path, read path and dual-visibility data loss), and pollers |
-| [`temporal-failover-alerts.yaml`](./temporal-failover-alerts.yaml) | Multi-cluster replication only — 8 implemented alerts for graceful handover pre-flight, drain, and post-flip health. Drop alongside the core file if you run global namespaces with active-standby replication. Single-cluster deployments can skip it. |
+| [`temporal-server-alerts.yaml`](./temporal-server-alerts.yaml) | All deployments — 26 implemented alerts covering core server health, persistence, shard queues, visibility (write path, read path and dual-visibility data loss), and pollers |
+| [`temporal-failover-alerts.yaml`](./temporal-failover-alerts.yaml) | Multi-cluster replication only — 9 implemented alerts for graceful handover pre-flight, drain, and post-flip health. Drop alongside the core file if you run global namespaces with active-standby replication. Single-cluster deployments can skip it. |
 
 See [alerts-index.md](./alerts-index.md) for the full planned inventory and design decisions.
 
@@ -107,6 +167,7 @@ component: <frontend | history | persistence | server | matching>
 | 83 | [Visibility Tasks Dead-Lettered](./runbooks/83-visibility-tasks-dead-lettered.md) | history | [Visibility Tasks Dead-Lettered by Task Type](../../dashboards/server/temporal-server-readme.md) | 5m |
 | 84 | [Visibility Store Not Acknowledging Writes](./runbooks/84-visibility-store-not-acknowledging-writes.md) | history | [Visibility Errors by Type per Store](../../dashboards/server/temporal-server-readme.md) | 5m |
 | 85 | [Visibility Read Errors](./runbooks/85-visibility-read-errors.md) | frontend | [Visibility Read Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 2m |
+| 86 | [History Database Calls Rejected](./runbooks/86-history-database-calls-rejected.md) | history | [History Rejected Database Calls Total by Scope](../../dashboards/server/temporal-server-readme.md) | 10m |
 
 ---
 

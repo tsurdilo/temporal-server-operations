@@ -220,9 +220,9 @@ Lowering the wait clears the backlog, but it does not stop new leftovers arrivin
 
 ## 3. Prevent — stop it recurring
 
-The real fix is to **stop issuing starts that will be rejected.**
+Using the workflow id to keep duplicates out is a reasonable goal — the aim here is just to reach it **without** leaning on a start that gets rejected or deduplicated, since that is what leaves history behind.
 
-**Don't rely on `REJECT_DUPLICATE` for high-volume deduplication.** It has two problems:
+**`REJECT_DUPLICATE` isn't the best tool for high-volume deduplication.** It has two problems:
 
 - It leaves history behind on **every** rejected start (the cause above).
 - Its deduplication is **time-limited by retention.** It only prevents a repeat while the original workflow still exists; once the namespace's retention period deletes that workflow, the same id is no longer seen as a duplicate and a new start is allowed. So it deduplicates only within the retention window, not indefinitely.
@@ -251,7 +251,7 @@ Temporal has server settings that slow down rapid repeat starts of the same work
 
 **Either way, you can't detect this from the error metrics.** The rejected-start metric ([1.1](#11-confirm-the-rate-of-rejected-duplicate-starts)) does not catch these — a terminate restart *succeeds* with no error at all, and a throttled one shows up only as a generic **"resource exhausted"** error, which mixes together causes that leave history behind with ones that don't (plain frontend or persistence rate limits reject *before* the write, so they leave nothing). Don't diagnose this from error counts — watch the leftover history itself with the scavenger and database checks, [1.2](#12-confirm-the-scavenger-is-falling-behind) and [1.3](#13-confirm-the-leftover-history-in-the-database).
 
-**Bottom line:** to actually stop leftover history, use the [app-side prevention above](#3-prevent--stop-it-recurring). The server settings are for load protection, not cleanup.
+**Bottom line:** the reliable way to stop leftover history today is the [app-side prevention above](#3-prevent--stop-it-recurring). The server settings are for load protection, not cleanup.
 
 ---
 
