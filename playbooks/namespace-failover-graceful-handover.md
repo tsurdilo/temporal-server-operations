@@ -33,6 +33,7 @@ Quick reference — all recommendations below are explained in detail in the sec
 - Do not lower `history.standbyTaskMissingEventsDiscardDelay` below its default (15m) on the standby — lower values increase the risk of workflows getting stuck post-flip.
 - Use `AllowedLaggingSeconds: 10`, `AllowedLaggingTasks: 500`, `HandoverTimeoutSeconds: 30` as starting values. Tune `AllowedLaggingTasks` up on high-throughput clusters if WaitReplication stalls.
 - Use a consistent workflow ID convention — `handover-<namespace>` — so running handovers are easy to spot before starting a new one.
+- Tune history task processing on **both clusters**, sized for the load each would carry if its namespaces became active. A cluster holding only passive copies looks cheap to run, so its limits are often left low or unset — and then throttle the workload the moment it becomes active. See [History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md#63-if-you-run-more-than-one-cluster).
 - Use `system.forceNamespaceSelectedAPIAutoForwarding` (namespace-scoped dynamic config, no restart) to control which cluster's workers actively participate in workflow execution before and after a handover — see [Forwarding policy reference](#forwarding-policy-reference).
 - If you use Schedules, confirm `worker.enableScheduler` is `true` (or not explicitly set to `false`) on the cluster you are failing over to — if `false`, schedules will not fire after the handover. See [Temporal Schedules — Pre-handover](#pre-handover).
 - If you use Schedules, ensure each schedule's `catchup_window` (a per-schedule spec field, default 365 days) is longer than the expected handover duration — fires outside that window are not backfilled after the handover.
@@ -899,6 +900,12 @@ The namespace is now active on the new cluster and the handover workflow has com
 | [WFT Schedule-to-Start](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) | New active | Still elevated after 2 minutes = workers have not reconnected to the new active yet. Check that workers are polling the new active. |
 | [Replication Lag — Reverse Stream](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag--reverse-stream-time-series) | New active | Rising lag = old active (now standby) cannot keep up with replication from the new active. |
 | [Reverse Replication Active](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-reverse-replication-active-time-series) | Old active (now standby) | Should go non-zero shortly after the flip — the old active recognises it is now the standby once its namespace cache refreshes (default 2s). If it stays flat, the reverse stream has not established — check [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) on the old active. |
+
+**Re-check task processing on the new active.** That namespace's task load has just changed from
+verifying replicated work to doing it, so a task scheduler limit sized while the namespace was
+passive can now be the thing holding it back. Take the three readings in
+[History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md#53-step-3--set-the-numbers-then-take-it-out-of-shadow-mode)
+once traffic has settled.
 
 #### Check for stuck workflows and recover them
 

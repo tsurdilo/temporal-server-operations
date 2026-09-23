@@ -128,13 +128,15 @@ The UID is stable for the lifetime of the Grafana instance. Re-run this command 
 
 ### 4. Configure notification policies
 
-The alerts ship with labels but no notification policy. Wire them up in **Alerting → Notification policies** based on your routing needs. All Essential Set alerts carry:
+The alerts ship with labels but no notification policy. Wire them up in **Alerting → Notification policies** based on your routing needs. Every Essential Set alert carries three labels:
 
 ```
-severity: critical
+severity: critical | warning
 service: temporal
-component: <frontend | history | persistence | server | matching>
+component: frontend | history | persistence | server
 ```
+
+**Most are `critical`; five are `warning`** — 34j, 59a, 59c, 84 and 86. Those five are conditions that recover on their own or are early warnings of something not yet harmful, so route them somewhere quieter than a page.
 
 ---
 
@@ -168,6 +170,7 @@ component: <frontend | history | persistence | server | matching>
 | 84 | [Visibility Store Not Acknowledging Writes](./runbooks/84-visibility-store-not-acknowledging-writes.md) | history | [Visibility Errors by Type per Store](../../dashboards/server/temporal-server-readme.md) | 5m |
 | 85 | [Visibility Read Errors](./runbooks/85-visibility-read-errors.md) | frontend | [Visibility Read Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 2m |
 | 86 | [History Database Calls Rejected](./runbooks/86-history-database-calls-rejected.md) | history | [History Rejected Database Calls Total by Scope](../../dashboards/server/temporal-server-readme.md) | 10m |
+| 87 | [History Write-Reject Loop](./runbooks/87-history-write-reject-loop.md) | history | [Write-Reject Loop Indicator (cleared / cache miss)](../../dashboards/server/temporal-server-readme.md) | 10m |
 
 ---
 
@@ -210,6 +213,7 @@ All thresholds and `for` durations are starting points based on Temporal's defau
 | 34j | `dd_shard_io_semaphore_latency` p99 > 20s | Half the 40s deadlock detector timeout (10s DB op + 30s grace, from source) — fires early enough to act before 34f |
 | 38 | p99 timer lag > 30s | Planning doc threshold |
 | 57 | Pollers < 1 per namespace | Zero workers |
+| 87 | cleared/miss ratio > 5 **and** `PersistenceLimit` rejections > 10/s | Measured: ratio 5.1-18.2 in a deliberately induced loop, below 1 when healthy; the rejection gate keeps it off idle clusters |
 
 ---
 

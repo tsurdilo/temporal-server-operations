@@ -454,7 +454,7 @@ These counters are graphed on the **History Scavenger** row of the [Server](../o
 
 | Alert | Fires when |
 |---|---|
-| `temporal-alert-085` — History Scavenger Errors | `scavenger_errors` exceeds ~5 branch errors over 24h — the scavenger is failing to process branches (a different problem than the 60-day wait), so leftover history isn't being cleared. Investigate as in [1.1](#11-watch-the-scavengers-own-metrics-the-history-gap). |
+| `temporal-alert-090` — History Scavenger Errors | `scavenger_errors` exceeds ~5 branch errors over 24h — the scavenger is failing to process branches (a different problem than the 60-day wait), so leftover history isn't being cleared. Investigate as in [1.1](#11-watch-the-scavengers-own-metrics-the-history-gap). |
 
 This alert is **documented but not in the essential alert set** — it's multi-cluster-specific and warning-level, so provision it yourself if you run global namespaces on SQL (see [Alert 85 in the alert index](../observability/alerts/server/alerts-index.md#alert-85--history-scavenger-errors)). It's also the only metrics-based alert for this scenario: the core growth signal — the standby's tables outgrowing the active's — is a **database size** measurement, not a Prometheus metric, so it isn't alertable from server metrics; watch that with the SQL checks in [Detect](#1-detect--is-the-standbys-database-growing-larger-than-the-actives).
 

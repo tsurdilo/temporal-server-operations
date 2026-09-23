@@ -17,6 +17,10 @@ No database produces it, on any backend.
 
 - **Database tuning.** If the answer turns out to be that the database needs more capacity or a
   better configuration, that work is outside this playbook.
+- **Pacing task processing.** Limiting how fast the history service *starts* tasks, rather than how
+  many database calls it may make, is the companion playbook:
+  **[History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md)**. Reach for it when the refused
+  calls are task work rather than client traffic.
 - **Any other `RESOURCE_EXHAUSTED` cause.** `SystemOverloaded`, `PersistenceStorageLimit`,
   `BusyWorkflow`, `RpsLimit` and the rest all mean something other than this limiter, and each needs
   a different fix. Section 3 covers how to tell them apart.
@@ -473,7 +477,7 @@ set to the pod number.
 > |---|---|---|
 > | 9000 | 0 | all three checks on, at 9000 |
 > | 0 | 0 | **no persistence rate limiting at all** |
-> | 0 | 36000 | all three on, at each pod's share of 36000 — **but the queue reader poll ceilings are gone**, see below |
+> | 0 | 36000 | all three on, at each pod's share of 36000 — **but the queue reader poll ceilings are gone**, see below, and [what that does to task loading](./history-task-processing-tuning.md#72-what-is-your-pods-real-poll-ceiling) |
 > | 9000 | 36000 | all three on, at each pod's share of 36000 — the 9000 is ignored |
 >
 > **If you want one limit out of the way, raise it. Do not zero the per-pod one to get there.**
@@ -746,7 +750,8 @@ Three things to know, and then we will leave it:
   it is counting.
 
 Pacing task processing properly is a subject of its own, with its own settings and its own failure
-modes, and it deserves a playbook of its own rather than a section here. Everything else in this
+modes, and it has a playbook of its own rather than a section here:
+**[History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md)**. Everything else in this
 playbook is the persistence limits.
 
 ---
@@ -1237,8 +1242,12 @@ namespace label at all. On a cluster with several busy namespaces the ratio blen
 > an admitted task has the budget to finish both its read and its write. That is the history task
 > scheduler's admission control, and it is deliberately out of scope here — see
 > [a note on task processing](#34-a-note-on-task-processing). Turning it on without sizing it does
-> nothing at all, and sizing it properly takes its own measurements, so it belongs in a playbook of
-> its own rather than a box in this one.
+> nothing at all, and sizing it properly takes its own measurements, so it has a playbook of its
+> own rather than a box in this one:
+> **[History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md)**, where
+> [section 5](./history-task-processing-tuning.md#5-sizing-the-limits-and-turning-them-on) is the sizing procedure and
+> [section 3](./history-task-processing-tuning.md#3-what-happens-when-the-persistence-limit-refuses-a-tasks-write) is this same
+> loop seen from the task side.
 >
 > Until then, the two things that reduce the loop without any new setting are the same two as
 > check 2: fewer shards per pod, by adding history pods, or less work arriving.
@@ -1366,6 +1375,11 @@ There is no setting that fixes this, and that is worth saying plainly.
 - **What actually helps** is a database that can take more, or less work arriving. Give the database
   more capacity, or reduce the work: spread bursts of starts over a longer window, cut child-workflow
   fan-out, and look for repeated calls against the same workflow ID.
+- **If the rejected calls are mostly task processing's**, there is one more lever before the
+  database itself: start fewer tasks per second, so the ones that start can finish. That is
+  [sizing the task scheduler's limits](./history-task-processing-tuning.md#5-sizing-the-limits-and-turning-them-on) — it does not
+  create capacity, but it stops the capacity you have being spent on work that gets refused and
+  repeated.
 - **Adding history pods does not fix this one.** More pods do not make the database faster. Under a
   per-pod limit they raise the *total* load the cluster is allowed to send, which is the opposite of
   what you want here. Under a cluster-wide limit they do not change the total at all — each pod
@@ -1613,6 +1627,8 @@ healthy", and it answers wrongly. Use **[Persistence Latencies](../observability
   window, reduce child-workflow fan-out, look for repeated calls against the same workflow ID.
 - **Adding history pods will not help**, and under a per-pod limit it makes things worse by raising
   the total load the cluster is allowed to send.
+- **Pace task processing instead**, if the refused calls are mostly task work:
+  [History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md).
 
 ---
 

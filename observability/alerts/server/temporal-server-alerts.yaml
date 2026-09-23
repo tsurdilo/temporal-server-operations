@@ -11,7 +11,7 @@
 #   - temporal-server.json dashboard imported (UID: temporal-overview-v1)
 #     Dashboard panel links will not resolve without it.
 #
-# This file covers the Essential Alert Set (26 alerts).
+# This file covers the Essential Alert Set (27 alerts).
 # See alerts-index.md for the full alert inventory, and planning.md for design decisions.
 
 apiVersion: 1
@@ -2037,6 +2037,85 @@ groups:
 
 
         Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/86-history-database-calls-rejected.md
+
+        '
+    isPaused: false
+  - uid: temporal-alert-087
+    title: 'Temporal: History Write-Reject Loop'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: ((sum(rate(workflow_context_cleared[5m])) > 0) / (sum(rate(cache_miss{cache_type="mutablestate"}[5m])) > 0)) and (sum(rate(persistence_errors_resource_exhausted{service_name="history",resource_exhausted_cause="PersistenceLimit"}[5m])) > 10)
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id022
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id022
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 5
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2403'
+      summary: 'Temporal: history is discarding cached workflow state {{ $values.B.Value | humanize }}x faster than it is genuinely missing — the write-reject loop is running'
+      description: 'The history service is caught in a loop: the persistence rate limiter refuses a task''s write, the pod throws away the cached workflow state it was holding, and every retry then has to read that state back from the database before it can try the write again. The reads crowd out the writes, so more writes are refused, and the loop sustains itself.
+
+
+        This alert fires only when both things are true: mutable state is being discarded far faster than it is genuinely missing from the cache (ratio above 5), and history database calls are being refused by Temporal''s own limiter at more than 10/s. Alert 86 fires on the refusals alone; this one says the refusals have turned into a loop.
+
+
+        What it is not: a cache that is too small. That would show as a high genuine cache-miss rate, and this alert requires the opposite — misses low while clearing is high. Resizing the history cache will not help.
+
+
+        The fix is not to raise the persistence limit. It is to admit fewer tasks, so that the tasks that are admitted can finish: the history.taskScheduler rate limits in the playbook below.
+
+
+        Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/history-task-processing-tuning.md
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/87-history-write-reject-loop.md
 
         '
     isPaused: false

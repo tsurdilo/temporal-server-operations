@@ -1,5 +1,47 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.17.0 — 2026-09-23
+
+Four panels the history task processing playbook needs, all in **9. Shard Queue Health** beside the
+existing task scheduler panels. Alert **87 — History Write-Reject Loop** ships alongside them,
+reading panel 2403 from v2.16.0.
+
+### Added
+
+- **History Task Throughput (2406).** History tasks completed per second, cluster-wide and per
+  namespace. It exists because two things in that playbook depend on it and neither could be read
+  off the dashboard: it is the **divisor** when working out how many database calls one task costs
+  (`calls that reached the store ÷ tasks completed`), and it is how you **confirm a scheduler limit
+  took effect** — with `history.taskSchedulerGlobalNamespaceMaxQPS` set to 60, the per-namespace line
+  settled at **59.7 to 60.0** cluster-wide on a test cluster. **Total Timer Tasks Processed** uses the
+  same metric but filters to `operation=~"TimerActive.*"`, so it could not serve either purpose.
+- **Task Scheduler Throttling by Namespace (2407).** The same `task_scheduler_throttled` metric as
+  the panel beside it, grouped by namespace instead of by operation — which namespace is being paced,
+  rather than which task type. Above zero is the desired state once the scheduler limits are set. It
+  also counts in shadow mode (`history.taskSchedulerEnableRateLimiterShadowMode: true`), reporting
+  what *would* be held back while nothing is delayed, which is how the limits get sized before they
+  take effect.
+- **Task Load Latency by Task Type (2408).** How long tasks waited before being loaded. **It reads
+  differently for the two kinds of queue**, which is why it needs a panel of its own rather than a
+  raw metric: for immediate queues (transfer, visibility, outbound) it is creation-to-load; for
+  scheduled queues (timer, archival) it is how *late* the load was relative to the fire time,
+  floored at zero by the read-ahead window, and never includes the timer's own duration. The
+  metric's description in server source says "from task generation to loading", which holds only
+  for immediate queues. This is the signal for a poll rate capped too low.
+- **Task Loading Rate by Queue (2409).** The `Get*Tasks` calls, by queue. They spend the same
+  persistence budget as task execution. The description carries the two comparisons that make the
+  number meaningful: the idle floor (`shards x queues / poll interval` — about **116/s** on a
+  2048-shard cluster with no work at all) and the re-read case, where a rate far above that floor
+  while tasks are not completing means work is not finishing rather than loading being too fast.
+
+### Changed
+
+- **Panel 2408's description** now lists the queue prefix each series name carries
+  (`TransferActive*`, `TimerActive*`, `VisibilityTask*`, `OutboundActive.*`, `ArchivalTask*`), since
+  the panel groups by task type and the queue is only readable off the legend.
+
+---
+
 ## v2.16.0 — 2026-09-18
 
 Everything in this release came out of running the persistence QPS limits playbook against a live
@@ -154,7 +196,7 @@ All six corrections below came from running the v2.15.0 panels against a live du
 - **Hot-shard detector corrected to use `max`, not p999** (both Persistence-row panels from v2.13.0). Empirical testing on a 2048-shard cluster exposed that the v2.13.0 detector **missed a single hot shard** — the primary "one hot workflow id → one hot shard" case. A single hot shard sits at percentile `(N−1)/N` among `N` active shards, which on a large fleet is *above* the 99.9th percentile (1 of 2048 = the 99.95th), so `p999` landed on a normal shard and the skew read ~1 while one shard was genuinely on fire.
   - **Per-Shard Persistence RPS Distribution** — the hottest-shard line changed from `p999` → **`max` (`histogram_quantile(1.00, …)`)**, relabeled "max (hottest single shard)"; the `p99` line relabeled "p99 (many shards hot)" (it catches the *broad* Kind-1 case). p50 = typical shard.
   - **Hot-Shard Skew → replaced with "Hottest Shard RPS".** The v2.13.0 skew *ratio* (`max ÷ clamp_min(p50, 1)`) was unintuitive: because a typical shard is usually below 1 req/s, the divide-by-zero guard floored the denominator to 1, so the "ratio" collapsed to just `max` and read a meaningless "1.0" when idle. Replaced it with a plain **`max`** stat — the single busiest shard's req/s — titled **Hottest Shard RPS**, unit req/s, thresholds orange 200 / red 500 (illustrative, cluster-tunable). It answers "how hot is the hottest shard?" directly; compare against p50 on the distribution panel.
-  - Panel descriptions and the readme now document: `max` is **coarse** (rounds to the histogram bucket boundary, so magnitude is approximate); both panels need **enough active shards** (busy fleet of hundreds-plus) to be meaningful and are noisy on tiny/idle clusters; `p99` is the many-shards-hot signal. Alert 84 updated in lockstep to use `max`.
+  - Panel descriptions and the readme now document: `max` is **coarse** (rounds to the histogram bucket boundary, so magnitude is approximate); both panels need **enough active shards** (busy fleet of hundreds-plus) to be meaningful and are noisy on tiny/idle clusters; `p99` is the many-shards-hot signal. The hot-shard alert (index entry 89, then numbered 84) updated in lockstep to use `max`.
 
 ## v2.13.0 — 2026-08-31
 

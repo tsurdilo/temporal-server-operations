@@ -3322,6 +3322,223 @@
               "refId": "A"
             }
           ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 44
+          },
+          "id": 2406,
+          "title": "History Task Throughput",
+          "description": "History tasks completed per second, for the whole cluster and per namespace. Two uses. (1) It is the divisor when working out how many database calls one task costs: divide the rate on Database Calls That Reached the Database by this. (2) It is how you confirm a task scheduler limit took effect -- with history.taskSchedulerGlobalNamespaceMaxQPS set, the per-namespace line settles at roughly that value, cluster-wide (measured: 59.7 to 60.0 against a configured 60). If it does not settle near the configured number, the usual causes are history.taskSchedulerEnableRateLimiterShadowMode still being true, or the value not yet picked up. Note that Total Timer Tasks Processed in the History Timer Task Info group uses the same metric but filters to timer tasks only, so it cannot serve either purpose.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "sum(rate(task_requests{service_name=\"history\"}[$__rate_interval]))",
+              "legendFormat": "total",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "sum by (namespace) (rate(task_requests{service_name=\"history\"}[$__rate_interval]))",
+              "legendFormat": "{{namespace}}",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 44
+          },
+          "id": 2407,
+          "title": "Task Scheduler Throttling by Namespace",
+          "description": "Tasks the history task scheduler held back, by namespace. Task Scheduler Throttled Rate per Operation beside it breaks the same metric down by operation; this one answers which namespace is being paced. Above zero is the intended state once the scheduler limits are set -- tasks waiting before they start, rather than being refused mid-task at the database. It also counts while history.taskSchedulerEnableRateLimiterShadowMode is true, where it reports what would have been held back without anything being delayed, which is how to size the limits before they take effect.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "sum by (namespace) (rate(task_scheduler_throttled{service_name=\"history\"}[$__rate_interval]))",
+              "legendFormat": "{{namespace}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 52
+          },
+          "id": 2408,
+          "title": "Task Load Latency by Task Type",
+          "description": "How long tasks waited before being loaded out of the database, by task type. EACH SERIES NAME STARTS WITH ITS QUEUE: TransferActive*/TransferStandby*, TimerActive*/TimerStandby*, VisibilityTask*, OutboundActive.*/OutboundStandby.*, ArchivalTask*. READ IT DIFFERENTLY FOR THE TWO KINDS OF QUEUE. For immediate queues (transfer, visibility, outbound) it is the time from the task being created to being loaded. For scheduled queues (timer, archival) it is how LATE the load was relative to the task's fire time, floored at zero -- a task loaded early by the read-ahead window records 0, and the timer's own duration is never included. So a healthy timer queue reads near zero here, and a rising value means timers are being loaded late. Note the metric's own description in the server source says 'from task generation to loading', which is accurate only for immediate queues. Use this panel to tell whether a poll rate cap (history.<queue>ProcessorMaxPollHostRPS) has been set too low: rising load latency with no database rejections means loading, not the database, is the constraint.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "histogram_quantile($p, sum by (task_type, le) (rate(task_latency_load_bucket{service_name=\"history\"}[$__rate_interval])))",
+              "legendFormat": "{{task_type}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 0
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 52
+          },
+          "id": 2409,
+          "title": "Task Loading Rate by Queue",
+          "description": "Calls the history service makes to read tasks out of the database, by queue. These spend the same persistence budget as the reads and writes that task execution needs, so they compete with it. Two things to compare against. (1) The idle floor: every queue re-checks every shard on its poll interval even with no work -- roughly shards x queues / poll interval, which on a 2048-shard cluster is about 116 a second with nothing running (1 minute for transfer, visibility and outbound; 5 minutes for timer and archival). A rate near that floor is not churn and needs no action. (2) Re-reads: when the pod has too many loaded tasks it unloads some and reads them again later, so a rate far above the floor while tasks are not completing is the symptom of work not finishing, not of loading being set too fast.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "expr": "sum by (operation) (rate(persistence_requests{service_name=\"history\",operation=~\"Get.*Tasks\"}[$__rate_interval]))",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ]
         }
       ]
     },
@@ -8494,7 +8711,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.16.0",
+  "title": "Temporal Server Dashboard v2.17.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

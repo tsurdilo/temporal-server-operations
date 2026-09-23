@@ -30,7 +30,7 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 0 — History Host Health](#section-0--history-host-health) (#0a, #0b, #0b-critical, #0c)
 - [Section 1 — Cluster Throughput](#section-1--cluster-throughput) (#1–#6)
 - [Section 2 — Shard and Workflow Lock Latencies](#section-2--shard-and-workflow-lock-latencies) (#7–#10)
-- [Section 3 — Persistence](#section-3--persistence) (#11–#18, #84)
+- [Section 3 — Persistence](#section-3--persistence) (#11–#18, #89)
 - [Section 4 — Service Latencies](#section-4--service-latencies) (#19–#24)
 - [Section 5 — Service Requests and Errors](#section-5--service-requests-and-errors) (#25–#28)
 - [Section 6 — Throttling and Limits](#section-6--throttling-and-limits) (#29–#30)
@@ -40,7 +40,7 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 10 — History Timer Task Info](#section-10--history-timer-task-info) (#35–#39)
 - [Section 11 — Workflow Stats](#section-11--workflow-stats) (#40–#41)
 - [Section 12 — Workflow Execution History Info](#section-12--workflow-execution-history-info) (#42–#47, #75)
-- [Section 13 — Matching Task Queue Info](#section-13--matching-task-queue-info) (#74, #83)
+- [Section 13 — Matching Task Queue Info](#section-13--matching-task-queue-info) (#74, #88)
 - [Section 14 — SDK Workers Info](#section-14--sdk-workers-info) (#48–#56, #76–#77)
 - [Section 15 — Pollers](#section-15--pollers) (#57–#58)
 - [Section 16 — Visibility](#section-16--visibility) (#59–#63, #59a–#59c)
@@ -407,7 +407,7 @@ p99 persistence latency has exceeded 1s for a critical-path DB operation. Persis
 
 ---
 
-### Alert 84 — Hot Shard: Uneven Per-Shard Load
+### Alert 89 — Hot Shard: Uneven Per-Shard Load
 
 | Field | Value |
 |---|---|
@@ -814,12 +814,12 @@ Writes to the history task DLQ are themselves **failing** (`task_dlq_failures`).
 > **Metrics:** `scavenger_skips`, `scavenger_success`, `scavenger_errors` (tag `operation="HistoryScavenger"`; append `_total` on the OpenTelemetry reporter)
 > **Component:** worker
 
-### Alert 85 — History Scavenger Errors
+### Alert 90 — History Scavenger Errors
 
 | Field | Value |
 |---|---|
 | Status | Documented — **not in the Essential Set** (multi-cluster-specific, warning-level, cluster-tunable threshold) |
-| UID | `temporal-alert-085` |
+| UID | `temporal-alert-090` |
 | Severity | warning |
 | Panel | 2303 |
 | `for` | 30m |
@@ -1208,7 +1208,7 @@ Alert 12 covers `ReadHistoryBranch` as part of a broad multi-operation persisten
 
 ## Section 13 — Matching Task Queue Info
 
-> **Dashboard panels:** Approximate Backlog Age by Partition (Task Queue Partitions dashboard) for alert 83. Sync Throttle Count was removed from the overview dashboard (v2.9.0) — `sync_throttle_count` is classic-matcher only and not emitted on the default priority matcher (v1.31.0+).
+> **Dashboard panels:** Approximate Backlog Age by Partition (Task Queue Partitions dashboard) for alert 88. Sync Throttle Count was removed from the overview dashboard (v2.9.0) — `sync_throttle_count` is classic-matcher only and not emitted on the default priority matcher (v1.31.0+).
 > **Metrics:** `approximate_backlog_age_seconds`, `sync_throttle_count` (classic matcher only)
 > **Component:** matching
 
@@ -1231,12 +1231,12 @@ The matching sync dispatch limit is being hit for a namespace and task type. The
 
 ---
 
-### Alert 83 — Task Queue Partition Backlog Not Draining
+### Alert 88 — Task Queue Partition Backlog Not Draining
 
 | Field | Value |
 |---|---|
 | Status | Documented — **not in the Essential Set** (opt-in metric + workload-specific threshold) |
-| UID | `temporal-alert-083` |
+| UID | `temporal-alert-088` |
 | Severity | warning |
 | Panel | Approximate Backlog Age by Partition ([Task Queue Partitions dashboard](../../../observability/dashboards/server/task-queue-partitions-readme.md)) |
 | `for` | 10m |
@@ -1938,6 +1938,73 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 
 ---
 
+### Alert 83 — Visibility Tasks Dead-Lettered
+
+| | |
+|---|---|
+| Severity | Critical |
+| Component | history |
+| Status | ✅ Essential Set |
+| Metric | `dlq_writes` |
+| Dashboard | [Visibility Tasks Dead-Lettered by Task Type](../../dashboards/server/temporal-server-readme.md) (panel 2128) |
+| Runbook | [83-visibility-tasks-dead-lettered.md](./runbooks/83-visibility-tasks-dead-lettered.md) |
+| Playbook | [Dual Visibility](../../../playbooks/dual-visibility.md) |
+
+```promql
+sum(rate(dlq_writes{operation=~"VisibilityTask.*"}[5m])) by (operation)
+```
+Fires above **0 sustained for 5m**, per operation.
+
+A visibility task has exhausted its retries and been written to the DLQ. That is data loss in the
+visibility store — the workflow itself is unaffected, but searches and list results will not show
+it. Any rate above zero is worth acting on, which is why the threshold is `> 0`.
+
+---
+
+### Alert 84 — Visibility Store Not Acknowledging Writes
+
+| | |
+|---|---|
+| Severity | Warning |
+| Component | history |
+| Status | ✅ Essential Set |
+| Metric | `visibility_persistence_error_with_type` |
+| Dashboard | [Visibility Errors by Type per Store](../../dashboards/server/temporal-server-readme.md) (panel 2125) |
+| Runbook | [84-visibility-store-not-acknowledging-writes.md](./runbooks/84-visibility-store-not-acknowledging-writes.md) |
+| Playbook | [Dual Visibility](../../../playbooks/dual-visibility.md) |
+
+```promql
+sum(rate(visibility_persistence_error_with_type{service_name="history",error_type="persistence_TimeoutError"}[5m])) by (visibility_index_name)
+```
+Fires above **0.1/s sustained for 5m**, per store.
+
+Writes are being sent and not confirmed. A timeout is not a failure the store reports — it is the
+absence of an answer — so this catches the case the plain error alerts miss.
+
+---
+
+### Alert 85 — Visibility Read Errors
+
+| | |
+|---|---|
+| Severity | Critical |
+| Component | frontend |
+| Status | ✅ Essential Set |
+| Metric | `visibility_persistence_errors` |
+| Dashboard | [Visibility Read Error Rate per Store](../../dashboards/server/temporal-server-readme.md) (panel 2123) |
+| Runbook | [85-visibility-read-errors.md](./runbooks/85-visibility-read-errors.md) |
+| Playbook | [Dual Visibility](../../../playbooks/dual-visibility.md) |
+
+```promql
+sum(rate(visibility_persistence_errors{operation=~"ListWorkflowExecutions|CountWorkflowExecutions|GetWorkflowExecution|ListChasmExecutions|CountChasmExecutions"}[5m])) by (visibility_index_name, service_name)
+```
+Fires above **0.1/s sustained for 2m**, per store and service.
+
+List and count queries are failing. This is user-visible immediately — the UI and every
+`ListWorkflowExecutions` caller see the error.
+
+---
+
 ### Alert 86 — History Database Calls Rejected
 
 | | |
@@ -1971,16 +2038,59 @@ Diagnosis and remediation are in the playbook, not duplicated here.
 
 ---
 
+### Alert 87 — History Write-Reject Loop
+
+| | |
+|---|---|
+| Severity | Critical |
+| Component | history |
+| Status | ✅ Essential Set |
+| Metric | `workflow_context_cleared`, `cache_miss{cache_type="mutablestate"}`, gated on `persistence_errors_resource_exhausted` |
+| Dashboard | [Write-Reject Loop Indicator (cleared / cache miss)](../../dashboards/server/temporal-server-readme.md) (v2.16.0+) — plots the ratio alone, so the panel can read high while this alert stays quiet |
+| Runbook | [87-history-write-reject-loop.md](./runbooks/87-history-write-reject-loop.md) |
+| Playbook | [History Task Processing — Tuning and Troubleshooting Playbook](../../../playbooks/history-task-processing-tuning.md) |
+
+```promql
+((sum(rate(workflow_context_cleared[5m])) > 0) / (sum(rate(cache_miss{cache_type="mutablestate"}[5m])) > 0)) and (sum(rate(persistence_errors_resource_exhausted{service_name="history",resource_exhausted_cause="PersistenceLimit"}[5m])) > 10)
+```
+Fires above a ratio of **5 sustained for 10m**, while `PersistenceLimit` rejections exceed **10/s**.
+
+The persistence limiter refuses a task's write; the pod cannot know how far the write got, so it discards the cached mutable state; the retry must read that state back before it can try the write again; the reads spend the budget the writes need. The loop feeds itself.
+
+**Why two conditions.** The ratio alone is not specific enough. `Clear()` is called on several paths that have nothing to do with rate limiting — conflict resolution and the NDC replication paths among them — so a replication-heavy cluster can show an elevated ratio with no loop at all. Requiring `PersistenceLimit` rejections at the same time makes the alert mean what its title says. Alert 86 fires on the rejections alone; 87 says they have become self-sustaining.
+
+**Why the `> 0` guards.** On an idle cluster both rates are `0` and the bare ratio evaluates to `NaN`. Grafana's threshold step treats `NaN` as breaching, so the unguarded expression fires continuously on a cluster doing nothing — **verified on the test cluster: the bare ratio returned `NaN`, the guarded expression returned an empty vector.** The guards drop the series before the threshold sees it, and `noDataState: OK` keeps the rule silent.
+
+**Threshold rationale:** measured on a test cluster driven into the loop deliberately — the ratio climbed 5.1 → 6.7 → 9.3 → 10.9, peaking at 18.2, against a healthy reading below 1.
+
+**Why this is critical and 86 is warning:** rejections are a normal, self-correcting event. A sustained loop is not — it does not drain on its own, and the usual reflex (raise the persistence limit) makes it worse.
+
+Diagnosis and remediation are in the playbook, not duplicated here.
+
+---
+
 ## Implementation Summary
+
+Counted from the entries in this file.
 
 | Status | Count |
 |---|---|
-| ✅ Implemented | 22 |
-| 📋 Planned | 82 |
-| **Total** | **104** |
+| ✅ Implemented | 36 |
+| 📋 Planned | 84 |
+| **Total** | **120** |
 
 | Severity | Implemented | Planned | Total |
 |---|---|---|---|
-| 🔴 Critical | 18 | 33 | 51 |
-| ⚠️ Warning | 5 | 49 | 54 |
-| **Total** | **23** | **82** | **105** |
+| 🔴 Critical | 27 | 31 | 58 |
+| ⚠️ Warning | 9 | 53 | 62 |
+| **Total** | **36** | **84** | **120** |
+
+Of the 36 implemented entries, **27 ship in `temporal-server-alerts.yaml`** and **9 in
+`temporal-failover-alerts.yaml`** — one entry per rule in both files, with no rule undocumented and
+no entry claiming a rule that does not exist.
+
+> **Numbering note.** Alerts **83, 84 and 85** are the shipped visibility alerts. Three documented
+> but unshipped entries previously carried those numbers and were renumbered to **88** (Task Queue
+> Partition Backlog Not Draining), **89** (Hot Shard: Uneven Per-Shard Load) and **90** (History
+> Scavenger Errors). Two of them also carried colliding UIDs, which would have clashed on
+> provisioning.
