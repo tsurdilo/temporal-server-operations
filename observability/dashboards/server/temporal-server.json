@@ -2222,7 +2222,7 @@
           },
           "id": 121,
           "title": "Resource Exhausted with Cause",
-          "description": "Requests that FAILED with a resource exhausted error, by operation, cause and scope. Does not count database calls that were rejected and then retried without the request failing -- those are most of them, and they are on Rejected Database Calls by Operation and Scope. Measured on a test cluster at one moment: this panel showed 90/s while 785 database calls per second were being turned away. A low reading here does not mean little throttling. The scope tag separates a per-pod limit (System) from a per-namespace or per-shard one (Namespace).",
+          "description": "Requests that FAILED with a resource exhausted error, by SERVICE, operation, cause and scope. The service_name label is what tells you which service refused the call -- an RpsLimit on PollWorkflowTaskQueue means something different coming from frontend (polls sit at priority 4 of 0-5 there, so they are squeezed first) than from matching (where polls and AddWorkflowTask/AddActivityTask share one priority-1 bucket against matching.rps, default 1200 per host). Does not count database calls that were rejected and then retried without the request failing -- those are most of them, and they are on Rejected Database Calls by Operation and Scope. Measured on a test cluster at one moment: this panel showed 90/s while 785 database calls per second were being turned away. A low reading here does not mean little throttling. The scope tag separates a per-pod limit (System) from a per-namespace or per-shard one (Namespace).",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -2238,8 +2238,8 @@
           },
           "targets": [
             {
-              "expr": "sum(rate(service_errors_resource_exhausted{namespace=\"$namespace\"}[$__rate_interval])) by (operation, resource_exhausted_cause, resource_exhausted_scope)",
-              "legendFormat": "{{operation}} - {{resource_exhausted_cause}} - {{resource_exhausted_scope}}",
+              "expr": "sum(rate(service_errors_resource_exhausted{namespace=\"$namespace\"}[$__rate_interval])) by (service_name, operation, resource_exhausted_cause, resource_exhausted_scope)",
+              "legendFormat": "{{service_name}} - {{operation}} - {{resource_exhausted_cause}} - {{resource_exhausted_scope}}",
               "refId": "A"
             }
           ]
@@ -2315,7 +2315,7 @@
           },
           "id": 123,
           "title": "Actual RPS vs Namespace Host RPS Limit",
-          "description": "Actual frontend request rate per namespace overlaid with the configured namespace host RPS limit.",
+          "description": "Actual frontend request rate per namespace overlaid with the configured namespace host RPS limit. NOTE: the limit line does not render -- the namespace_host_rps_limit metric is defined in the server but never emitted by any service, so only the 'actual' series has data. Compare it against your configured frontend.namespaceRPS (default 2400 per frontend host) by hand. Also frontend only: matching has no equivalent limit gauge, so a matching RpsLimit has to be read off Resource Exhausted with Cause instead.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -8711,7 +8711,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.17.0",
+  "title": "Temporal Server Dashboard v2.18.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

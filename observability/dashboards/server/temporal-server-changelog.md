@@ -1,5 +1,33 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.18.0 — 2026-09-24
+
+Attributing `ResourceExhausted` to the service that raised it. Prompted by a cluster where, after
+the persistence limit was raised, the dominant cause moved to `RpsLimit` on `AddActivityTask`,
+`AddWorkflowTask`, `PollActivityTaskQueue` and `PollWorkflowTaskQueue` — and the dashboard could not
+say whether frontend or matching had refused them.
+
+### Changed
+
+- **Resource Exhausted with Cause (121)** now groups by **`service_name`** as well as operation,
+  cause and scope, and the legend leads with it. That single label changes what the error means:
+  an `RpsLimit` on a poll from **frontend** is a poll being squeezed at priority 4 of 0–5 against
+  `frontend.rps` / `frontend.namespaceRPS` (2400 each); the same error from **matching** is polls
+  and `AddWorkflowTask` / `AddActivityTask` — history pushing tasks in — sharing one priority-1
+  bucket against `matching.rps` (1200 per host, and `matching.namespaceRPS` defaults to `0`, which
+  falls back to that same number). The panel description carries the distinction.
+
+### Fixed
+
+- **Actual RPS vs Namespace Host RPS Limit (123)** — the description now says the limit line does
+  not render. `namespace_host_rps_limit` is defined in the server but **emitted by nothing**, so
+  only the "actual" series has ever had data; compare against `frontend.namespaceRPS` by hand. The
+  description also notes that both RPS-vs-limit panels are frontend-only, because `host_rps_limit`
+  is emitted by the frontend alone — matching has no limit gauge, so a matching `RpsLimit` has to
+  be read off panel 121.
+
+---
+
 ## v2.17.0 — 2026-09-23
 
 Four panels the history task processing playbook needs, all in **9. Shard Queue Health** beside the

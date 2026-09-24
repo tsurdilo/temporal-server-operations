@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.17.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.18.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -193,7 +193,7 @@ Tracks API throttling events and the current configured RPS limits. Use this gro
 
 | Panel | Description |
 |---|---|
-| **Resource Exhausted with Cause** | Rate of resource exhausted errors broken down by operation and cause. Key causes: `RpsLimit`, `QpsLimit`, `ConcurrentLimit` (too many pollers), `SystemOverload` (DB overload). |
+| **Resource Exhausted with Cause** | Requests that **failed** with a resource exhausted error, by **service**, operation, cause and scope. **`service_name` is the label that decides what the error means** — an `RpsLimit` on `PollWorkflowTaskQueue` from **frontend** means polls (priority 4 of 0–5 there, so they are refused before higher-priority calls) hit `frontend.rps` / `frontend.namespaceRPS` (2400 each); the same error from **matching** means polls and `AddWorkflowTask`/`AddActivityTask` — which are the history service pushing tasks in — shared one priority-1 bucket against `matching.rps` (**1200 per host**; `matching.namespaceRPS` defaults to `0`, which falls back to that same number). `ConcurrentLimit` is a different limiter: concurrent long-running requests per namespace per frontend host, per API (`frontend.namespaceCount`, 1200) — frontend only. Note this counts requests that *failed*; most persistence rejections never fail a request, so compare with **Rejected Database Calls by Operation and Scope**. |
 | **Actual RPS vs Host RPS Limit** | Actual frontend request rate per instance overlaid with the configured host-level RPS limit (`host_rps_limit`). When traffic approaches the limit line, expect `RpsLimit` throttle errors. Adjust `frontend.rps` dynamic config if needed. |
 | **Actual RPS vs Namespace Host RPS Limit** | Actual frontend request rate per namespace overlaid with the configured namespace-level host RPS limit (`namespace_host_rps_limit`). Useful for identifying which namespaces are approaching their per-namespace limits. Adjust `frontend.namespaceRPS` dynamic config if needed. |
 

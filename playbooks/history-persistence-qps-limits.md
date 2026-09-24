@@ -926,7 +926,7 @@ Take them in order.
 |---|---|---|---|
 | **1** | Is a cluster-wide limit in force? | `history.persistenceGlobalMaxQPS` in dynamic config | **Above `0`** → tune *that* setting. `history.persistenceMaxQPS` is not being enforced, so changing it will not move the throttling. **At `0`** → `history.persistenceMaxQPS` is the one to tune. |
 | **2** | Was the database struggling? | **[Persistence Latencies](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)**, and **[Persistence Errors by Namespace and Operation](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** for timeouts | **Flat, no timeouts** → raise the limit that check 1 identified. **Climbing, or timeouts present** → raise nothing. The limit was protecting a database that could not take more; add history pods or change how the work arrives instead. |
-| **3** | Is the write-reject loop running? | **[Write-Reject Loop Indicator](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** — the `workflow_context_cleared ÷ cache_miss` ratio | **Ratio above about 5** → the loop is running: rejected writes are throwing away completed reads, and the retries create fresh reads. Raising the limit from check 1 clears the loop, but only if check 2 said the database has room — if it did not, turn on admission control instead. **Ratio below about 1** → the loop is not running; those reads are ordinary cache misses. |
+| **3** | Is the write-reject loop running? | **[Write-Reject Loop Indicator (cleared / cache miss)](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** — the `workflow_context_cleared ÷ cache_miss` ratio | **Ratio above about 5** → the loop is running: rejected writes are throwing away completed reads, and the retries create fresh reads. Raising the limit from check 1 clears the loop, but only if check 2 said the database has room — if it did not, turn on admission control instead. **Ratio below about 1** → the loop is not running; those reads are ordinary cache misses. |
 | **4** | Who is being throttled? | **[Resource Exhausted with Cause](../observability/dashboards/server/temporal-server-readme.md#6-throttling-and-limits)**, grouped by operation — **not** the persistence panel | **Requests are failing** → users or workers are getting errors, so this needs acting on. What you do depends on check 2 — see the combination table below. **Nothing here, or only internal RPCs** → no request actually failed, so this may need no change at all. |
 
 #### Check 1 — Is a cluster-wide limit in force?
@@ -1146,7 +1146,7 @@ saturation line  =  effective per-pod rate  ÷  shard count
 ```
 
 That is the average per-shard rate at which one pod runs out of budget. Compare it against
-**[Per-Shard Persistence RPS Distribution](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)**:
+**[Per-Shard Persistence RPS Distribution (Hot-Shard Detector)](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)**:
 
 | Where the line falls | What it means |
 |---|---|
@@ -1305,7 +1305,7 @@ turns them into an action.
 |---|---|---|
 | **Did the database have room?** | **[Persistence Latencies](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** across the event, and **[Persistence Errors by Namespace and Operation](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** for timeouts | flat with no timeouts, or climbing? |
 | **Who is affected?** | **[Resource Exhausted with Cause](../observability/dashboards/server/temporal-server-readme.md#6-throttling-and-limits)**, grouped by operation | are client-facing methods failing, or only Temporal's own internal calls? |
-| **Is the write-reject loop running?** | **[Write-Reject Loop Indicator](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** | is the ratio above about 5? |
+| **Is the write-reject loop running?** | **[Write-Reject Loop Indicator (cleared / cache miss)](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** | is the ratio above about 5? |
 
 > **If the loop is running, clear it before anything else.** It consumes the very budget every action
 > below is trying to free up, and clearing it can change which row you end up in. See
@@ -1360,7 +1360,7 @@ caught up.
 - **Before settling on "leave it", confirm it really was fine.** All four should hold: the loop
   indicator stayed below 1, persistence latency stayed flat, queue lag rose and came back down on
   its own, and nothing reached the dead-letter queue —
-  **[Dead-Lettered Tasks — Execution-Stranding](../observability/dashboards/server/temporal-server-readme.md#20-history-task-dlq--terminal-failures)**.
+  **[Dead-Lettered Tasks — Execution-Stranding (page-worthy)](../observability/dashboards/server/temporal-server-readme.md#20-history-task-dlq--terminal-failures)**.
 
 ---
 
