@@ -1593,17 +1593,23 @@ what is already set, and the alert cannot know that.
 
 > ### Where the ratio of 5 comes from
 >
-> A test cluster driven into the loop deliberately, with a backlog far larger than its database
-> budget:
+> A test cluster driven into the loop deliberately, twice, with a backlog far larger than the
+> database budget it was given:
 >
-> | | |
-> |---|---|
-> | healthy reading, before the run | below **1** |
-> | during the run | **5.1 → 6.7 → 9.3 → 10.9** |
-> | peak | **18.2** |
+> | | first run | second run |
+> |---|---|---|
+> | healthy reading, before | below **1** | below **1** |
+> | while the loop ran | **5.1 → 6.7 → 9.3 → 10.9** | **6.3 → 8.0 → 8.8 → 12.6** |
+> | peak | **18.2** | **14.6** |
 >
-> The gap between healthy and broken is wide enough that a single threshold holds on clusters of
-> different sizes — which is why this is the one number here that does not need tuning per cluster.
+> On the second run the alert itself was watched through the whole cycle on that cluster: silent
+> while the cluster was idle, **pending** within half a minute of the loop forming, **firing**
+> exactly ten minutes later with the indicator at 14.6, and silent again about twenty seconds after
+> the limit was restored and the backlog drained.
+>
+> Two runs is two runs, not a survey. What they suggest is that the gap between healthy and broken
+> here is wide rather than narrow, which is why this is the one number in this section left at a
+> single value rather than tuned per cluster.
 
 > ### Do not remove the `> 0` guards from the alert's query
 >

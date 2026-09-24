@@ -2,6 +2,7 @@
 .idea/
 tmp/
 CLAUDE.md
+playbooks/AUTHORING.md
 investigations/
 HANDOVER_*
 scripts/
