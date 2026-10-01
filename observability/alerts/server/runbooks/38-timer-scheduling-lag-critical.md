@@ -18,11 +18,23 @@ It is **not** how late an individual timer fired. One task that cannot complete 
 
 Nothing at or above the ack level is ever deleted. While it is stuck, the `timer_tasks` rows for those shards keep accumulating — **for every namespace on those shards**, not only the one holding it up. A queue pinned for weeks is how a task table reaches hundreds of millions of rows. That is usually the damage, not timer lateness.
 
-### Two things to know before you act
+### Check this before you trust the threshold
 
-**It has a floor.** The reader always reads ahead of now, so the gap is never zero even on an idle cluster with no workflows at all — several hundred seconds is normal there. Take a reading on a quiet cluster and treat that as your zero. The 900s threshold on this alert sits above that floor.
+**The floor tracks your poll interval, and the default threshold assumes the default interval.**
+
+When a scheduled queue finds no task due within the next `history.timerProcessorMaxPollInterval`, it advances its read position to the end of that window and sleeps. The ack level stays at roughly now. This metric measures the gap between the two — so on an idle cluster the gap is approximately the poll interval, not zero:
+
+```
+idle floor  ≈  history.timerProcessorMaxPollInterval
+```
+
+At the default of **5 minutes** the measured idle floor is **~255–300s**, and this alert's **900s** threshold sits safely above it. Measured on an empty cluster: p99 reported 494.6s, with 65% of shards in the 200–500s histogram bucket.
+
+**If you have raised `timerProcessorMaxPollInterval`, raise this threshold with it.** At a 15-minute poll interval your idle floor is around 900s and this alert will fire permanently on a healthy cluster. Take a reading on a quiet cluster and set the threshold well above it.
 
 **It saturates at 1000s** (16.7 min), the top histogram bucket. A line pinned at 1000 means "at least that, and possibly far more". The number stops growing; the backlog does not. Do not read a flat line at the top as the problem having stabilised.
+
+**Which leaves a narrow usable band.** Between a floor at your poll interval and a ceiling at 1000s, the Seconds histogram offers exactly one boundary — 500s. This alert can tell you reliably *that* the queue is badly behind; it cannot tell you *how far*, and on a cluster with a raised poll interval it may not be usable at all. Confirm scale with `tdbg shard describe` and the row counts below rather than from the number here.
 
 ### Triage steps
 

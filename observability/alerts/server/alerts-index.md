@@ -1065,7 +1065,9 @@ Early warning below alert 38's page threshold. Note this metric has a structural
 
 The timer queue's ack level is more than 15 minutes behind its read position. The ack level is held by the oldest timer task that has not completed, so a single stuck task raises this on its own — it does not by itself mean a large backlog. What it does mean is that no timer rows at or above that position are being deleted, for every namespace on the affected shards.
 
-Two properties shape the threshold. The metric has a structural floor — the reader always reads ahead of now, so an idle cluster still reports several hundred seconds — and it saturates at 1000s, the top histogram bucket. 900s sits between the two. Take a quiet-cluster reading and adjust if yours differs.
+Two properties shape the threshold. The metric has a floor equal to the queue's poll interval — when a scheduled queue finds nothing due within `history.timerProcessorMaxPollInterval` it advances its read position to the end of that window, so an idle cluster reports roughly that interval (measured: ~255–300s at the 5-minute default, p99 reading 494.6s) — and it saturates at 1000s, the top histogram bucket. 900s sits between the two **at the default poll interval only**.
+
+> **Raise this threshold if you raise `timerProcessorMaxPollInterval`.** At 15 minutes the idle floor is around 900s and this alert fires permanently while healthy. Between the floor and the 1000s ceiling the Seconds histogram offers one boundary (500s), so this alert establishes *that* the queue is behind, never *how far*.
 
 **Runbook:** [38-timer-scheduling-lag-critical.md](./runbooks/38-timer-scheduling-lag-critical.md)
 
