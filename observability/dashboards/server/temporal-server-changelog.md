@@ -3,8 +3,9 @@
 ## v2.22.0 — 2026-10-02
 
 A new row for a failure nothing on this dashboard could see: **task tables growing without bound
-because row cleanup has stopped.** Found while working a cluster whose history task table had
-grown past a billion rows with every error panel reading clean, and confirmed on a test cluster.
+because row cleanup has stopped.** The table can grow without limit while every error panel reads
+clean, because the tasks themselves are completing — it is the cleanup behind them that has
+stalled.
 
 A task completing does not delete its row. Rows are removed only by a periodic range delete of
 everything older than the oldest still-incomplete task in that queue. So a single task that never
@@ -16,9 +17,9 @@ The sequel is worse. When a long-pinned watermark finally advances, the first de
 entire stuck window. That statement is unbounded — no `LIMIT`, no batching — under a **hard-coded
 5-second timeout** that no dynamic config changes. If it cannot finish it is cancelled and deletes
 nothing, and because the deletion cursor only advances on success, each retry covers a **wider**
-range than the last. Once a category enters that state it cannot recover on its own. Observed in
-production as a rising wall of `canceling statement due to user request` on `DELETE FROM
-timer_tasks`, with database CPU tracking the cancellation count one-for-one.
+range than the last. Once a category enters that state it cannot recover on its own. On the database
+side it presents as a rising wall of cancelled `DELETE` statements against the task table, with
+database CPU tracking the cancellation count one-for-one.
 
 ### Added
 
@@ -230,10 +231,10 @@ and alerts 80 and 83 go blind rather than quiet.
 
 ## v2.18.0 — 2026-09-24
 
-Attributing `ResourceExhausted` to the service that raised it. Prompted by a cluster where, after
-the persistence limit was raised, the dominant cause moved to `RpsLimit` on `AddActivityTask`,
-`AddWorkflowTask`, `PollActivityTaskQueue` and `PollWorkflowTaskQueue` — and the dashboard could not
-say whether frontend or matching had refused them.
+Attributing `ResourceExhausted` to the service that raised it. Once a persistence limit is raised,
+the dominant cause commonly moves to `RpsLimit` on `AddActivityTask`, `AddWorkflowTask`,
+`PollActivityTaskQueue` and `PollWorkflowTaskQueue` — and the dashboard could not say whether
+frontend or matching had refused them.
 
 ### Changed
 
@@ -300,10 +301,10 @@ reading panel 2403 from v2.16.0.
 
 ## v2.16.0 — 2026-09-18
 
-Everything in this release came out of running the persistence QPS limits playbook against a live
-cluster. The short version: **the metrics that actually diagnose persistence throttling were not on
-this dashboard at all**, and four panels that were on it read clean or misleading while a cluster
-was being heavily throttled.
+Everything in this release came out of field-testing the persistence QPS limits playbook on our own
+test cluster. The short version: **the metrics that actually diagnose persistence throttling were
+not on this dashboard at all**, and four panels that were on it read clean or misleading under
+heavy throttling.
 
 ### Added
 
