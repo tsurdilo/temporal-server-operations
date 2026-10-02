@@ -1,5 +1,68 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.22.0 — 2026-10-02
+
+A new row for a failure nothing on this dashboard could see: **task tables growing without bound
+because row cleanup has stopped.** Found while working a cluster whose history task table had
+grown past a billion rows with every error panel reading clean, and confirmed on a test cluster.
+
+A task completing does not delete its row. Rows are removed only by a periodic range delete of
+everything older than the oldest still-incomplete task in that queue. So a single task that never
+completes holds the position for its whole shard and rows accumulate for **every namespace on that
+shard** — while the stuck task is merely slow rather than failing, which means nothing appears on
+`task_errors`, nothing reaches the dead-letter queue, and no existing panel moves.
+
+The sequel is worse. When a long-pinned watermark finally advances, the first delete must cover the
+entire stuck window. That statement is unbounded — no `LIMIT`, no batching — under a **hard-coded
+5-second timeout** that no dynamic config changes. If it cannot finish it is cancelled and deletes
+nothing, and because the deletion cursor only advances on success, each retry covers a **wider**
+range than the last. Once a category enters that state it cannot recover on its own. Observed in
+production as a rising wall of `canceling statement due to user request` on `DELETE FROM
+timer_tasks`, with database CPU tracking the cancellation count one-for-one.
+
+### Added
+
+- **History Task Cleanup** row (2410), appended last. Four panels, all on fixed `[5m]` windows
+  because deletes fire on a 30-second checkpoint and shorter windows are noisy. Covers every task
+  category via `operation=~"RangeComplete.*"` — the defect is identical for timer, transfer,
+  visibility, archival, outbound and replication, since all six use the same unbounded range
+  delete and none of the task tables has a namespace column.
+
+- **Task Row Cleanup Latency by Category (2411).** The primary signal. Healthy is single-digit
+  milliseconds — measured 4.9 ms (timer) and 2.0 ms (archival) on an idle reference cluster.
+  Thresholds at 2.5s and 5s.
+
+  **Field-tested by inducing the failure**, holding a `SHARE MODE` lock on `timer_tasks` so deletes
+  block while reads continue. Two calibrations came out of it. A blocked delete reports p99 around
+  **9.9s**, not 5s — the Seconds histogram steps 5 → 10, so a timed-out delete lands in the 5–10s
+  band; the 5s threshold catches it either way. And the `error_type` on the failures panel is
+  **`serviceerror_Unavailable`**. Both are now in the panel descriptions, because "pinned at
+  exactly 5s" is what an operator would otherwise look for and not find.
+
+- **Task Row Cleanup Failures by Category (2412).** Should be flat zero. Records that a cancelled
+  delete rolls back and therefore creates **no dead tuples** — vacuum pressure comes from real
+  cleanup, not from these failures, which is a question that comes up immediately with a DBA.
+
+- **Task Row Cleanup Success Rate (2413).** The single "is it fixed" number. The `or vector(0)`
+  guard is deliberate: without it the panel goes blank on recovery instead of showing 100%, which
+  reads as a broken panel.
+
+- **Task Row Cleanup Attempts by Category (2414).** Looks like context and is not. A delete is
+  attempted only when the watermark actually moved, so **zero attempts is the pinned-watermark
+  signal** — nothing being cleaned up and nothing complaining. It is the only panel here that
+  separates "nothing is trying" from "trying and failing", which are different problems with
+  different fixes.
+
+### Notes
+
+- Categories with no task traffic report `NaN` and draw nothing. Correct, not broken.
+- Nothing here depends on a server change — `operation` is already present on the persistence
+  metrics — so this row works on current and older servers.
+- There is still **no metric for task table row count**, so none of these panels shows the backlog
+  itself, only whether cleanup is working. Counting rows remains a direct database query.
+
+---
+
 ## v2.21.0 — 2026-10-01
 
 One panel in the Cluster Replication row that was wrong in four separate ways at once, three of

@@ -8747,6 +8747,272 @@
           ]
         }
       ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "id": 2410,
+      "title": "History Task Cleanup",
+      "type": "row",
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 42
+          },
+          "id": 2415,
+          "title": "",
+          "type": "text",
+          "options": {
+            "mode": "markdown",
+            "content": "**History Task Cleanup** \u2014 whether the range deletes that free history task rows are succeeding. A task completing does **not** delete its row: rows are removed only by a periodic range delete of everything older than the oldest still-incomplete task, run once per shard per checkpoint (`history.<category>ProcessorUpdateAckInterval`, default 30s). That delete is a single unbounded statement under a **hard-coded 5-second timeout**, so on a queue whose position has been stuck it can be too large to finish, gets cancelled, and deletes nothing \u2014 and because the cursor only advances on success, each retry covers a **wider** range than the last. Once a category's latency here sits at 5s it will not recover on its own, and the task table grows without bound for **every namespace on the affected shards**. Read these four together: no attempts means every watermark is pinned; attempts with failures at ~5s is the delete itself failing."
+          }
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "How long the range delete that frees task rows takes, per task category (persistence_latency for the RangeComplete* operations). THE primary signal for this row. Healthy is single-digit milliseconds - measured 4.9ms for timer and 2.0ms on an idle reference cluster. A line climbing toward 5s is approaching the server's hard-coded queueIOTimeout. FIELD-MEASURED: a delete blocked past that timeout reports p99 around 9.9s, not exactly 5s - the Seconds histogram steps 5 -> 10, so a timed-out delete lands in the 5-10s band. Anything at or above the 5s threshold line means deletes are being cancelled and no rows are being freed at all. Because the deletion cursor only advances on success, a failing delete makes the next attempt cover a wider range, so this does not recover by itself - it has to be fixed by reducing the number of rows the statement matches. A category with no task traffic reports NaN and draws nothing, which is correct rather than broken. Fixed 5m window: deletes fire on a 30-second checkpoint, so shorter windows are noisy.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 2.5
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 46
+          },
+          "id": 2411,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum by (operation, le) (rate(persistence_latency_bucket{operation=~\"RangeComplete.*\",service_name=\"history\"}[5m])))",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Task Row Cleanup Latency by Category",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Range deletes that failed, per task category and error type. Should be flat zero. Anything sustained means row cleanup is broken for that category and the task table is growing. The usual cause is the delete exceeding the 5-second queueIOTimeout and being cancelled - cross-check against Task Row Cleanup Latency by Category, which will sit in the 5-10s band. FIELD-MEASURED: the error_type for a blocked or cancelled delete is serviceerror_Unavailable. Note what this does NOT create: a cancelled delete rolls back, so the rows stay live and no dead tuples are produced - database vacuum pressure comes from real cleanup, not from these failures. Empty is normal and healthy.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.001
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 46
+          },
+          "id": 2412,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (operation, error_type) (rate(persistence_error_with_type{operation=~\"RangeComplete.*\",service_name=\"history\"}[5m]))",
+              "legendFormat": "{{operation}} - {{error_type}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Task Row Cleanup Failures by Category",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Percentage of range deletes that completed, across all task categories. The single number for 'is row cleanup working'. 100 percent is healthy; 0 percent means every delete is failing and no task rows are being freed anywhere. The 'or vector(0)' in the query matters: without it this panel goes BLANK on recovery instead of showing 100, which reads as a broken panel. Cluster-wide by design - use Task Row Cleanup Failures by Category to see which queue is affected.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "custom": {
+                "lineWidth": 2,
+                "thresholdsStyle": {
+                  "mode": "dashed"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red"
+                  },
+                  {
+                    "color": "orange",
+                    "value": 95
+                  },
+                  {
+                    "color": "green",
+                    "value": 99.9
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 54
+          },
+          "id": 2413,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "100 * (1 - (sum(rate(persistence_errors{operation=~\"RangeComplete.*\",service_name=\"history\"}[5m])) or vector(0)) / sum(rate(persistence_requests{operation=~\"RangeComplete.*\",service_name=\"history\"}[5m])))",
+              "legendFormat": "cleanup success %",
+              "refId": "A"
+            }
+          ],
+          "title": "Task Row Cleanup Success Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "How often a range delete is even attempted, per task category. A delete is issued only when a queue's deletion watermark actually moved since the last checkpoint, so this is not a fixed cadence. Its value is telling two failure modes apart. ZERO attempts with no failures means no watermark is advancing anywhere - every queue position is pinned, nothing is being cleaned up, and nothing is complaining. Attempts above zero WITH failures means the watermark is moving but the delete itself cannot complete. Those are different problems with different fixes, and no other panel in this row separates them.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 54
+          },
+          "id": 2414,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (operation) (rate(persistence_requests{operation=~\"RangeComplete.*\",service_name=\"history\"}[5m]))",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Task Row Cleanup Attempts by Category",
+          "type": "timeseries"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -8839,7 +9105,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.21.0",
+  "title": "Temporal Server Dashboard v2.22.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

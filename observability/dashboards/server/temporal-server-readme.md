@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.21.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.22.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -37,6 +37,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
   - [History Task DLQ / Terminal Failures](#20-history-task-dlq--terminal-failures)
   - [Archival Health](#21-archival-health)
   - [History Scavenger](#22-history-scavenger)
+  - [History Task Cleanup](#23-history-task-cleanup)
 - [Related Resources](#related-resources)
 
 ---
@@ -472,6 +473,29 @@ These three counters are emitted **only** by the history scavenger (the metric n
 |---|---|
 | **Scavenger Activity — Skipped vs Handled** | `scavenger_skips` (branches skipped only because they are younger than `worker.historyScannerDataMinAge`) versus `scavenger_success` (branches handled without error — kept or deleted). When skipped dwarfs handled, the 60-day wait is blocking cleanup — lower `worker.historyScannerDataMinAge`. |
 | **Scavenger Errors** | `scavenger_errors` — branches the scavenger failed to process (unreadable branch, or the mutable-state lookup / history-branch delete failed). Should sit at ~0; a sustained non-zero rate is a different problem from the 60-day wait. |
+
+---
+
+### 23. History Task Cleanup
+
+Detection surface for **task tables growing without bound because row cleanup has stopped**. This is a different failure from a slow task pipeline: the tasks may all be completing fine and the table still grows.
+
+A task completing does **not** delete its row. Rows are removed only by a periodic **range delete** of everything older than the oldest still-incomplete task in that queue — one statement per shard per checkpoint (`history.<category>ProcessorUpdateAckInterval`, default **30s**), and only when the deletion watermark actually moved. Two consequences follow, and this row exists to separate them.
+
+**If the watermark is pinned**, no delete is attempted at all. A single task that never completes holds the position for the whole shard, so rows accumulate for **every namespace on that shard**, silently — the stuck task is slow rather than failing, so nothing appears on `task_errors` and nothing reaches the dead-letter queue.
+
+**If the watermark then moves after a long pin**, the first delete has to cover the entire stuck window. That statement is unbounded — no `LIMIT`, no batching — and runs under a **hard-coded 5-second timeout** that no dynamic config changes. If it cannot finish it is cancelled, deletes nothing, and because the cursor only advances on success the next attempt covers a **wider** range. Once a category reaches that state it does not recover on its own; the only fix is reducing the number of rows the statement matches.
+
+> **Reading the four panels together.** No attempts and no failures means every watermark is pinned — nothing is being cleaned up and nothing is complaining. Attempts with failures at ~5s means the delete itself is failing. Those are different problems with different fixes.
+
+Categories with no task traffic report `NaN` and draw nothing, which is correct rather than broken. All four panels use a fixed `[5m]` rate window rather than `$__rate_interval`, because deletes fire on a 30-second checkpoint and shorter windows are noisy.
+
+| Panel | Description |
+|---|---|
+| **Task Row Cleanup Latency by Category** | `persistence_latency` for the `RangeComplete*` operations, p99 by task category. **The primary signal.** Healthy is single-digit milliseconds — measured 4.9 ms (timer) and 2.0 ms (archival) on an idle reference cluster. Climbing toward 5s means approaching the server's internal timeout. **Field-measured:** a delete blocked past the timeout reports p99 around **9.9s**, not exactly 5s — the Seconds histogram steps 5 → 10, so a timed-out delete lands in the 5–10s band. Anything at or above the red line means deletes are being cancelled and no rows freed. Thresholds: orange 2.5s, red 5s. |
+| **Task Row Cleanup Failures by Category** | `persistence_error_with_type` for the same operations, by category and error type. Should be flat zero. Sustained non-zero means cleanup is broken for that category and its table is growing. Cross-check the latency panel — it will sit in the 5–10s band. **Field-measured:** the `error_type` for a blocked or cancelled delete is `serviceerror_Unavailable`. Note a cancelled delete rolls back, so it leaves **no dead tuples**: database vacuum pressure comes from real cleanup, not from these failures. |
+| **Task Row Cleanup Success Rate** | Percentage of range deletes that completed, cluster-wide. 100% healthy, 0% fully broken. Use the failures panel to see which queue is affected. |
+| **Task Row Cleanup Attempts by Category** | How often a delete is even attempted. Not a fixed cadence — a delete is issued only when the watermark moved. **Zero attempts is the pinned-watermark signal**, and it is the only panel here that distinguishes "nothing is trying" from "trying and failing". |
 
 ---
 
