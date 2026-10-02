@@ -1405,6 +1405,50 @@
               "refId": "A"
             }
           ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Database calls the rate limiter turned away, broken down by NAMESPACE and by which limit refused them. The companion to Task Scheduler Throttling by Namespace (2407): that panel shows work the scheduler declined to dispatch, this one shows calls that were dispatched and then refused by a persistence limit. Use it to answer 'which namespace is being rejected' - the other rejection panels are either cluster-wide (2405) or filtered to the single selected namespace (2401), so neither answers that during an incident. The resource_exhausted_scope label says which limit refused the call: System is the per-pod limit, Namespace is the per-namespace or per-shard one - which tells you which setting to change. Namespace-scope rejections climbing on a cold cache after a history pod restart are how the write-reject loop forms; cross-check the Write-Reject Loop Indicator (2403). Empty is normal and healthy. Cluster-wide: ignores the $namespace variable by design.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 62
+          },
+          "id": 2416,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (namespace, resource_exhausted_scope) (rate(persistence_errors_resource_exhausted{service_name=\"history\"}[$__rate_interval]))",
+              "legendFormat": "{{namespace}} \u2014 {{resource_exhausted_scope}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Rejected Database Calls by Namespace",
+          "type": "timeseries"
         }
       ]
     },
@@ -9105,7 +9149,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.22.0",
+  "title": "Temporal Server Dashboard v2.23.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

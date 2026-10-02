@@ -1,5 +1,36 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.23.0 — 2026-10-02
+
+One panel, closing a gap in the rejection views: **nothing answered "which namespace is being
+rejected".**
+
+The write-reject loop is diagnosed from persistence rejections, and the useful question is which
+namespace they belong to — that is what tells you whose limit to change. But
+**History Rejected Database Calls Total by Scope (2405)** is cluster-wide, and **Rejected Database
+Calls by Operation and Scope (2401)** is filtered to the single selected `$namespace`. So the only
+way to find the namespace was to flip the template variable through them one at a time, which is
+not something anyone does calmly at the time.
+
+### Added
+
+- **Rejected Database Calls by Namespace (2416)**, in the Persistence Requests, Latencies and
+  Errors row. `persistence_errors_resource_exhausted` by `namespace` and
+  `resource_exhausted_scope`.
+
+  The scope breakdown is the half that makes it actionable: `System` is the per-pod limit,
+  `Namespace` the per-namespace or per-shard one, so the panel names both the namespace **and**
+  which setting refused the call.
+
+  Deliberately the mirror of **Task Scheduler Throttling by Namespace (2407)**, and the pair tells
+  the two apart: 2407 is work the scheduler declined to **dispatch**, 2416 is work that was
+  dispatched and then **refused** by a persistence limit. Those are different mechanisms with
+  different fixes, and conflating them sends you after the wrong setting.
+
+  Cluster-wide by design — it ignores `$namespace`, which is the entire point. Empty is normal.
+
+---
+
 ## v2.22.0 — 2026-10-02
 
 A new row for a failure nothing on this dashboard could see: **task tables growing without bound
