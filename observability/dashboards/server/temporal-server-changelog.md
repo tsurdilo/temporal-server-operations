@@ -1,5 +1,67 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.24.0 — 2026-10-05
+
+**Both queue-lag panels had thresholds set above their own histogram's top bucket, so neither could
+ever change colour.** Shipped that way since the panels were written.
+
+The numbers came from the server's internal *log* warning levels — 3,000,000 task ids and 30
+minutes. Those apply to the raw value before it is bucketed. On a histogram panel the quantile can
+never exceed the highest finite bucket boundary, so a threshold above it is unreachable by
+construction.
+
+### Fixed
+
+- **Immediate Queue Lag per Pod (2109).** `shardinfo_immediate_queue_lag` is a **Dimensionless**
+  histogram; its top bucket is **100,000**. Thresholds were orange 500,000 and red 3,000,000 —
+  5× and 30× above the ceiling. Now **orange 10,000, red 50,000**. Healthy is single digits, so
+  both still represent a large distance while remaining reachable.
+- **Scheduled Queue Lag per Pod (2110).** `shardinfo_scheduled_queue_lag` is a **Seconds** timer;
+  its top bucket is **1000s (16.7 min)**. The red threshold was 30 minutes — unreachable. Now
+  **15 minutes (900,000 ms)**, which also aligns the panel with alert 38's 900s threshold. Orange
+  stays at 10 minutes.
+
+### Changed
+
+- Both descriptions now state the ceiling, say that a line sitting at it means *at least* that far
+  behind rather than exactly that, and warn against re-deriving thresholds from the server's log
+  values.
+- **Scheduled Queue Lag per Pod** additionally documents its **floor**: the reader always reads
+  ahead of now, so an idle cluster reports roughly `history.timerProcessorMaxPollInterval`
+  (default 5 min; measured 494.6s p99 on an empty cluster). Between that floor and the 1000s
+  ceiling the Seconds histogram offers one boundary at 500s — so the panel establishes *that* a
+  queue is behind and never *how far*.
+- **Immediate Queue Lag per Pod** now says plainly that it measures a task-id **distance**, not a
+  count of rows or pending tasks, because **no metric exists for either**. Operators reach for
+  these panels looking for a backlog size and there is none to be had.
+
+### Added
+
+- **Immediate Queue Backlog Age by Category (2417).** `shardinfo_immediate_queue_backlog_age` —
+  the age of the oldest task at or above the last checkpointed position. The metric has existed all
+  along and was on no dashboard. It is the time-based companion to **Immediate Queue Lag per Pod**
+  and the panel to reach for when the question is *is the backlog growing or shrinking*, which
+  nothing else here answered directly.
+
+  **Immediate categories only** — transfer, visibility, outbound. No scheduled-queue equivalent
+  exists.
+
+### Changed
+
+- **Task Load Latency by Task Type (2408)** now states its second use. Read at p95 it is the best
+  available indicator of whether a **timer** backlog is growing or shrinking, because a timer
+  loaded after its fire time reports exactly how overdue it is. The panel already carried the
+  mechanism; it did not say that this is what to use it for, so nobody would find it while looking
+  for a backlog. Two limits are stated with it: it is a latency and not a size, and it only records
+  when a task is **loaded**, so a queue that has stopped loading goes quiet rather than high.
+
+### Still missing
+
+**Nothing counts task rows or pending tasks**, on any queue. Every signal above is an age or a
+distance. Sizing a backlog still means querying the database directly.
+
+---
+
 ## v2.23.0 — 2026-10-02
 
 One panel, closing a gap in the rejection views: **nothing answered "which namespace is being

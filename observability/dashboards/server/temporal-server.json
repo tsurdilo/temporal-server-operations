@@ -2913,11 +2913,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 500000
+                    "value": 10000
                   },
                   {
                     "color": "red",
-                    "value": 3000000
+                    "value": 50000
                   }
                 ]
               }
@@ -2932,7 +2932,7 @@
           },
           "id": 2109,
           "title": "Immediate Queue Lag per Pod",
-          "description": "Task ID delta between the high watermark and the minimum pending immediate task, per history pod and task category. Emitted every 5 minutes per shard. A line rising monotonically across multiple ticks without recovering indicates a stuck shard on that pod. Orange > 500K tasks, red > 3M tasks (matches the server internal log threshold). No shard_id tag exists \u2014 use the instance label to identify the pod, then tdbg history-host describe to enumerate its shards.",
+          "description": "Task ID delta between the high watermark and the minimum pending immediate task, per history pod and task category. Emitted every 5 minutes per shard. A line rising monotonically across multiple ticks without recovering indicates a stuck shard on that pod. SATURATES AT 100,000 - this is a Dimensionless histogram whose top bucket is 100,000, so a line sitting there means at least that many task ids behind, possibly far more, and the number stops growing while the backlog does not. Thresholds are orange 10,000 and red 50,000, both chosen to fire well below that ceiling; healthy is in the single digits. Do NOT set them from the server internal log threshold of 3,000,000 - that applies to the raw value before bucketing and is unreachable on this panel. This metric measures a task-id distance, not a count of rows or pending tasks: there is no metric for either. No shard_id tag exists - use the instance label to identify the pod, then tdbg history-host describe to enumerate its shards.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -2978,7 +2978,7 @@
                   },
                   {
                     "color": "red",
-                    "value": 1800000
+                    "value": 900000
                   }
                 ]
               }
@@ -2993,7 +2993,7 @@
           },
           "id": 2110,
           "title": "Scheduled Queue Lag per Pod",
-          "description": "Time delta between the high watermark fire time and the oldest pending scheduled task fire time, per history pod and task category. Emitted every 5 minutes per shard. Orange > 10 min (600,000 ms), red > 30 min (1,800,000 ms \u2014 matches the server internal log threshold).",
+          "description": "Time delta between the high watermark fire time and the oldest pending scheduled task fire time, per history pod and task category. Emitted every 5 minutes per shard. Two limits bound what this panel can tell you. It has a FLOOR equal to the queue poll interval - the reader always reads ahead of now, so an idle cluster reports roughly history.timerProcessorMaxPollInterval (default 5 min); measured 494.6s p99 on an empty cluster. And it SATURATES at 1000s (16.7 min), the top bucket of a Seconds histogram, so a line sitting there means at least that far behind, possibly far more. Between floor and ceiling there is one bucket boundary at 500s, so this establishes THAT a queue is behind and never how far. Thresholds are orange 10 min (600,000 ms) and red 15 min (900,000 ms), the latter aligned with alert 38. Do NOT set them from the server internal log threshold of 30 minutes - that applies to the raw value before bucketing and is unreachable here.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -3506,7 +3506,7 @@
           },
           "id": 2408,
           "title": "Task Load Latency by Task Type",
-          "description": "How long tasks waited before being loaded out of the database, by task type. EACH SERIES NAME STARTS WITH ITS QUEUE: TransferActive*/TransferStandby*, TimerActive*/TimerStandby*, VisibilityTask*, OutboundActive.*/OutboundStandby.*, ArchivalTask*. READ IT DIFFERENTLY FOR THE TWO KINDS OF QUEUE. For immediate queues (transfer, visibility, outbound) it is the time from the task being created to being loaded. For scheduled queues (timer, archival) it is how LATE the load was relative to the task's fire time, floored at zero -- a task loaded early by the read-ahead window records 0, and the timer's own duration is never included. So a healthy timer queue reads near zero here, and a rising value means timers are being loaded late. Note the metric's own description in the server source says 'from task generation to loading', which is accurate only for immediate queues. Use this panel to tell whether a poll rate cap (history.<queue>ProcessorMaxPollHostRPS) has been set too low: rising load latency with no database rejections means loading, not the database, is the constraint.",
+          "description": "How long tasks waited before being loaded out of the database, by task type. EACH SERIES NAME STARTS WITH ITS QUEUE: TransferActive*/TransferStandby*, TimerActive*/TimerStandby*, VisibilityTask*, OutboundActive.*/OutboundStandby.*, ArchivalTask*. READ IT DIFFERENTLY FOR THE TWO KINDS OF QUEUE. For immediate queues (transfer, visibility, outbound) it is the time from the task being created to being loaded. For scheduled queues (timer, archival) it is how LATE the load was relative to the task's fire time, floored at zero -- a task loaded early by the read-ahead window records 0, and the timer's own duration is never included. So a healthy timer queue reads near zero here, and a rising value means timers are being loaded late. Note the metric's own description in the server source says 'from task generation to loading', which is accurate only for immediate queues. TWO USES. First, to tell whether a poll rate cap (history.<queue>ProcessorMaxPollHostRPS) has been set too low: rising load latency with no database rejections means loading, not the database, is the constraint. Second, and the reason to reach for it during a backlog: read at p95 this is the best available indicator of whether a TIMER backlog is growing or shrinking, because a timer loaded after its fire time reports exactly how overdue it is. There is no backlog-age metric for scheduled queues and nothing anywhere counts task rows, so this is the closest substitute. Two limits on that use: it is a latency and not a size, so ten overdue tasks and ten million read the same; and it is only recorded when a task is LOADED, so a queue that has stopped loading goes quiet rather than high - pair it with Task Row Cleanup Attempts by Category.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -3583,6 +3583,50 @@
               "refId": "A"
             }
           ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Age of the oldest task at or above the last checkpointed position, per immediate task category - the time-based companion to Immediate Queue Lag per Pod, which reports the same backlog as a task-id distance. Use this to answer 'is the backlog growing or shrinking', which no other panel on this dashboard answers directly. IMMEDIATE CATEGORIES ONLY: transfer, visibility and outbound. There is no scheduled-queue equivalent, so for TIMER and ARCHIVAL backlogs use Task Load Latency by Task Type at p95 instead - a timer loaded after its fire time reports exactly how overdue it is, which trends the same thing. It is an AGE, not a size: ten tasks an hour late and ten million an hour late read identically, and no metric anywhere counts task rows or pending tasks. Three reading notes. It shares the checkpointed position, so a task completed since the last checkpoint still counts until the next one, and the age reported is that task's own age rather than a bound on the whole backlog. It is NOT emitted when a read is shed or fails, so absence does not mean no backlog - cross-check Task Row Cleanup Attempts by Category. And it is emitted once per shard every ~5 minutes, which is why the rate window is a fixed 11m: a shorter window often spans no observation and returns NaN. NaN on an idle cluster is correct, not broken.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 60
+          },
+          "id": 2417,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum by (task_category, le) (rate(shardinfo_immediate_queue_backlog_age_bucket{service_name=\"history\"}[11m])))",
+              "legendFormat": "{{task_category}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Immediate Queue Backlog Age by Category",
+          "type": "timeseries"
         }
       ]
     },
@@ -9149,7 +9193,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.23.0",
+  "title": "Temporal Server Dashboard v2.24.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""
