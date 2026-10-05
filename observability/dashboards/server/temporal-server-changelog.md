@@ -55,10 +55,11 @@ construction.
   for a backlog. Two limits are stated with it: it is a latency and not a size, and it only records
   when a task is **loaded**, so a queue that has stopped loading goes quiet rather than high.
 
-### Still missing
+### Known gaps
 
-**Nothing counts task rows or pending tasks**, on any queue. Every signal above is an age or a
-distance. Sizing a backlog still means querying the database directly.
+The server emits **no count of task rows or pending tasks** for any queue — so there is no panel to
+build. Every signal it does emit is an age or a distance, which is enough to trend a backlog
+growing or shrinking but never to size one. Sizing means querying the database directly.
 
 ---
 
