@@ -1,5 +1,39 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.25.0 — 2026-10-06
+
+**`task_errors_throttled` was charted for transfer tasks only, so throttling on every other task
+category was emitted by the server and shown nowhere.** The metric has never been
+transfer-specific; the two panels built on it simply filter it that way.
+
+### Added
+
+- **Throttled Tasks by Task Type and Namespace (2418).** `task_errors_throttled` by `task_type`
+  and `namespace`, with no category filter. The task-side view of a persistence rejection: where
+  **Rejected Database Calls by Namespace (2416)** counts the refused database call and names the
+  limit that refused it, 2418 names **which kind of task** was refused. `task_type` carries the
+  category as a prefix, so `TimerActiveTaskDeleteHistoryEvent` and `TransferActiveTaskCloseExecution`
+  separate on the panel.
+
+  **Why it matters beyond completeness.** A throttled task is excluded from `task_errors`, never
+  advances the attempt counter that sends a task to the DLQ, and writes no log line at any level.
+  `task_scheduler_throttled` and `task_errors_throttled` are therefore the only two places it
+  appears at all — and until now the second was visible for one category out of five.
+
+  Cluster-wide by design: it ignores `$namespace`, because comparing namespaces against one
+  another is the point. Above zero is not a fault — throttling is the intended behaviour once
+  persistence limits are set — so the panel is read for **shape**: one namespace orders of
+  magnitude above the rest, sustained and flat rather than tracking load.
+
+### Known gaps
+
+**Transfer Active Task Errors Throttled (144)** and **Transfer Active Task Errors Workflow Busy
+(143)** still hard-filter `operation=~"TransferActive.*"` and still honour `$namespace`. They are
+left as they are: they are long-standing, they sit in a transfer-specific group, and 2418 covers
+every category without disturbing them.
+
+---
+
 ## v2.24.0 — 2026-10-05
 
 **Both queue-lag panels had thresholds set above their own histogram's top bucket, so neither could

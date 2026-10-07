@@ -3627,6 +3627,50 @@
           ],
           "title": "Immediate Queue Backlog Age by Category",
           "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Tasks that ran and then had their database call refused by a persistence limit (task_errors_throttled), broken down by task type and namespace. The task-side companion to Rejected Database Calls by Namespace: that panel counts the refused database call and says which limit refused it, this one says which KIND of task was refused and for which namespace. Use it when a task table is growing and you need to know whether the refusals are hitting timer, transfer, visibility or archival work - task_type carries the category as a prefix, for example TimerActiveTaskDeleteHistoryEvent. A refusal is NOT a failure: it is excluded from task_errors, it never advances the attempt counter that sends a task to the DLQ, and nothing is logged - so this counter and task_scheduler_throttled are the only places a throttled task appears at all. ABOVE ZERO IS NOT ITSELF A FAULT: throttling is the intended behaviour once persistence limits are set, and a healthy cluster shows a steady non-zero rate. What matters is the shape - one namespace orders of magnitude above the others, sustained and flat rather than rising and falling with load, means that namespace's tasks are not getting through at all. That stalls task row cleanup for EVERY namespace sharing those shards, because the deletion watermark is the oldest unfinished task across the whole shard. Empty is normal on a cluster that is not reaching its persistence limits. CLUSTER-WIDE: ignores the $namespace variable by design, because comparing namespaces against each other is the point.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 68
+          },
+          "id": 2418,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (task_type, namespace) (rate(task_errors_throttled{service_name=\"history\"}[$__rate_interval]))",
+              "legendFormat": "{{namespace}} / {{task_type}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Throttled Tasks by Task Type and Namespace",
+          "type": "timeseries"
         }
       ]
     },
@@ -9193,7 +9237,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.24.0",
+  "title": "Temporal Server Dashboard v2.25.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""
