@@ -2133,3 +2133,82 @@ groups:
 
         '
     isPaused: false
+  - uid: temporal-alert-091
+    title: 'Temporal: Task Row Cleanup Failing'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (operation) (rate(persistence_errors{operation=~"RangeComplete.*",service_name="history"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id091
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id091
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: critical
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2412'
+      summary: 'Temporal: history task row cleanup is failing ({{ $values.B.Value | printf "%.3f" }} failed deletes/s) — rows are no longer being removed'
+      description: 'Cleanup deletes against the history task tables are failing. One DELETE is issued per shard per checkpoint, covering everything older than that queue deletion watermark. On a healthy cluster these never fail, so the baseline is a true zero and no threshold needs tuning.
+
+
+        A span too large to clear inside the delete five-second timeout is cancelled, frees no rows, and stays exactly that size on the next attempt — the condition does not recover on its own. Each cancelled attempt still pays full cost in CPU, I/O and WAL while removing nothing, and the task table goes on growing.
+
+
+        Do not wait for it to pass, and do not raise task throughput: neither makes the next delete smaller, and more throughput unpins more shards into the same state. The fix is to reduce how many rows the statement has to remove, or to reload the affected shards so the server rebuilds a smaller range.
+
+
+        Note the quiet half of this problem does not fire this alert: a watermark pinned so that no delete is attempted produces no failures to count, and shows instead as cleanup attempts falling to zero.
+
+
+        Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/history-task-table-growth.md
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/91-task-row-cleanup-failing.md
+
+        '
+    isPaused: false

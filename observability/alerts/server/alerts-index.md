@@ -11,7 +11,7 @@ Complete reference for all server alert definitions. Includes both implemented a
 
 Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in `temporal-failover-alerts.yaml`.
 
-> **Essential Set:** A curated subset of 26 alerts has been selected for deployment from `temporal-server-alerts.yaml`. See [README.md](./README.md) for setup instructions and runbook links.
+> **Essential Set:** A curated subset of 27 alerts has been selected for deployment from `temporal-server-alerts.yaml`. See [README.md](./README.md) for setup instructions and runbook links.
 > **Planning document:** See [planning.md](./planning.md) for design decisions and the full working notes.
 
 > **Tuning note:** All thresholds and `for` durations documented here are baselines — calibrated starting points that should work well for most production deployments. Different workloads, cluster sizes, and SLO requirements will need different values. The `for` duration controls how long a condition must hold continuously before the alert fires: shorter values catch problems faster at the cost of more noise from transient spikes; longer values reduce false positives but delay detection. Treat every value here as a starting point and adjust to your environment.
@@ -36,6 +36,9 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 6 — Throttling and Limits](#section-6--throttling-and-limits) (#29–#30)
 - [Section 7 — Busy Workflow Throttling](#section-7--busy-workflow-throttling) (#31–#33)
 - [Section 8 — Shard Movement](#section-8--shard-movement) (#34, #78, #79)
+- [Section 8a — Archival Health](#section-8a--archival-health) (#81–#82)
+- [Section 8b — History Scavenger](#section-8b--history-scavenger) (#90)
+- [Section 8c — History Task Cleanup](#section-8c--history-task-cleanup) (#91)
 - [Section 9 — Shard Queue Health](#section-9--shard-queue-health) (#34a–#34j)
 - [Section 10 — History Timer Task Info](#section-10--history-timer-task-info) (#35–#39)
 - [Section 11 — Workflow Stats](#section-11--workflow-stats) (#40–#41)
@@ -845,6 +848,44 @@ sum(increase(scavenger_errors{operation="HistoryScavenger"}[24h])) > 5
 The history scavenger is erroring while processing branches (`scavenger_errors`) — it can't read a branch, can't check whether a branch's workflow still exists, or a delete is failing. Healthy baseline is ~0, so >5 errors/24h filters transient blips while catching systematic failure (usually the database under pressure). While it errors, leftover history isn't cleared and those tables can grow — a different cause than the scavenger's normal 60-day age wait. Covers only the scavenger-erroring sub-case of standby database growth; the fuller diagnosis (unreplicated deletes, the 60-day wait, comparing table sizes between clusters) is in the playbook.
 
 **Playbook:** [XDC Standby Database Growth on SQL](../../../playbooks/xdc-standby-database-growth-sql.md#11-watch-the-scavengers-own-metrics-the-history-gap)
+
+---
+
+## Section 8c — History Task Cleanup
+
+> **Dashboard panels:** History Task Cleanup row — Task Row Cleanup Attempts by Category (panel 2414), Task Row Cleanup Failures by Category (2412), Task Row Cleanup Latency by Category (2411), Task Row Cleanup Success Rate (2413)
+> **Metrics:** `persistence_requests`, `persistence_errors`, `persistence_error_with_type`, `persistence_latency`, all filtered to `operation=~"RangeComplete.*"`
+> **Component:** history
+
+### Alert 91 — Task Row Cleanup Failing
+
+| Field | Value |
+|---|---|
+| Status | ✅ Essential Set |
+| UID | `temporal-alert-091` |
+| Severity | critical |
+| Panel | Task Row Cleanup Failures by Category (2412), Task Row Cleanup Latency by Category (2411) |
+| `for` | 10m |
+| `noDataState` | OK |
+
+**Condition:**
+```promql
+sum by (operation) (rate(persistence_errors{operation=~"RangeComplete.*",service_name="history"}[5m])) > 0
+```
+
+Task rows are removed by one `DELETE` per shard per checkpoint, covering everything older than the queue's deletion watermark. **On a healthy cluster those deletes never fail**, so the baseline is a true zero and the alert needs no tuned threshold — any sustained non-zero is actionable.
+
+**What firing means.** The statement is unchunked — no `LIMIT`, no batching — and runs under a **hard-coded 5-second timeout that no dynamic config changes**. Once the span is too large to clear inside it, the attempt is cancelled and deletes nothing, and because the lower bound only advances on success **the next attempt covers the same span**. A span too large to clear in five seconds stays exactly that large, retried roughly every ten seconds, and does not recover on its own. Each cancelled attempt still pays full cost in CPU, I/O and WAL on the database while removing zero rows, which is why this is severity high rather than a hygiene warning: it is actively consuming capacity your workloads need.
+
+**Do not respond by raising task throughput.** Draining faster moves more watermarks, which produces more oversized deletes. The fix is reducing the number of rows the statement matches — see the playbook.
+
+**Why `persistence_errors` and not `persistence_error_with_type`.** Both record a timed-out cleanup delete: the SQL layer returns `serviceerror.Unavailable`, which is not treated as a context cancellation and is not in the no-op list, so it reaches the default branch and increments both. `persistence_errors` is the narrower counter and keeps the expression simple; use `persistence_error_with_type` on the dashboard when you want the error broken out by type.
+
+**Companion signal, not alertable.** The quiet half of this failure — the watermark pinned so that **no** delete is attempted — shows as Cleanup Attempts falling to zero. An alert on that needs a guard for "this category has traffic at all", since a category with no work legitimately reports nothing. Read it on the dashboard rather than alerting on it.
+
+**Runbook:** [91-task-row-cleanup-failing.md](./runbooks/91-task-row-cleanup-failing.md) — deliberately short; it routes to the playbook rather than restating it.
+
+**Playbook:** [History Task Table Growth](../../../playbooks/history-task-table-growth.md)
 
 ---
 

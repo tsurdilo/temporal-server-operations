@@ -171,6 +171,7 @@ component: frontend | history | persistence | server
 | 85 | [Visibility Read Errors](./runbooks/85-visibility-read-errors.md) | frontend | [Visibility Read Error Rate per Store](../../dashboards/server/temporal-server-readme.md) | 2m |
 | 86 | [History Database Calls Rejected](./runbooks/86-history-database-calls-rejected.md) | history | [History Rejected Database Calls Total by Scope](../../dashboards/server/temporal-server-readme.md) | 10m |
 | 87 | [History Write-Reject Loop](./runbooks/87-history-write-reject-loop.md) | history | [Write-Reject Loop Indicator (cleared / cache miss)](../../dashboards/server/temporal-server-readme.md) | 10m |
+| 91 | [Task Row Cleanup Failing](./runbooks/91-task-row-cleanup-failing.md) | history | [Task Row Cleanup Failures by Category](../../dashboards/server/temporal-server-readme.md) | 10m |
 
 ---
 
