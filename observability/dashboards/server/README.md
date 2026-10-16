@@ -6,9 +6,9 @@ Grafana dashboards for monitoring a self-hosted Temporal Server cluster.
 
 ## Dashboards
 
-### Temporal Server Dashboard — v2.25.0
+### Temporal Server Dashboard — v2.27.0
 
-Comprehensive cluster monitoring: throughput, persistence (including which limit is rejecting database calls), service latencies, throttling, shard movement, workflow stats, matching, visibility (including dual visibility and the Elasticsearch write path), replication, and authorization.
+Comprehensive cluster monitoring: throughput, persistence (including which limit is rejecting database calls), service latencies, throttling, shard movement, workflow stats, matching, visibility (including dual visibility and the Elasticsearch write path), replication, authorization, and the resting load of an idle cluster.
 
 | File | Description |
 |---|---|

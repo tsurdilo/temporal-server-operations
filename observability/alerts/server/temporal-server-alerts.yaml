@@ -2212,3 +2212,85 @@ groups:
 
         '
     isPaused: false
+  - uid: temporal-alert-092
+    title: 'Temporal: Namespace Deletion Failed'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 900
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (namespace) (increase(reclaim_resources_namespace_delete_failure[15m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id092
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id092
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 5m
+    labels:
+      severity: warning
+      service: temporal
+      component: worker
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '2604'
+      summary: 'Temporal: a namespace deletion attempt failed for {{ $labels.namespace }} — check for a later success before acting'
+      description: 'A reclaim workflow run ended without deleting the namespace. Every run that ends writes either this counter or the success counter, never both.
+
+
+        This does not by itself mean the deletion has been abandoned. A deletion gets three workflow attempts, so one failure can be followed by a run that completes. On Elasticsearch visibility the remaining-execution count comes from an index that lags behind the deletes themselves, so a healthy deletion can report the same count twice, trip the no-progress check, and then be finished by its own retry.
+
+
+        Check first whether reclaim_resources_namespace_delete_success has since appeared for the same namespace. If it has, the deletion completed and no action is needed.
+
+
+        If it has not, the deletion has stopped. Nothing restarts it: the DeleteNamespace call that started it returned success long before, and the namespace is left renamed, marked deleted, and partly emptied. Fix the cause before restarting, or the restart stops in the same place.
+
+
+        The namespace label is the renamed namespace with hyphens replaced by underscores, not the name that was typed.
+
+
+        Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/namespace-deletion.md
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/92-namespace-deletion-failed.md
+
+        '
+    isPaused: false

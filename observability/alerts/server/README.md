@@ -175,6 +175,17 @@ component: frontend | history | persistence | server
 
 ---
 
+## Documented, not in the Essential Set
+
+Provision these where they apply. Each one is warning-level, or needs a threshold or a check
+that is specific to the cluster.
+
+| # | Alert | Component | Panel | `for` |
+|---|---|---|---|---|
+| 92 | [Namespace Deletion Failed](./runbooks/92-namespace-deletion-failed.md) | worker | [Namespace Deletions Failed](../../dashboards/server/temporal-server-readme.md) | 5m |
+
+---
+
 ## Failover Alert Set — `temporal-failover-alerts.yaml`
 
 Multi-cluster replication only. All five alerts link to the [Namespace Failover — Graceful Handover dashboard](../../dashboards/server/namespace-failover-graceful-handover.json) and [playbook](../../../playbooks/namespace-failover-graceful-handover.md).

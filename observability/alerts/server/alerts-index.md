@@ -39,6 +39,7 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 8a — Archival Health](#section-8a--archival-health) (#81–#82)
 - [Section 8b — History Scavenger](#section-8b--history-scavenger) (#90)
 - [Section 8c — History Task Cleanup](#section-8c--history-task-cleanup) (#91)
+- [Section 8d — Namespace Deletion](#section-8d--namespace-deletion) (#92)
 - [Section 9 — Shard Queue Health](#section-9--shard-queue-health) (#34a–#34j)
 - [Section 10 — History Timer Task Info](#section-10--history-timer-task-info) (#35–#39)
 - [Section 11 — Workflow Stats](#section-11--workflow-stats) (#40–#41)
@@ -878,6 +879,40 @@ Task rows are removed by one `DELETE` per shard per checkpoint, covering everyth
 **What firing means.** The statement is unchunked — no `LIMIT`, no batching — and runs under a **hard-coded 5-second timeout that no dynamic config changes**. Once the span is too large to clear inside it, the attempt is cancelled and deletes nothing, and because the lower bound only advances on success **the next attempt covers the same span**. A span too large to clear in five seconds stays exactly that large, retried roughly every ten seconds, and does not recover on its own. Each cancelled attempt still pays full cost in CPU, I/O and WAL on the database while removing zero rows, which is why this is severity high rather than a hygiene warning: it is actively consuming capacity your workloads need.
 
 **Do not respond by raising task throughput.** Draining faster moves more watermarks, which produces more oversized deletes. The fix is reducing the number of rows the statement matches — see the playbook.
+
+---
+
+## Section 8d — Namespace Deletion
+
+> **Dashboard panels:** Namespace Deletion row — Namespace Deletions Failed (panel 2604), Namespace Deletions Completed (2603), Namespace Deletion — Executions Deleted per Second (2601)
+> **Metrics:** `reclaim_resources_namespace_delete_failure`, `reclaim_resources_namespace_delete_success`, `delete_executions_success`, `delete_executions_failure`
+> **Component:** worker
+
+### Alert 92 — Namespace Deletion Failed
+
+| Field | Value |
+|---|---|
+| Status | Documented — **not in the Essential Set** (warning-level, and a single firing is often self-recovering) |
+| UID | `temporal-alert-092` |
+| Severity | warning |
+| Panel | Namespace Deletions Failed (2604) |
+| `for` | 5m |
+| `noDataState` | OK |
+
+**Condition:**
+```promql
+sum by (namespace) (increase(reclaim_resources_namespace_delete_failure[15m])) > 0
+```
+
+**Why it's not in the Essential Set:** a single firing is frequently a false alarm that fixes itself. A namespace deletion gets three workflow attempts, and on Elasticsearch visibility the remaining-execution count comes from an index that lags behind the deletes themselves — so a healthy deletion can report the same count twice, trip the no-progress check, fail one attempt, and then be completed by its own retry. Both deletions observed failing on a test cluster recovered exactly that way. The alert is worth provisioning on clusters where namespaces are deleted regularly, but it needs the runbook's first check rather than an immediate response.
+
+**What firing means.** A reclaim workflow run ended without deleting the namespace. Every run that ends writes either this counter or the success counter, never both. **Check `reclaim_resources_namespace_delete_success` for the same namespace first** — if it has since appeared, the deletion completed and no action is needed.
+
+If no success follows, the deletion has stopped and nothing will restart it. The `DeleteNamespace` call returned success long before, so no client is told. The namespace is left renamed, marked deleted and partly emptied: it cannot serve traffic, cannot be recovered, and its remaining executions cannot be listed.
+
+**The `namespace` label is the renamed namespace with hyphens replaced by underscores** — a deletion of `orders-prod` appears as `orders_prod_deleted_a3f91`.
+
+**Playbook:** [Namespace Deletion — System Workflow Playbook](../../../playbooks/namespace-deletion.md#7-when-a-namespace-deletion-stops-making-progress)
 
 **Why `persistence_errors` and not `persistence_error_with_type`.** Both record a timed-out cleanup delete: the SQL layer returns `serviceerror.Unavailable`, which is not treated as a context cancellation and is not in the no-op list, so it reaches the default branch and increments both. `persistence_errors` is the narrower counter and keeps the expression simple; use `persistence_error_with_type` on the dashboard when you want the error broken out by type.
 

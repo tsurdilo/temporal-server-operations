@@ -1,5 +1,87 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.27.0 — 2026-10-16
+
+Panels for tracking an internal namespace deletion — progress, completion and failure. The
+dashboard had none.
+
+### Added
+
+New row **Namespace Deletion (2600)**, appended at the end.
+
+- **Namespace Deletion — Executions Deleted per Second (2601)** — `delete_executions_success`
+  as a rate. The only counter that moves while a deletion is running.
+- **Namespace Deletion — Execution Deletion Failures per Second (2602)** —
+  `delete_executions_failure` as a rate. Zero is normal, including on large deletions.
+- **Namespace Deletions Completed (2603)** — `reclaim_resources_namespace_delete_success`.
+- **Namespace Deletions Failed (2604)** — `reclaim_resources_namespace_delete_failure`.
+  Alert 92 fires on this counter.
+
+### Known gaps
+
+- **The `namespace` label is the renamed namespace, with hyphens replaced by underscores.**
+  Deleting `orders-prod` produces `namespace="orders_prod_deleted_a3f91"`; a filter on the
+  original name matches nothing.
+- **The `reclaim_resources_` counters reach 1 and stay there**, so `rate()` and `increase()`
+  both read zero on them. 2603 and 2604 graph the counter itself.
+- **One point on 2604 is one failed attempt, not an abandoned deletion.** A deletion gets three
+  workflow attempts, and a lagging Elasticsearch count can fail a healthy one that its own
+  retry then completes. Check for a later success on the same namespace.
+- **No panel shows how much of a deletion is left.** That comes from a `stats` query against
+  the delete-executions workflow, which is not a metric.
+
+## v2.26.0 — 2026-10-14
+
+**The existing persistence panels cannot show a baseline.** They rate over `$__rate_interval`,
+which is about 40 seconds at a 10-second scrape. After a full restart every history shard starts
+its 5-minute scheduled-queue cycle at the same moment, so the idle load arrives in waves for a
+long time afterwards. Measured on an idle reference cluster (PostgreSQL, 2048 shards): over 15
+minutes, **Persistence Requests Total per Operation** drew anything from 6 to 136 calls/s around a
+true average of 53.6. Nothing on the dashboard showed the inputs that set the resting load either
+— namespace count, how long the namespace registry takes to refresh, or how many metric series
+each service exports.
+
+### Added
+
+New row **Resting Load (Idle Baseline) (2500)**, appended at the end.
+
+- **Database Calls per Operation, 30-Minute Average (2502)** and
+  **Database Calls Total, 30-Minute Average (2503)** — `persistence_requests` over a fixed
+  30-minute window, long enough to span several 5-minute cycles and show the average instead of
+  the waves.
+- **Namespaces Registered (2504)** — `total_namespaces` per service. Every service holds every
+  namespace; a lagging line is an instance whose registry refresh is failing.
+- **Namespace Registry Refresh Latency (2505)** — every service re-reads every namespace every
+  2 seconds, one database page per 1000 namespaces, so the request rate stays flat while the work
+  grows with every namespace. The latency is the signal that moves. Dashed lines at 1s and at the
+  2s default refresh interval.
+- **Metric Series Scraped per Service (2506)** — `scrape_samples_scraped` joined to `service_name`
+  by `instance`. Measured on an idle reference cluster at server defaults: about 1,060 series per
+  namespace across the cluster, almost all of it in matching, the internal frontend and the worker.
+  Series for deleted namespaces stay exported until the process restarts.
+
+The row does not honour `$namespace`: most resting load is recorded under `namespace="system"`.
+Memory and CPU are not on it, because the server does not export process resident memory.
+
+### Field test
+
+Rendered against the local bed (server built from main, reporting 1.33.0; PostgreSQL;
+Elasticsearch visibility; 512 and 2048 shards). All five panels returned series. The namespace
+panels were driven by creating 498 namespaces and deleting back to 150: **Namespaces Registered**
+went 2 → 500 → 150 on every service; **Namespace Registry Refresh Latency** went from about 2 ms to
+10–36 ms and back to 4–8 ms; **Metric Series Scraped per Service** rose from about 2,000 to
+98,000–129,000 on matching, the internal frontend and the worker. The first version of 2506 joined
+on every `persistence_requests` series and failed with a many-to-many match, because each service
+also records startup calls under `service_name="server"`; that value is now excluded.
+
+### Known gaps
+
+- **Namespaces Registered (2504)** and **Namespace Registry Refresh Latency (2505)** are empty below
+  v1.31.0, where `total_namespaces` and `namespace_registry_refresh_latency` were introduced.
+- On the constrained bed, creating 498 namespaces on top of earlier runs' series exhausted
+  Prometheus memory (the Temporal services stayed healthy). That is a property of the bed, not a
+  threshold, but it is the failure **Metric Series Scraped per Service (2506)** exists to warn about.
+
 ## v2.25.0 — 2026-10-06
 
 **`task_errors_throttled` was charted for transfer tasks only, so throttling on every other task

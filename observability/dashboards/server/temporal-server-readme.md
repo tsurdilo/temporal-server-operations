@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.25.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.27.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -38,6 +38,8 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
   - [Archival Health](#21-archival-health)
   - [History Scavenger](#22-history-scavenger)
   - [History Task Cleanup](#23-history-task-cleanup)
+  - [Resting Load (Idle Baseline)](#24-resting-load-idle-baseline)
+  - [Namespace Deletion](#25-namespace-deletion)
 - [Related Resources](#related-resources)
 
 ---
@@ -500,6 +502,22 @@ Categories with no task traffic report `NaN` and draw nothing, which is correct 
 | **Task Row Cleanup Success Rate** | Percentage of range deletes that completed, cluster-wide. 100% healthy, 0% fully broken. Use the failures panel to see which queue is affected. |
 | **Task Row Cleanup Attempts by Category** | How often a delete is even attempted. Not a fixed cadence — a delete is issued only when the watermark moved. **Zero attempts is the pinned-watermark signal**, and it is the only panel here that distinguishes "nothing is trying" from "trying and failing". |
 
+### 24. Resting Load (Idle Baseline)
+
+What the cluster consumes with **no workload on it**, and the inputs that set it. A cluster at rest still reads and writes its database: every history shard checks its timer queue — and its archival queue, when archival is enabled in the static config — twice per poll interval, deletes completed rows once per interval, and saves its progress once per `history.shardUpdateMinInterval`; every service instance re-reads the whole namespace list every 2 seconds; and each namespace adds a few reads every 5 minutes in matching.
+
+> **Read a baseline from the 30-minute panels, not the short-window persistence panels.** After a full restart every shard starts its 5-minute cycle at the same moment, so the idle load arrives in waves for a long time afterwards. A short rate window draws the waves — measured on an idle reference cluster, anything from 6 to 136 calls/s around a true average of 53.6 — while a 30-minute window draws the average. The first 30 minutes after any restart are not a baseline.
+
+Memory and CPU are not on this row: the server does not export process resident memory, so read both from your container metrics. None of the panels honour `$namespace` — most resting load is recorded under `namespace="system"`.
+
+| Panel | Description |
+|---|---|
+| **Database Calls per Operation, 30-Minute Average** | `persistence_requests` by operation, `rate[30m]`. On an idle cluster the largest lines are `GetTimerTasks` and `GetArchivalTasks` (two reads per shard per 5 minutes each), `RangeCompleteTimerTasks` and `RangeCompleteArchivalTasks` (one delete per shard per 5 minutes), `UpdateShard` (one write per shard per 5 minutes) and `ListNamespaces` (0.5 per service instance). `GetTransferTasks`, `GetVisibilityTasks` and `GetOutboundTasks` are **absent** at idle from v1.19 onward — those queues read only when tasks are written. Archival lines are absent when archival is off in the static config. |
+| **Database Calls Total, 30-Minute Average** | The same, summed — the number to compare against a planned baseline. Measured on an idle reference cluster (PostgreSQL, 2048 shards, 8 service instances, 2 namespaces, archival enabled): **53.6 calls/s**; 38.2 with archival disabled at 500 namespaces. Rises with shard count, service instance count and namespace count, and multiplies when the timer poll interval or `history.shardUpdateMinInterval` is lowered. A step change with no workload change usually means a restart (read again after 30 minutes) or a changed setting. |
+| **Namespaces Registered** | `total_namespaces` per service. Every service instance holds every namespace, so all lines agree; one lagging for more than a few seconds is an instance whose registry refresh is failing. Includes namespaces in the DELETED state until their rows are removed. **Emitted from v1.31.0; empty on older servers.** |
+| **Namespace Registry Refresh Latency** | `$p` of `namespace_registry_refresh_latency` per service. Every service instance re-reads every namespace every `system.namespaceCacheRefreshInterval` (2s), one database page per 1000 namespaces — so the request rate is flat up to 1000 namespaces while the rows read and decoded grow with every namespace. **This latency is the signal that moves.** Measured on an idle reference cluster: about 2 ms at 2 namespaces, 4–8 ms at 150, 10–36 ms at 500 shortly after creating them. Dashed lines at 1s (orange) and the 2s default interval (red). **Emitted from v1.31.0; empty on older servers.** |
+| **Metric Series Scraped per Service** | `scrape_samples_scraped` per Temporal service instance, joined to `service_name` by `instance`. The monitoring cost of the cluster, and it grows with namespace count: measured on an idle reference cluster at server defaults, matching went from about 2,000 to 120,000–147,000 per instance, the internal frontend to 158,000 and the worker to 104,000 between 2 and 500 namespaces — about **1,060 per namespace** across the cluster — while history and the public frontends stayed in the low thousands. Series for deleted namespaces stay in the output until the process restarts. On a constrained monitoring host a jump in namespace count can exhaust Prometheus memory before it affects the cluster. Empty if your collector drops `scrape_samples_scraped` or relabels `instance`. |
+
 ---
 
 ## Threshold Reference Lines
@@ -613,6 +631,19 @@ The following panels have threshold reference lines configured:
 | Panel | Orange | Red |
 |---|---|---|
 | **Authorization Check Latency** | 300ms | 500ms |
+
+### 25. Namespace Deletion
+
+What an internal namespace deletion is doing. A deletion runs as system workflows in `temporal-system` long after the `DeleteNamespace` API returned success, and reports nothing back to the caller — these panels and a `stats` query against the delete-executions workflow are the only way to follow one.
+
+> **The `namespace` label is not the name that was typed.** A deletion renames the namespace before deleting anything, and Prometheus replaces hyphens with underscores, so deleting `orders-prod` produces `namespace="orders_prod_deleted_a3f91"`. A filter on the original name matches nothing on any panel in this row.
+
+| Panel | Description |
+|---|---|
+| **Namespace Deletion — Executions Deleted per Second** | `delete_executions_success` as a rate, by namespace. Recorded once per execution as the deletion works, so **this is the only counter that moves while a deletion is still running** — the `reclaim_resources_` counters are written when the reclaim workflow ends and stay flat until then. A flat line here on a deletion that has not finished means it is not deleting. |
+| **Namespace Deletion — Execution Deletion Failures per Second** | `delete_executions_failure` as a rate. Zero is the normal reading, including on large deletions. A sustained line is executions being asked to go and not going, which eventually ends the deletion with a not-deleted-executions error. |
+| **Namespace Deletions Completed** | `reclaim_resources_namespace_delete_success`. Written once, when the namespace record is removed, so it is the only unambiguous sign a deletion finished. The counter reaches `1` and stays there — `rate()` and `increase()` both read zero on it, so the panel graphs the counter itself and shows a step up at the moment the deletion completed. |
+| **Namespace Deletions Failed** | `reclaim_resources_namespace_delete_failure`. Every reclaim run that ends writes this or the success counter, never both. **One point is one failed attempt, not an abandoned deletion** — a deletion gets three workflow attempts, and on Elasticsearch visibility a lagging remaining-execution count can fail a healthy deletion that its own retry then completes. Check for a later success on the same namespace before acting. Alert 92 fires on this counter. |
 
 ---
 

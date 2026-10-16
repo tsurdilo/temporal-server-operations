@@ -50,6 +50,7 @@ can get from an alert to the right panel and back. A few are procedural and have
 | Playbook | Scenarios | Dashboard | Alerts |
 |---------|-----------|-----------|--------|
 | [Server Version Upgrade](./server-upgrade.md) | Upgrading a self-hosted cluster to a new version — schema migration (Cassandra / MySQL / PostgreSQL, SQL or ES visibility), binary rollout, verification, rollback, and multi-cluster order | Procedural (no dedicated dashboard) | — |
+| [Idle Cluster Resource Utilization — Baseline](./idle-cluster-resource-utilization.md) | What a cluster uses with no workload on it — database calls, memory, CPU and metric series — and how much of each comes from service instances, history shards and namespaces. Measured on a test cluster at server defaults and checked against source: a calculation that reproduces every measured point, the settings that multiply resting load (and the transfer interval that does not), archival as the largest single lever, how to read the baseline after a restart, and what namespaces leave behind when deleted. Single cluster; v1.19+. | [Temporal Server](../observability/dashboards/server/temporal-server-readme.md#24-resting-load-idle-baseline) v2.26.0+ | None, by design — a resting load is the steady state |
 
 ### Multi-cluster and replication
 
@@ -57,6 +58,16 @@ can get from an alert to the right panel and back. A few are procedural and have
 |---------|-----------|-----------|--------|
 | [Namespace Failover — Graceful Handover](./namespace-failover-graceful-handover.md) | Executing and monitoring a planned namespace failover using `namespace-handover-v2` — pre-flight, WaitReplication, HANDOVER drain, flip confirmation, post-handover health | [Namespace Failover — Graceful Handover](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) v1.6.0 | FAILOVER-PRE-01, FAILOVER-PRE-02, FAILOVER-PRE-03, FAILOVER-PRE-04, FAILOVER-PRE-05, FAILOVER-PRE-06, FAILOVER-HANDOVER-01, FAILOVER-POST-01 |
 | [XDC Standby Database Growth on SQL](./xdc-standby-database-growth-sql.md) | A standby cluster's database growing much larger than the active for a global namespace, because completed-workflow cleanup falls behind. How to detect the two gaps (leftover records and leftover history), remediate, and prevent recurrence. SQL persistence only (Cassandra playbook TBD). | [Temporal Server](../observability/dashboards/server/temporal-server-readme.md#22-history-scavenger) v2.14.0+ / [Temporal Standby](../observability/dashboards/server/temporal-standby-readme.md#8-history-scavenger) v2.2.0+ | 90 (optional — documented, not in essential set) |
+
+### Server internal workflows
+
+**Temporal runs some operations as workflows on the cluster itself**, in the `temporal-system`
+namespace, rather than as a synchronous API call. Playbooks here cover the details of those
+internal system workflows.
+
+| Playbook | Scenarios | Dashboard | Alerts |
+|---------|-----------|-----------|--------|
+| [Namespace Deletion — System Workflow](./namespace-deletion.md) | Deleting a namespace on a running cluster — what the internal workflows do, why a success response does not mean the namespace is gone, when a deletion is the wrong tool, how to follow one and restart one that stopped. All persistence stores; single and multi-cluster. | [Temporal Server](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion) v2.27.0+ | 92 (optional — documented, not in essential set) |
 
 ### Visibility and archival
 
