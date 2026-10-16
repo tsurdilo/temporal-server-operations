@@ -744,21 +744,17 @@ Judging progress needs a reading taken after the pause, not during it.
 
 #### What the server metrics show
 
-**Four of these counters are on the
-[Namespace Deletion](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion)
-row of the server dashboard.**
-
 **A namespace deletion emits two families of counter, and they arrive at different times.**
 Which one to use depends on whether the question is "is it moving" or "did it finish":
 
 | Metric | Panel | When it is recorded |
 |---|---|---|
-| `delete_executions_success` | **Namespace Deletion — Executions Deleted per Second** | **once per execution, as the deletion runs.** The only counter to move while a deletion is still working |
-| `delete_executions_failure` | **Namespace Deletion — Execution Deletion Failures per Second** | once per execution the deletion could not remove |
+| `delete_executions_success` | [Namespace Deletion — Executions Deleted per Second](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion) | **once per execution, as the deletion runs.** The only counter to move while a deletion is still working |
+| `delete_executions_failure` | [Namespace Deletion — Execution Deletion Failures per Second](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion) | once per execution the deletion could not remove |
 | `reclaim_resources_delete_executions_success` | none | **once, at the end**, carrying the total the run deleted |
 | `reclaim_resources_delete_executions_failure` | none | once, at the end, carrying the total that errored |
-| `reclaim_resources_namespace_delete_success` | **Namespace Deletions Completed** | `1` when the namespace record has been removed |
-| `reclaim_resources_namespace_delete_failure` | **Namespace Deletions Failed** | `1` when the reclaim workflow ended **without** deleting the namespace |
+| `reclaim_resources_namespace_delete_success` | [Namespace Deletions Completed](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion) | `1` when the namespace record has been removed |
+| `reclaim_resources_namespace_delete_failure` | [Namespace Deletions Failed](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion) | `1` when the reclaim workflow ended **without** deleting the namespace |
 
 **The `reclaim_resources_` family says nothing until a deletion ends.** All four are written
 from a deferred block when the reclaim workflow completes, so a deletion that is halfway
@@ -878,7 +874,7 @@ outside, and the `stats` query in
 
 **A reclaim run that ends without deleting the namespace is what
 [alert 92](../observability/alerts/server/runbooks/92-namespace-deletion-failed.md) fires on**,
-and it shows on the **Namespace Deletions Failed** panel.
+and it shows on the [Namespace Deletions Failed](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion) panel.
 
 > **A stopped deletion is not always a broken one.** On Elasticsearch visibility the remaining
 > count comes from an index that lags behind the deletes themselves, so a healthy deletion can
