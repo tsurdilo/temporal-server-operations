@@ -756,6 +756,9 @@ Which one to use depends on whether the question is "is it moving" or "did it fi
 | `reclaim_resources_namespace_delete_success` | [Namespace Deletions Completed](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion) | `1` when the namespace record has been removed |
 | `reclaim_resources_namespace_delete_failure` | [Namespace Deletions Failed](../observability/dashboards/server/temporal-server-readme.md#25-namespace-deletion) | `1` when the reclaim workflow ended **without** deleting the namespace |
 
+**The `reclaim_resources_delete_executions_` pair has no panel because it repeats what
+`delete_executions_success` and `delete_executions_failure` already count.**
+
 **The `reclaim_resources_` family says nothing until a deletion ends.** All four are written
 from a deferred block when the reclaim workflow completes, so a deletion that is halfway
 through has emitted none of them. Watching those for progress shows a flat line on a perfectly
