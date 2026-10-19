@@ -1063,7 +1063,7 @@ The deadlock detector has reported at least one unresolved suspected deadlock on
 | Status | ✅ Implemented |
 | Severity | warning |
 | UID | `temporal-alert-034j` |
-| Panel | Shard IO Concurrency Dashboard (`temporal-shard-io-v1`) |
+| Panel | Shard IO Deadlock Check Latency (6), Shard IO Concurrency Dashboard (`temporal-shard-io-v1`) |
 | `for` | 5m |
 
 **Condition:** `histogram_quantile(0.99, sum(rate(dd_shard_io_semaphore_latency_bucket{service_name="history"}[5m])) by (instance, le)) > 20`

@@ -1271,7 +1271,7 @@ groups:
       component: history
     annotations:
       __dashboardUid__: temporal-shard-io-v1
-      __panelId__: '1'
+      __panelId__: '6'
       summary: 'Temporal: shard IO semaphore health ping latency high on {{ $labels.instance }}{{ if $value }} (p99 {{ $values.B.Value | humanizeDuration }}){{ end }} — deadlock detector approaching 40s threshold'
       description: "The deadlock detector's shard IO semaphore health ping p99 latency has exceeded\n20s on {{ $labels.instance }}. The deadlock detector timeout is 40s (10s DB op\ntimeout + 30s grace, from source). If the ping cannot acquire the semaphore\nwithin 40s, the shard is declared a suspected deadlock (alert 34f fires) and\nthe pod must be restarted.\n\nThis alert fires at 20s — half the threshold — to allow time to act before\nthe deadlock is declared.\n\nImmediate checks:\n1. Check semaphore_latency{operation=\"ShardInfo\",priority=\"0\"} p99 — if elevated,\n   active write traffic is saturating the semaphore\n2. Check persistence_latency on UpdateWorkflowExecution and AddTasks — if elevated,\n   DB writes are slow and holding semaphore slots longer; fix DB first\n3. Check persistence_sql_in_use / persistence_sql_max_open_conn — if approaching\n   1.0, connection pool is under pressure\n4. Check semaphore_failures — if non-zero, callers are already giving up waiting\n\nDo NOT raise history.shardIOConcurrency while DB metrics are unhealthy.\nIf DB is healthy and backend is SQL, consider raising shardIOConcurrency\n(requires history host rolling restart).\n\nRunbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/34j-shard-io-semaphore-deadlock-approaching.md\n"
     isPaused: false

@@ -474,11 +474,32 @@ are keyed by namespace id rather than by name, so a renamed namespace that is ma
 still resolves for every one of its tasks, and those tasks are refused exactly as they were
 before.
 
-**Deleting every workflow execution in the namespace needs the same task processing that has
-already stopped.** The deletion's own database work runs at the lowest priority the server
-has, which puts it first in line to be refused on a cluster that is already refusing work. It
-gives up once the count of remaining executions stops falling between attempts, and the server
-names a task processor that has stopped as one of the two causes of exactly that.
+**A deletion removes each execution by creating a history task** — a close task for a running
+one, a delete task for a closed one.
+
+**So a deletion depends on the very task processing that has stopped.**
+
+**A deletion's history tasks are the lowest priority the server has.** They run last, and the
+database drops them first when it is busy. So a deletion on a struggling cluster waits, and
+keeps adding tasks to the same queues while it waits — on shards every other namespace shares.
+[History Task Table Growth](./history-task-table-growth.md) covers what undrained tasks do
+there.
+
+**A deletion gives up once the remaining count stops falling between attempts.** A stopped
+task processor is one of the two causes the server names for that.
+
+**Until the deletion reaches an execution, that execution keeps running normally.** Marking
+the namespace deleted changes nothing for it: its timers still fire and its activities still
+retry. History tasks are keyed on the namespace id, which the rename does not change, and
+nothing in task processing checks whether a namespace is marked deleted.
+
+**So a deletion that runs for hours leaves every execution it has not reached still producing
+tasks for that whole time** — on the same cluster, into the same queues.
+
+**No new executions join them.** Once the namespace is marked deleted, starting a workflow is
+refused under the original name, which no longer resolves, and under the renamed one, which is
+rejected for being in the deleted state. Everything still arriving comes from executions that
+already existed when the deletion began.
 
 **A namespace deletion delivers none of the hoped-for benefit until the whole process has
 finished, and one started in this state may never finish.** For as long as it runs without

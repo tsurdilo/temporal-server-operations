@@ -419,7 +419,7 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 12,
+            "w": 6,
             "x": 0,
             "y": 5
           },
@@ -443,6 +443,53 @@
             {
               "expr": "histogram_quantile($p, sum by (le) (rate(semaphore_latency_bucket{operation=\"ShardInfo\",service_name=\"history\"}[$__rate_interval])))",
               "legendFormat": "p{{p}} shard lock latency",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 6,
+            "y": 5
+          },
+          "id": 2700,
+          "title": "Shard State Lock Latency",
+          "description": "Time to acquire the shard's state lock (the read/write lock on the shard's in-memory state) on the History service. Separate from Shard Lock Latency, which is the wait for the shard's IO slot.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum by (le) (rate(lock_latency_bucket{operation=\"ShardInfo\",service_name=\"history\"}[$__rate_interval])))",
+              "legendFormat": "p{{p}} shard state lock latency",
               "refId": "A"
             }
           ]
@@ -485,7 +532,7 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 12,
+            "w": 6,
             "x": 12,
             "y": 5
           },
@@ -509,6 +556,53 @@
             {
               "expr": "histogram_quantile($p, sum(rate(cache_latency_bucket{operation=\"HistoryCacheGetOrCreate\"}[$__rate_interval])) by (le))",
               "legendFormat": "p{{p}} workflow lock latency",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 18,
+            "y": 5
+          },
+          "id": 2701,
+          "title": "Workflow Lock Hold Duration",
+          "description": "How long a workflow's lock was held, from being acquired to being released. Includes the database reads and writes done while holding it. Long holds make the next request for the same workflow wait, which shows on Workflow Lock Latency.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum(rate(history_workflow_execution_cache_lock_hold_duration_bucket{operation=\"HistoryCacheGetOrCreate\"}[$__rate_interval])) by (le))",
+              "legendFormat": "p{{p}} workflow lock hold duration",
               "refId": "A"
             }
           ]
@@ -9176,7 +9270,7 @@
           "type": "text",
           "options": {
             "mode": "markdown",
-            "content": "**Resting Load (Idle Baseline)** \u2014 what the cluster consumes with no workload on it, and the inputs that set it. A cluster at rest still reads and writes its database: every history shard checks its timer queue (and its archival queue, when archival is enabled in the static config) twice per poll interval, deletes completed rows once per interval, and saves its progress once per `history.shardUpdateMinInterval`; every service instance re-reads the namespace list every 2 seconds; each namespace adds a few reads every 5 minutes in matching. **Use the 30-minute panels here, not the short-window persistence panels, to read a baseline.** After a full restart every shard starts its 5-minute cycle at the same moment, so the idle load arrives in waves for a long time afterwards; a short rate window shows the waves (measured on an idle reference cluster: anything from 6 to 136 calls/s around a true average of 53.6), while a 30-minute window shows the average. Memory and CPU are not on this row: the server does not export process resident memory, so read them from your container metrics."
+            "content": "**Resting Load (Idle Baseline)** \u2014 what the cluster consumes with no workload on it, and the inputs that set it. A cluster at rest still reads and writes its database: every history shard checks its timer queue (and its archival queue, when archival is enabled in the static config) twice per poll interval, deletes completed rows once per interval, and saves its progress once per `history.shardUpdateMinInterval`; every service instance re-reads the namespace list every 2 seconds; each namespace adds a few reads every 5 minutes in matching. **Use the 30-minute panels here, not the short-window persistence panels, to read a baseline.** After a full restart every shard starts its 5-minute cycle at the same moment, so the idle load arrives in waves for a long time afterwards; a short rate window shows the waves (measured on an idle reference cluster: anything from 6 to 136 calls/s around a true average of 53.6), while a 30-minute window shows the average. Memory appears here as Go heap (Heap per Service Instance, 10-Minute Low). Resident memory and CPU are not on this row: the server does not export them, so read them from your container metrics."
           }
         },
         {
@@ -9414,6 +9508,49 @@
             }
           ],
           "title": "Metric Series Scraped per Service",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Lowest Go heap reading per service instance over the last 10 minutes (memory_heap, the Go runtime's allocated heap, emitted by every service once a minute). memory_heap includes garbage not yet collected, so a single reading can be far above the memory a service instance is actually using; the 10-minute low gets close to it. Field-tested on a reference cluster against the live heap measured right after a forced garbage collection: the 10-minute low read between 0 and 28 percent above it. Use it to compare against the live-heap numbers in the idle cluster playbook, and to watch heap grow with namespace count on matching, the internal frontend and the worker. This is not the memory a pod is charged for: resident memory is several times higher at rest and is not exported by the server, so size pods from your container metrics. Ignores the namespace variable on purpose.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 72
+          },
+          "id": 2507,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "min by (service_name, instance) (min_over_time(memory_heap{service_name!=\"server\"}[10m]))",
+              "legendFormat": "{{service_name}} {{instance}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Heap per Service Instance, 10-Minute Low",
           "type": "timeseries"
         }
       ],
@@ -9693,7 +9830,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.27.0",
+  "title": "Temporal Server Dashboard v2.30.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

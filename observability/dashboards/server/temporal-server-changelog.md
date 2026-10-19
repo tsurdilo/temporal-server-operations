@@ -1,5 +1,41 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.30.0 — 2026-10-19
+
+### Added
+
+- **Workflow Lock Hold Duration (2701)**, on the **Shard and Workflow Lock Latencies** row: how
+  long a workflow's lock is held (`history_workflow_execution_cache_lock_hold_duration`).
+
+### Changed
+
+- The **Shard and Workflow Lock Latencies** row is now four panels across.
+
+## v2.29.0 — 2026-10-19
+
+### Added
+
+- **Shard State Lock Latency (2700)**, on the **Shard and Workflow Lock Latencies** row: wait time
+  for the shard's state lock (`lock_latency{operation="ShardInfo"}`).
+
+### Changed
+
+- **Shard Lock Latency (14)** and **Workflow Lock Latency (15)** narrowed to make room; the row is
+  now three panels across.
+
+## v2.28.0 — 2026-10-17
+
+### Added
+
+- **Heap per Service Instance, 10-Minute Low (2507)**, on the **Resting Load (Idle Baseline)**
+  row. The lowest `memory_heap` reading per service instance over 10 minutes — the dashboard had
+  no memory panel. `memory_heap` includes uncollected garbage, so a single reading overstates the
+  memory in use; the 10-minute low is close to it.
+
+### Changed
+
+- The **Resting Load (Idle Baseline)** row's text panel now points to the new memory panel.
+
 ## v2.27.0 — 2026-10-16
 
 Panels for tracking an internal namespace deletion — progress, completion and failure. The
@@ -62,17 +98,6 @@ New row **Resting Load (Idle Baseline) (2500)**, appended at the end.
 
 The row does not honour `$namespace`: most resting load is recorded under `namespace="system"`.
 Memory and CPU are not on it, because the server does not export process resident memory.
-
-### Field test
-
-Rendered against the local bed (server built from main, reporting 1.33.0; PostgreSQL;
-Elasticsearch visibility; 512 and 2048 shards). All five panels returned series. The namespace
-panels were driven by creating 498 namespaces and deleting back to 150: **Namespaces Registered**
-went 2 → 500 → 150 on every service; **Namespace Registry Refresh Latency** went from about 2 ms to
-10–36 ms and back to 4–8 ms; **Metric Series Scraped per Service** rose from about 2,000 to
-98,000–129,000 on matching, the internal frontend and the worker. The first version of 2506 joined
-on every `persistence_requests` series and failed with a many-to-many match, because each service
-also records startup calls under `service_name="server"`; that value is now excluded.
 
 ### Known gaps
 

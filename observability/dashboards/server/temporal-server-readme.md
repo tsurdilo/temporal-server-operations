@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.27.0 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.30.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -122,7 +122,9 @@ Tracks latency for acquiring history shards and workflow execution locks. These 
 | Panel | Description |
 |---|---|
 | **Shard Lock Latency** | Latency for acquiring the shard lock (`ShardInfo` semaphore) on the History service. High values often indicate the cluster is undersized relative to the workload — either too few history hosts or too few shards. This latency directly contributes to end-to-end API latency. |
+| **Shard State Lock Latency** | Time to acquire the shard's state lock (`lock_latency{operation="ShardInfo"}`) on the History service — the read/write lock on the shard's in-memory state, taken to hand out task IDs, check shard ownership, read and update queue progress, and briefly around every workflow create, update and delete. This is a different lock from the one on **Shard Lock Latency**, which is the wait for the shard's IO slot (`history.shardIOConcurrency`). Shard-level: does not honour `$namespace`. No threshold lines yet. |
 | **Workflow Lock Latency** | Latency for the `HistoryCacheGetOrCreate` operation, representing the time to acquire the per-workflow execution lock. Updates to a single execution are serialized under this lock. High values can indicate a specific workflow type generating very high update rates (common in fan-out patterns) or elevated persistence latencies causing lock contention. |
+| **Workflow Lock Hold Duration** | How long a workflow's lock was held, from being acquired to being released (`history_workflow_execution_cache_lock_hold_duration`, operation `HistoryCacheGetOrCreate`). Includes the database reads and writes done while holding it. Read it with **Workflow Lock Latency**: high wait with normal hold means many requests on the same workflow at once; high wait with high hold means each request is slow while it holds the lock, usually because of the database. Does not honour `$namespace`. No threshold lines yet. |
 
 ---
 
@@ -508,7 +510,7 @@ What the cluster consumes with **no workload on it**, and the inputs that set it
 
 > **Read a baseline from the 30-minute panels, not the short-window persistence panels.** After a full restart every shard starts its 5-minute cycle at the same moment, so the idle load arrives in waves for a long time afterwards. A short rate window draws the waves — measured on an idle reference cluster, anything from 6 to 136 calls/s around a true average of 53.6 — while a 30-minute window draws the average. The first 30 minutes after any restart are not a baseline.
 
-Memory and CPU are not on this row: the server does not export process resident memory, so read both from your container metrics. None of the panels honour `$namespace` — most resting load is recorded under `namespace="system"`.
+Memory appears here as Go heap, in **Heap per Service Instance, 10-Minute Low**. Resident memory and CPU are not on this row: the server does not export them, so read both from your container metrics. None of the panels honour `$namespace` — most resting load is recorded under `namespace="system"`.
 
 | Panel | Description |
 |---|---|
@@ -517,6 +519,7 @@ Memory and CPU are not on this row: the server does not export process resident 
 | **Namespaces Registered** | `total_namespaces` per service. Every service instance holds every namespace, so all lines agree; one lagging for more than a few seconds is an instance whose registry refresh is failing. Includes namespaces in the DELETED state until their rows are removed. **Emitted from v1.31.0; empty on older servers.** |
 | **Namespace Registry Refresh Latency** | `$p` of `namespace_registry_refresh_latency` per service. Every service instance re-reads every namespace every `system.namespaceCacheRefreshInterval` (2s), one database page per 1000 namespaces — so the request rate is flat up to 1000 namespaces while the rows read and decoded grow with every namespace. **This latency is the signal that moves.** Measured on an idle reference cluster: about 2 ms at 2 namespaces, 4–8 ms at 150, 10–36 ms at 500 shortly after creating them. Dashed lines at 1s (orange) and the 2s default interval (red). **Emitted from v1.31.0; empty on older servers.** |
 | **Metric Series Scraped per Service** | `scrape_samples_scraped` per Temporal service instance, joined to `service_name` by `instance`. The monitoring cost of the cluster, and it grows with namespace count: measured on an idle reference cluster at server defaults, matching went from about 2,000 to 120,000–147,000 per instance, the internal frontend to 158,000 and the worker to 104,000 between 2 and 500 namespaces — about **1,060 per namespace** across the cluster — while history and the public frontends stayed in the low thousands. Series for deleted namespaces stay in the output until the process restarts. On a constrained monitoring host a jump in namespace count can exhaust Prometheus memory before it affects the cluster. Empty if your collector drops `scrape_samples_scraped` or relabels `instance`. |
+| **Heap per Service Instance, 10-Minute Low** | Lowest `memory_heap` reading per service instance over 10 minutes. `memory_heap` is the Go runtime's allocated heap, emitted by every service once a minute; it includes garbage not yet collected, so a single reading can be far above what a service instance is using, while the 10-minute low gets close to it. **Field-tested:** 0–28% above live heap measured right after a forced garbage collection, across all 8 service instances on an idle reference cluster. Use it to compare against the idle cluster playbook's live-heap numbers and to watch heap grow with namespace count on matching, the internal frontend and the worker. **Not** the memory a pod is charged for: resident memory is several times higher at rest and is not exported by the server — size pods from container metrics. |
 
 ---
 

@@ -155,7 +155,7 @@ component: frontend | history | persistence | server
 | 34 | [Unexpected Shard Movement](./runbooks/34-unexpected-shard-movement.md) | history | [Shards Created](../../dashboards/server/temporal-server-readme.md) | 10m |
 | 34b | [Immediate Queue Lag Critical](./runbooks/34b-immediate-queue-lag-critical.md) | history | [Immediate Queue Lag per Pod](../../dashboards/server/temporal-server-readme.md) | 15m |
 | 34f | [Shard Deadlock Detected](./runbooks/34f-shard-deadlock-detected.md) | history | [Suspected Deadlocks per Pod](../../dashboards/server/temporal-server-readme.md) | 1m |
-| 34j | [Shard IO Semaphore Deadlock Approaching](./runbooks/34j-shard-io-semaphore-deadlock-approaching.md) | history | [Shard IO Concurrency Dashboard](../../dashboards/server/shard-io-concurrency-readme.md) | 5m |
+| 34j | [Shard IO Semaphore Deadlock Approaching](./runbooks/34j-shard-io-semaphore-deadlock-approaching.md) | history | [Shard IO Deadlock Check Latency](../../dashboards/server/shard-io-concurrency-readme.md#panel-shard-io-deadlock-check-latency) | 5m |
 | 38 | [Timer Task Scheduling Lag Critical](./runbooks/38-timer-scheduling-lag-critical.md) | history | [Timer Task Scheduling Latency](../../dashboards/server/temporal-server-readme.md) | 15m |
 | 78 | [Shard Fleet Deficit](./runbooks/78-shard-fleet-deficit.md) | history | [Owned Shards (Total)](../../dashboards/server/temporal-server-readme.md) | 15m |
 | 79 | [Shard Ownership Loss Persisting](./runbooks/79-shard-ownership-loss-persisting.md) | history | [Persistence Errors Total by Operation](../../dashboards/server/temporal-server-readme.md) | 10m |

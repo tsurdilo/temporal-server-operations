@@ -1,5 +1,46 @@
 # Changelog — Temporal Shard IO Concurrency Dashboard
 
+## v1.3.0 — 2026-10-19
+
+### Changed
+
+- **SQL Connection Pool Utilization & Resource Exhausted Errors (4)**: both lines now show the
+  history service only; the pool line is one line per history pod, labelled with the pod. The
+  description no longer gives fixed utilization bands.
+
+### Documentation
+
+- Readme: the Decision Guide and the per-panel decision tables are replaced by links to the
+  Shard IO Concurrency on PostgreSQL and MySQL — Tuning Playbook, which is now the one place the
+  procedure lives. The threshold table lists the lines actually drawn on each panel.
+
+---
+
+## v1.2.0 — 2026-10-19
+
+### Added
+
+- **Shard IO Deadlock Check Latency (6)**, on the **Shard IO Semaphore** row: the deadlock
+  detector's wait for a shard IO slot (`dd_shard_io_semaphore_latency`), per pod, with lines at
+  20s and 40s.
+
+### Changed
+
+- **Shard IO Semaphore Latency (High Priority) (1)** and **Shard IO Semaphore Failures (2)**
+  narrowed; the row is now three panels across.
+- Alert 34j now links to panel 6 instead of panel 1.
+
+### Fixed
+
+- **Shard IO Semaphore Latency (High Priority) (1)** description: the wait only, not the time
+  the slot is held.
+
+### Documentation
+
+- Readme: added the `Current version` line; panel headings now use the exact panel titles.
+
+---
+
 ## v1.1.0 — 2026-06-17
 
 ### Added

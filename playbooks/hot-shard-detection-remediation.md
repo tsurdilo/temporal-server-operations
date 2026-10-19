@@ -31,7 +31,7 @@ This playbook covers detecting a hot shard and remediating it. It does not cover
 - **[Temporal Server Dashboard](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** — in the **Persistence Requests, Latencies and Errors** row, two panels drive detection:
   - **Per-Shard Persistence RPS Distribution (Hot-Shard Detector)**
   - **Hottest Shard RPS**
-- **[Shard IO Concurrency Dashboard](../observability/dashboards/server/shard-io-concurrency-readme.md)** — the **Shard IO Semaphore Latency** and **Shard IO Semaphore Failures** panels confirm write contention on a shard (SQL only).
+- **[Shard IO Concurrency Dashboard](../observability/dashboards/server/shard-io-concurrency-readme.md)** — the [**Shard IO Semaphore Latency (High Priority)**](../observability/dashboards/server/shard-io-concurrency-readme.md#panel-shard-io-semaphore-latency-high-priority) and [**Shard IO Semaphore Failures**](../observability/dashboards/server/shard-io-concurrency-readme.md#panel-shard-io-semaphore-failures) panels confirm write contention on a shard (SQL only).
 
 ---
 
@@ -131,7 +131,7 @@ One case will not show here: a single workflow ID that is slowly **building up**
 
 ### Step 3 — Confirm write contention (SQL)
 
-On the [Shard IO Concurrency Dashboard](../observability/dashboards/server/shard-io-concurrency-readme.md), check **Shard IO Semaphore Latency** and **Shard IO Semaphore Failures**. Elevated latency or any failures confirm that writes are queuing inside shards — the symptom of Kind 1 contention.
+On the [Shard IO Concurrency Dashboard](../observability/dashboards/server/shard-io-concurrency-readme.md), check [**Shard IO Semaphore Latency (High Priority)**](../observability/dashboards/server/shard-io-concurrency-readme.md#panel-shard-io-semaphore-latency-high-priority) and [**Shard IO Semaphore Failures**](../observability/dashboards/server/shard-io-concurrency-readme.md#panel-shard-io-semaphore-failures). Elevated latency or any failures confirm that writes are queuing inside shards — the symptom of Kind 1 contention.
 
 <a id="find-driver"></a>
 ### Step 4 — Find what is driving it (the namespace or workflow ID)
@@ -238,7 +238,7 @@ Two things to keep in mind. This is a **guardrail, not a cure** — it slows the
 More shards spread the workload across more shard contexts, so fewer active workflows share each one. This is the correct fix when the whole distribution is shifted up, or when many different workflow IDs concentrate on too few shards. Changing shard count is a migration and is disruptive — plan it as a maintenance operation, not a quick tweak.
 
 **Raise the per-shard write concurrency (SQL only).**
-On PostgreSQL / MySQL, `history.shardIOConcurrency` controls how many writes a shard can have in flight at once. The default is `1` (fully serialized). Raising it eases write contention **when the database has spare capacity**. Cassandra cannot use more than `1`. Work through the [Shard IO Concurrency playbook](./shard-io-concurrency.md) before changing it — raising it when the database is already saturated makes things worse, and it does not redistribute a hot shard's load, it only lets each shard write faster.
+On PostgreSQL / MySQL, `history.shardIOConcurrency` controls how many writes a shard can have in flight at once. The default is `1` (fully serialized). Raising it eases write contention **when the database has spare capacity**. Cassandra cannot use more than `1`. Work through the [Shard IO Concurrency on PostgreSQL and MySQL — Tuning Playbook](./shard-io-concurrency.md) before changing it — raising it when the database is already saturated makes things worse, and it does not redistribute a hot shard's load, it only lets each shard write faster.
 
 **If the load is aimed at one or a few specific workflow IDs**, that is a hot workflow ID, not a shard-count problem — see [Kind 2 — a single hot workflow ID](#kind-2--a-single-hot-workflow-id) below for the patterns behind it and their fixes.
 
@@ -280,7 +280,7 @@ The Kind 2 fixes are application changes, and the team that owns the workload ma
 | `history.persistencePerShardNamespaceMaxQPS` | `0` (off) | Caps one namespace's database requests (reads + writes) on one shard. Turn it on to stop one namespace taking over a shard's capacity. |
 | `history.persistenceNamespaceMaxQPS` | `0` (falls back to the per-host limit) | Caps one namespace's database requests per history host. |
 | `history.persistenceMaxQPS` | `9000` | Caps all database requests per history host. |
-| `history.shardIOConcurrency` | `1` | Writes in flight per shard (SQL only; Cassandra is fixed at 1). Raising it needs a history host restart. See the [Shard IO Concurrency playbook](./shard-io-concurrency.md). |
+| `history.shardIOConcurrency` | `1` | Writes in flight per shard (SQL only; Cassandra is fixed at 1). Raising it needs a history host restart. See the [Shard IO Concurrency on PostgreSQL and MySQL — Tuning Playbook](./shard-io-concurrency.md). |
 | `history.emitShardLagLog` | `false` | Turns on the per-shard warning log that names a backed-up shard. |
 
 > On a self-hosted cluster these limits are off or generous by default, so the ones above are yours to set.

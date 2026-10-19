@@ -82,7 +82,7 @@ max safe value = persistence_sql_max_open_conn / numshards_gauge (per pod)
 
 Start at `2`. After each rolling restart, check that `semaphore_latency` improved and DB metrics remained stable before incrementing further. Stop when `semaphore_latency` stops improving — that is the DB throughput ceiling.
 
-See `observability/dashboards/server/shard-io-concurrency-readme.md` for the full step-by-step guide.
+See the [Shard IO Concurrency on PostgreSQL and MySQL — Tuning Playbook](../../../../playbooks/shard-io-concurrency.md) for the full step-by-step guide, and the [Shard IO Concurrency dashboard readme](../../../dashboards/server/shard-io-concurrency-readme.md) for the panels it uses.
 
 ### If backend is Cassandra
 

@@ -6,7 +6,7 @@ Grafana dashboards for monitoring a self-hosted Temporal Server cluster.
 
 ## Dashboards
 
-### Temporal Server Dashboard — v2.27.0
+### Temporal Server Dashboard — v2.30.0
 
 Comprehensive cluster monitoring: throughput, persistence (including which limit is rejecting database calls), service latencies, throttling, shard movement, workflow stats, matching, visibility (including dual visibility and the Elasticsearch write path), replication, authorization, and the resting load of an idle cluster.
 
@@ -42,9 +42,9 @@ Deep health monitoring for the history service fleet: `host_health` state, gRPC 
 
 ---
 
-### Temporal Shard IO Concurrency — v1.1.0
+### Temporal Shard IO Concurrency — v1.3.0
 
-Decision guide for tuning `history.shardIOConcurrency`: shard IO semaphore health (latency and failures), the max-safe-value-per-pod ceiling, and the DB prerequisite check. SQL backends only (PostgreSQL, MySQL) — not applicable to Cassandra. Companion to the Shard IO Concurrency playbook.
+Decision guide for tuning `history.shardIOConcurrency`: shard IO semaphore health (latency and failures), the max-safe-value-per-pod ceiling, and the DB prerequisite check. SQL backends only (PostgreSQL, MySQL) — not applicable to Cassandra. Companion to the [Shard IO Concurrency on PostgreSQL and MySQL — Tuning Playbook](../../../playbooks/shard-io-concurrency.md).
 
 | File | Description |
 |---|---|
