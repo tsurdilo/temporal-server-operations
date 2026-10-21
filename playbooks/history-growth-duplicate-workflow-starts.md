@@ -214,6 +214,10 @@ worker.historyScannerDataMinAge:
 
 The scavenger runs about every 12 hours, so a change takes effect on its next scan, not immediately. For how to check when the next scan runs and how to trigger one sooner, see [Keep the scavenger's wait short enough](./xdc-standby-database-growth-sql.md#32-keep-the-scavengers-wait-short-enough-the-history-gap).
 
+While it runs, the history scan adds database calls on top of the cluster's resting load; [Idle
+Cluster Resource Utilization](./idle-cluster-resource-utilization.md#62-history-and-task-queue-scans-twice-a-day)
+covers its limits.
+
 Lowering the wait clears the backlog, but it does not stop new leftovers arriving. If duplicates keep coming in faster than the scavenger clears them, you also need [Prevent](#3-prevent--stop-it-recurring).
 
 ---

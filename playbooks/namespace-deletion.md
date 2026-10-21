@@ -296,6 +296,12 @@ empty.
 > Handover](./namespace-failover-graceful-handover.md#namespace-deletion) has the procedure, and
 > the version matrix for what reaches the passive cluster.
 
+**Some of a deleted namespace stays in memory after the deletion finishes.** The worker service,
+the internal frontend and the matching service keep part of its memory, and all of its metric
+series, until they restart; [Idle Cluster Resource
+Utilization](./idle-cluster-resource-utilization.md#56-deleted-namespaces-memory-and-metric-series-freed-by-restarting-the-worker-internal-frontend-and-matching-services)
+has the measured amounts.
+
 **What each stage changes is now covered.**
 [Section 2.2](#22-which-workers-run-a-namespace-deletion) covers where that work actually runs.
 

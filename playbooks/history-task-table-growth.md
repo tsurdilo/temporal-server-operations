@@ -98,6 +98,10 @@ category**, so a cluster
 with a few thousand shards is running a few thousand timer queues, each tracking its own position
 and cleaning up after itself, on whichever history pod currently owns that shard.
 
+At rest, each shard's timer queue reads twice and deletes once every five minutes; [Idle Cluster
+Resource Utilization](./idle-cluster-resource-utilization.md#41-what-each-shard-does-at-rest) gives
+the database calls that adds up to across a cluster.
+
 That independence is deliberate, and it is how the history service scales. Shards share nothing —
 there is no central cleanup step they all queue behind, and no coordination between them to become
 a bottleneck — so the work spreads across however many history pods own them. A cluster sized with

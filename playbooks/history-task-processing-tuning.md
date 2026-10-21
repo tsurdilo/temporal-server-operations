@@ -277,7 +277,7 @@ So under a backlog it loads continuously, and the only things pacing it are its 
 |---|---|---|
 | `history.<queue>ProcessorMaxPollRPS` | **20** | Poll rate for one shard. |
 | `history.<queue>ProcessorMaxPollHostRPS` | **0** = off | Poll rate for the whole pod, across every shard it owns. |
-| `history.<queue>ProcessorMaxPollInterval` | **1 minute** (transfer, visibility, outbound), **5 minutes** (timer, archival) | How often an idle queue re-checks anyway, with nothing to do. |
+| `history.<queue>ProcessorMaxPollInterval` | **1 minute** (transfer, visibility, outbound), **5 minutes** (timer, archival) | How often an idle queue re-checks anyway, with nothing to do. At rest, only the timer and archival queues read the database when they do. |
 
 **With `history.<queue>ProcessorMaxPollHostRPS` left at `0` — the default — a pod's real poll
 ceiling is worked out from the persistence setting instead.** It becomes
@@ -287,14 +287,16 @@ archival. And if `history.persistenceMaxQPS` is itself `0`, the ceiling falls ba
 [what each setting does when set to `0`](./history-persistence-qps-limits.md#26-what-each-setting-does-when-set-to-0) —
 worth knowing here because it is the *reader* those numbers are sizing.
 
-**Even with nothing to do, each queue keeps re-checking its shards.** New work does not have to be
-discovered: the history pod that writes the tasks tells its own reader, in memory, as soon as the
-write is done. The re-checking is a backstop for what that does not cover, bounded by
-`history.<queue>ProcessorMaxPollInterval` — **1 minute** for transfer, visibility and outbound,
-**5 minutes** for timer and archival. So a completely idle cluster still reads:
+**Even with nothing to do, the timer and archival queues keep reading.** New work does not have to
+be discovered: the history pod that writes the tasks tells its own reader, in memory, as soon as
+the write is done. The transfer, visibility and outbound queues read only when a task of their kind
+has been written, so on an idle cluster they make no reads at all (since v1.19). The timer and
+archival queues wait for a point in time instead, and time keeps passing: each reads twice per
+shard every five minutes — once to look ahead, once to load the time that has just come due. So a
+completely idle cluster still reads:
 
 ```
-idle Get*Tasks per second  ≈  shards  ×  queues  ÷  poll interval
+idle Get*Tasks per second  ≈  shards  ×  2 reads  ×  2 queues  ÷  300 seconds
 ```
 
 **Work it out for your own shard count before assuming a `Get*Tasks` rate is a problem.** On a
@@ -302,16 +304,19 @@ cluster with **2048 shards** — a common choice — with no work at all:
 
 | | |
 |---|---|
-| three one-minute queues (transfer, visibility, outbound) | `2048 × 3 ÷ 60` ≈ **102 reads/s** |
-| two five-minute queues (timer, archival) | `2048 × 2 ÷ 300` ≈ **14 reads/s** |
-| **total, cluster-wide, idle** | ≈ **116 reads/s** |
+| timer queue | `2048 × 2 ÷ 300` ≈ **14 reads/s** |
+| archival queue, when archival is enabled | `2048 × 2 ÷ 300` ≈ **14 reads/s** |
+| transfer, visibility and outbound queues | **0** |
+| **total, cluster-wide, idle** | ≈ **27 reads/s**, or about 14 with archival turned off |
 
-Divided across the pods that own those shards — four history pods, say — that is about **29 reads a
-second each**, before a single workflow runs.
+Divided across the pods that own those shards — four history pods, say — that is about **7 reads a
+second each**, before a single workflow runs. [Idle Cluster Resource
+Utilization](./idle-cluster-resource-utilization.md#41-what-each-shard-does-at-rest) measured this
+floor on a 2048-shard cluster: 27.3 reads per second.
 
-**That floor moves with the interval, not with the poll rates** — and only for shards that are
-genuinely idle, since a shard with pending work reads as often as that work requires, sooner than
-the interval. Whether raising it is worth doing is a tuning decision, and
+**That floor moves with the timer and archival intervals, not with the poll rates** — and only for
+shards that are genuinely idle, since a shard with pending work reads as often as that work
+requires, sooner than the interval. Whether raising it is worth doing is a tuning decision, and
 [7.3](#73-choosing-a-poll-ceiling-and-knowing-if-you-set-it-too-low) is where this playbook makes
 it.
 
@@ -619,7 +624,7 @@ Then read off which situation you are in:
 | Attempts far above what reached the store | **Rejected Database Calls by Operation and Scope** against **Database Calls That Reached the Database** | Part of the rate you are reacting to never touched the store | Nothing to fix. Re-read your numbers using what reached the database |
 | Client-facing operations refused | **Resource Exhausted with Cause** | Client traffic is itself over the limit | That is the persistence playbook's decision: [History Persistence QPS Limits](./history-persistence-qps-limits.md) |
 | Only `Get*Tasks` refused, nothing stalling | **Rejected Database Calls by Operation and Scope**, with **Immediate / Scheduled Queue Lag per Pod** steady | Loading is being throttled, not task processing | Handled later here, as the second step: the `history.<queue>ProcessorMaxPoll…` settings, after scheduling is right |
-| `Get*Tasks` steady while little work is running | **Persistence Requests Total per Operation** | The idle poll floor, not churn | Nothing. Work out `shards × queues ÷ poll interval` first — about **116 a second** on a 2048-shard cluster with no workload |
+| `Get*Tasks` steady while little work is running | **Persistence Requests Total per Operation** | The idle poll floor, not churn | Nothing. Work out `shards × 4 ÷ 300` first — about **27 a second** on a 2048-shard cluster with archival enabled and no workload |
 
 #### If raising the persistence limit also clears the loop, why tune task processing at all?
 
@@ -1301,25 +1306,27 @@ to the next section.
 service is allowed to make ([History Persistence QPS Limits](./history-persistence-qps-limits.md)).
 Loading spends from it and so does executing; this question is about how the two split it.
 
-Open **[Task Loading Rate by Queue](../observability/dashboards/server/temporal-server-readme.md#9-shard-queue-health)** and compare what you see against the
-floor below. **Each of the five task categories — transfer, timer, visibility, outbound and
-archival — does its own loading**, and each of them re-checks every shard on a timer even when
-there is no work at all. So there is a rate you cannot go below without changing the poll
-intervals:
+Open **[Task Loading Rate by
+Queue](../observability/dashboards/server/temporal-server-readme.md#9-shard-queue-health)** and
+compare what you see against the floor below. **Each of the five task categories — transfer, timer,
+visibility, outbound and archival — does its own loading**, but with no work at all only the timer
+and archival queues read: each twice per shard every five minutes. So there is a rate you cannot go
+below without changing their poll intervals:
 
 ```
-idle loading rate  ≈  shards  ×  queues  ÷  poll interval
+idle loading rate  ≈  shards  ×  4  ÷  300      (archival enabled; shards × 2 ÷ 300 without)
 ```
 
 **That is what this section calls the floor:** the rate your cluster reads tasks at when nothing is
 happening at all. It is not zero, and it is not something a poll ceiling removes — a ceiling set
 below the floor does not cancel the re-checks, it makes them wait their turn and happen late. The
-only way to lower the floor itself is a longer poll interval.
+only ways to lower the floor itself are a longer timer or archival poll interval, or turning off
+archival when no namespace uses it.
 
-On a cluster of **2048 shards** the floor is roughly **116 calls a second** with no workload
-whatever: 102 from the three one-minute queues (transfer, visibility, outbound) and 14 from the two
-five-minute ones (timer, archival). Work out the same figure for your own shard count before
-deciding your loading rate is too high.
+On a cluster of **2048 shards** the floor is roughly **27 calls a second** with no workload
+whatever: about 14 from the timer queue and 14 from the archival queue, and none from transfer,
+visibility or outbound. Work out the same figure for your own shard count before deciding your
+loading rate is too high.
 
 | What you see | What it means | What to do |
 |---|---|---|
@@ -1479,22 +1486,24 @@ measurement, meaning something different.
 >
 > **`history.<queue>ProcessorMaxPollInterval` is the backstop for when that does not happen** — the
 > longest a reader will go without re-checking its shard anyway: **1 minute** for transfer,
-> visibility and outbound, **5 minutes** for timer and archival. It is the divisor in
-> [the floor formula in 7.1](#71-is-loading-taking-more-of-the-budget-than-it-needs): more shards,
-> or a shorter interval, means more re-checks a second whether or not there is work.
+> visibility and outbound, **5 minutes** for timer and archival. For the timer and archival queues
+> it is the divisor in [the floor formula in
+> 7.1](#71-is-loading-taking-more-of-the-budget-than-it-needs): more shards, or a shorter interval,
+> means more reads a second whether or not there is work. The transfer, visibility and outbound
+> queues make no reads at rest, whatever their interval.
 >
 > **`history.<queue>ProcessorMaxPollHostRPS` and `history.<queue>ProcessorMaxPollInterval` are not
 > two ways of doing the same thing.** `MaxPollHostRPS` limits how fast the pod is allowed to read;
 > it does not change how many re-checks want to happen. Set it below the floor and the re-checks do
 > not disappear — each one waits for the limiter and the shard is read later than its interval,
-> which is exactly the lateness the panel above measures. Raising `MaxPollInterval` removes
-> re-checks instead, so the floor itself comes down.
+> which is exactly the lateness the panel above measures. Raising the timer or archival
+> `MaxPollInterval` removes reads instead, so the floor itself comes down.
 >
-> **So if your loading rate is close to the floor and you want it lower, raise the interval** rather
-> than lowering the ceiling. The risk is small, because of who does the telling: work written while
-> the pod owns the shard is announced in memory as it arrives, so the backstop only matters for
-> tasks no live notification covered — those written before the shard moved to this pod, most
-> obviously after a restart or a rebalance.
+> **So if your loading rate is close to the floor and you want it lower, raise the timer or archival
+> interval** rather than lowering the ceiling. The risk is small, because of who does the telling:
+> work written while the pod owns the shard is announced in memory as it arrives, so the backstop
+> only matters for tasks no live notification covered — those written before the shard moved to this
+> pod, most obviously after a restart or a rebalance.
 >
 > **It only helps shards that are genuinely idle, though.** A shard with pending work reads as often
 > as that work requires, which is sooner than the interval — so on a busy cluster this is a weak

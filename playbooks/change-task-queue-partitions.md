@@ -220,6 +220,7 @@ The step-by-step increase and decrease procedures later in this playbook use `na
 ## Defaults and Sizing
 
 - **Default: 4 partitions** — `matching.numTaskqueueReadPartitions` and `matching.numTaskqueueWritePartitions` both default to 4 for a **normal** task queue (your own workflow and activity queues).
+- **Each loaded partition also makes one database read a minute, even with no tasks**, to confirm which matching instance owns it. [Idle Cluster Resource Utilization](./idle-cluster-resource-utilization.md#32-database-calls-made-once-for-the-whole-cluster) shows what that adds for the worker service's own internal task queues.
 - More partitions can raise a task queue's throughput ceiling, but each one adds load on the matching hosts. Increase only when the queue needs it — see [When to Increase Partitions](#when-to-increase-partitions).
 - For low-traffic task queues, reducing partitions down to 1 can be beneficial to reduce resource consumption on matching hosts.
 - Setting partitions to 1 also gives the strictest activity-dispatch rate control. A per–task-queue limit like the SDK's `taskQueueActivitiesPerSecond` is split across the read partitions and enforced independently on each: a partition dispatches at `rate ÷ numReadPartitions`, with its burst rounded **up** to `ceil(rate ÷ numReadPartitions)`. Because each partition's limiter runs on its own, the combined burst can reach `ceil(rate ÷ numReadPartitions) × numReadPartitions`, which overshoots the target whenever the rate doesn't divide evenly.

@@ -1,5 +1,20 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.30.2 — 2026-10-21
+
+### Fixed
+
+- **Task Loading Rate by Queue (2409)**: the idle floor in the description is corrected to about 27
+  reads a second on a 2048-shard cluster; only the timer and archival queues read when idle.
+
+## v2.30.1 — 2026-10-20
+
+### Fixed
+
+- **Heap per Service Instance, 10-Minute Low (2507)**: the description now says plainly what
+  resident memory is — all the memory the process occupies — and that it is what to compare with
+  a pod's memory limit.
+
 ## v2.30.0 — 2026-10-19
 
 ### Added

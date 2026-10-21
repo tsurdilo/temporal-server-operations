@@ -21,6 +21,10 @@ No database produces it, on any backend.
   many database calls it may make, is the companion playbook:
   **[History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md)**. Reach for it when the refused
   calls are task work rather than client traffic.
+- **The database calls a cluster makes with no workload.** Every cluster makes a steady number of
+  database calls before any workflow runs, mostly from its history shards;
+  [Idle Cluster Resource Utilization](./idle-cluster-resource-utilization.md) covers how many and
+  where they come from.
 - **Any other `RESOURCE_EXHAUSTED` cause.** `SystemOverloaded`, `PersistenceStorageLimit`,
   `BusyWorkflow`, `RpsLimit` and the rest all mean something other than this limiter, and each needs
   a different fix. Section 3 covers how to tell them apart.

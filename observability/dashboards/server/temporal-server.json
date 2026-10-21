@@ -3652,7 +3652,7 @@
           },
           "id": 2409,
           "title": "Task Loading Rate by Queue",
-          "description": "Calls the history service makes to read tasks out of the database, by queue. These spend the same persistence budget as the reads and writes that task execution needs, so they compete with it. Two things to compare against. (1) The idle floor: every queue re-checks every shard on its poll interval even with no work -- roughly shards x queues / poll interval, which on a 2048-shard cluster is about 116 a second with nothing running (1 minute for transfer, visibility and outbound; 5 minutes for timer and archival). A rate near that floor is not churn and needs no action. (2) Re-reads: when the pod has too many loaded tasks it unloads some and reads them again later, so a rate far above the floor while tasks are not completing is the symptom of work not finishing, not of loading being set too fast.",
+          "description": "Calls the history service makes to read tasks out of the database, by queue. These spend the same persistence budget as the reads and writes that task execution needs, so they compete with it. Two things to compare against. (1) The idle floor: with no work, only the timer and archival queues read, each twice per shard every five minutes; the transfer, visibility and outbound queues make no reads at all. That is roughly shards x 4 / 300 with archival enabled (shards x 2 / 300 without), about 27 a second on a 2048-shard cluster with nothing running. A rate near that floor is not churn and needs no action. (2) Re-reads: when the pod has too many loaded tasks it unloads some and reads them again later, so a rate far above the floor while tasks are not completing is the symptom of work not finishing, not of loading being set too fast.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -9515,7 +9515,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "description": "Lowest Go heap reading per service instance over the last 10 minutes (memory_heap, the Go runtime's allocated heap, emitted by every service once a minute). memory_heap includes garbage not yet collected, so a single reading can be far above the memory a service instance is actually using; the 10-minute low gets close to it. Field-tested on a reference cluster against the live heap measured right after a forced garbage collection: the 10-minute low read between 0 and 28 percent above it. Use it to compare against the live-heap numbers in the idle cluster playbook, and to watch heap grow with namespace count on matching, the internal frontend and the worker. This is not the memory a pod is charged for: resident memory is several times higher at rest and is not exported by the server, so size pods from your container metrics. Ignores the namespace variable on purpose.",
+          "description": "Lowest Go heap reading per service instance over the last 10 minutes (memory_heap, the Go runtime's allocated heap, emitted by every service once a minute). memory_heap includes garbage not yet collected, so a single reading can be far above the memory a service instance is actually using; the 10-minute low gets close to it. Field-tested on a reference cluster against the live heap measured right after a forced garbage collection: the 10-minute low read between 0 and 28 percent above it. Use it to compare against the live-heap numbers in the idle cluster playbook, and to watch heap grow with namespace count on matching, the internal frontend and the worker. This is not what to compare with a pod's memory limit: that is resident memory, all the memory the process occupies on the machine, which is several times higher at rest and is not exported by the server, so read it from your container metrics. Ignores the namespace variable on purpose.",
           "fieldConfig": {
             "defaults": {
               "unit": "bytes",
@@ -9830,7 +9830,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.30.0",
+  "title": "Temporal Server Dashboard v2.30.2",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""
