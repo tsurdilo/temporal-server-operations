@@ -608,7 +608,7 @@ temporal workflow start \
 | Input field | Type | Default | Description |
 |---|---|---|---|
 | `Namespace` | string | Required | The namespace to backfill |
-| `Query` | string | Required | Visibility query to scope which executions to backfill. Empty string backfills all executions in the namespace |
+| `Query` | string | Required | Visibility query to scope which executions to backfill. Empty string backfills all executions in the namespace, open and closed |
 | `ConcurrentActivityCount` | int | `1` | Number of replication activities to run in parallel. Raise for faster backfill; lower if receiver backlog builds up |
 | `OverallRps` | float64 | `= ConcurrentActivityCount` | RPS cap for enqueuing replication tasks across all concurrent activities |
 | `GetParentInfoRPS` | float64 | `= ConcurrentActivityCount` | RPS cap for parent/child relationship lookups during backfill |
@@ -618,6 +618,20 @@ temporal workflow start \
 | `TargetClusterEndpoint` | string | — | Required when `EnableVerification=true` if `TargetClusterName` is not set |
 | `TargetClusterName` | string | — | Required when `EnableVerification=true` if `TargetClusterEndpoint` is not set |
 | `VerifyIntervalInSeconds` | int | `5` | Polling interval for verification checks |
+
+**Closed executions are backfilled too.** `force-replication-v2` copies every execution its `Query` returns, whatever its status. It has no running-only filter. An empty `Query` therefore copies completed, failed, canceled, terminated, timed-out and continued-as-new executions as well as running ones. Use the `Query` to narrow the backfill:
+
+| To backfill | `Query` |
+|---|---|
+| Every execution in the namespace, open and closed | `""` |
+| Running executions only | `ExecutionStatus = 'Running'` |
+| Closed executions only | `ExecutionStatus != 'Running'` |
+| Executions closed after a given time | `CloseTime > '2026-01-01T00:00:00Z'` |
+
+Two limits apply to closed executions, both caused by namespace retention:
+
+- **An execution that retention has already deleted on the active cluster cannot be backfilled.** Visibility no longer returns it, so `force-replication-v2` never sees it. An execution that retention deletes after it was listed but before it was copied is skipped, and `force-replication-v2` carries on without failing.
+- **Verification does not fail on an execution that is past retention.** With `EnableVerification` set to `true`, a closed execution that is missing on the standby is counted as skipped, not as failed, when its close time plus the namespace retention is already in the past.
 
 Wait for the workflow to complete before starting the handover workflow.
 
