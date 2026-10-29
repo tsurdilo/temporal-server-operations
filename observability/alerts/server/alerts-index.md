@@ -751,7 +751,7 @@ sum(rate(persistence_error_with_type{service_name="history",operation="UpdateSha
 
 **Condition:**
 ```promql
-sum(rate(task_terminal_failures{operation=~"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)"}[5m])) > 0
+sum(rate(task_terminal_failures{operation=~"Timer(Active|Standby)Task(ActivityRetryTimer|ActivityTimeout|UserTimer|WorkflowBackoffTimer)|Transfer(Active|Standby)Task(Activity|WorkflowTask)"}[5m])) > 0
 ```
 
 > **Why `task_terminal_failures` and not `dlq_writes`.** `dlq_writes` only carries the
@@ -764,7 +764,7 @@ sum(rate(task_terminal_failures{operation=~"Timer(Active|Standby)TaskActivity(Re
 > never dead-lettered at all — it retries with no limit. Neither path records
 > `task_terminal_failures`, so silence here does not mean nothing is being abandoned.
 
-Execution-stranding history tasks (activity retry/timeout timers, activity/workflow-task dispatch; Active + Standby) are being written to the history task DLQ. A DLQ'd task is removed from the active queue and **not** auto-retried — for a retrying activity this strands it until an operator redrives the DLQ or pause/unpauses it. The usual trigger is a prolonged database outage/overload that drives persistence operations to time out (`context deadline exceeded` / `context canceled`), which count toward `history.TaskDLQUnexpectedErrorAttempts` (default 70 ≈ 1h). DB-agnostic — fires the same on Cassandra and SQL. Visibility, retention (`DeleteHistoryEvent`), and workflow-task-timeout DLQ writes are deliberately excluded (WFT timeouts covered by alerts 56/76), as are rate-limit rejections (`ResourceExhausted`, which are excused and never dead-lettered). Intentionally strict (`> 0` sustained 10m); tunable — see the runbook. Cluster-wide (no namespace filter), consistent with the Essential Set.
+Execution-stranding history tasks (activity retry/timeout timers, user timers, workflow start timers, activity/workflow-task dispatch; Active + Standby) are being written to the history task DLQ. A DLQ'd task is removed from the active queue and **not** auto-retried — for a retrying activity this strands it until an operator redrives the DLQ or pause/unpauses it. The usual trigger is a prolonged database outage/overload that drives persistence operations to time out (`context deadline exceeded` / `context canceled`), which count toward `history.TaskDLQUnexpectedErrorAttempts` (default 70 ≈ 1h). DB-agnostic — fires the same on Cassandra and SQL. Visibility, retention (`DeleteHistoryEvent`), and workflow-task-timeout DLQ writes are deliberately excluded (WFT timeouts covered by alerts 56/76), as are rate-limit rejections (`ResourceExhausted`, which are excused and never dead-lettered). Intentionally strict (`> 0` sustained 10m); tunable — see the runbook. Cluster-wide (no namespace filter), consistent with the Essential Set.
 
 **Runbook:** [80-history-task-dlq-stranding.md](./runbooks/80-history-task-dlq-stranding.md)
 

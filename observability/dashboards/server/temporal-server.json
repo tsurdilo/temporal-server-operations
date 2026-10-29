@@ -4000,6 +4000,50 @@
               "refId": "A"
             }
           ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 26
+          },
+          "id": 2800,
+          "title": "Timer Tasks Processed by Type",
+          "description": "Rate of timer task processing ATTEMPTS in the selected namespace, split by timer type (the operation label). Same metric as Total Timer Tasks Processed, split so you can see which kind of timer is spiking. TimerActiveTaskUserTimer: timers set in workflow code (sleeps and timers). TimerActiveTaskWorkflowBackoffTimer: start timers -- workflows started with a start delay or a cron schedule, and the wait before a workflow retry run. TimerActiveTaskActivityTimeout and TimerActiveTaskWorkflowTaskTimeout: timeout CHECKS created for workflow tasks and activities, processed even when the task already finished -- a high rate here is normal and is not timeouts (real sticky fallbacks are on Workflow Task Schedule-to-Start Timeouts (sticky fallback)). TimerActiveTaskActivityRetryTimer: activity retries. TimerActiveTaskDeleteHistoryEvent: retention deletes. Counts retries, so it inflates during throttling. Unlike Total Timer Tasks Processed, this panel honours $namespace. Empty when no timers fire in the selected namespace.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (operation) (rate(task_requests{operation=~\"TimerActive.*\",service_name=\"history\",namespace=\"$namespace\"}[$__rate_interval]))",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ]
         }
       ]
     },
@@ -8198,7 +8242,7 @@
           "type": "text",
           "options": {
             "mode": "markdown",
-            "content": "**History Task DLQ / Terminal Failures** \u2014 history tasks dead-lettered under DB stress. A task that fails processing with *unexpected* errors (`context deadline exceeded` / `context canceled`) crosses `history.TaskDLQUnexpectedErrorAttempts` (default 70 \u2248 1h), or hits a terminal/corruption error, and is sent to the history task DLQ (`history.TaskDLQEnabled`, default true) \u2014 removed from the active queue and **not auto-retried**.\n\n\u26a0\ufe0f **Not all DLQ writes are bad.** Filter by `operation`: visibility, retention (`DeleteHistoryEvent`), and workflow-task-timeout writes do **not** strand a running execution (WFT timeouts are already covered by alerts 56/76). Only the **execution-stranding** types (activity retry/timeout timers, activity/workflow-task dispatch) mean stuck work \u2014 that is what **alert 80** pages on. Rate-limit rejections (`ResourceExhausted`) are *excused* and never DLQ; they are retried with no loss."
+            "content": "**History Task DLQ / Terminal Failures** \u2014 history tasks dead-lettered under DB stress. A task that fails processing with *unexpected* errors (`context deadline exceeded` / `context canceled`) crosses `history.TaskDLQUnexpectedErrorAttempts` (default 70 \u2248 1h), or hits a terminal/corruption error, and is sent to the history task DLQ (`history.TaskDLQEnabled`, default true) \u2014 removed from the active queue and **not auto-retried**.\n\n\u26a0\ufe0f **Not all DLQ writes are bad.** Filter by `operation`: visibility, retention (`DeleteHistoryEvent`), and workflow-task-timeout writes do **not** strand a running execution (WFT timeouts are already covered by alerts 56/76). Only the **execution-stranding** types (activity retry/timeout timers, user timers, workflow start timers, activity/workflow-task dispatch) mean stuck work \u2014 that is what **alert 80** pages on. Rate-limit rejections (`ResourceExhausted`) are *excused* and never DLQ; they are retried with no loss."
           }
         },
         {
@@ -8235,7 +8279,7 @@
           },
           "id": 2202,
           "title": "Dead-Lettered Tasks \u2014 Execution-Stranding (page-worthy)",
-          "description": "History tasks sent to the DLQ that strand a running execution: activity retry/timeout timers and activity/workflow-task dispatch (Active + Standby). Any non-zero rate = permanently stranded work until DLQ redrive (tdbg dlq merge --dlq-type 2) or activity pause/unpause. This is the signal alert 80 pages on. Reads task_terminal_failures, not dlq_writes: dlq_writes only carries the operation label from server v1.32.0, so an operation-filtered query on it returns nothing on older servers. task_terminal_failures carries operation on every version. It counts a task being marked terminally failed, which is the same moment. Turning history.TaskDLQEnabled off does not leave this panel accurate: the two failure paths then diverge and neither reaches it. A task failing with a corrupt or otherwise non-retryable error is dropped and marked complete - task_errors_corruption counts it, this panel does not. A task failing with unexpected but retryable errors, the 70-attempt path this panel is mostly about, is never dead-lettered at all and retries with no limit - neither metric counts it. So with the DLQ off, zero here does not mean nothing is being abandoned.",
+          "description": "History tasks sent to the DLQ that strand a running execution: activity retry/timeout timers, user timers, workflow start timers (start delay, cron, workflow retry) and activity/workflow-task dispatch (Active + Standby). A dead-lettered user or start timer never fires again, so the workflow stays asleep. Any non-zero rate = permanently stranded work until DLQ redrive (tdbg dlq merge --dlq-type 2), or activity pause/unpause for activity tasks. This is the signal alert 80 pages on. Reads task_terminal_failures, not dlq_writes: dlq_writes only carries the operation label from server v1.32.0, so an operation-filtered query on it returns nothing on older servers. task_terminal_failures carries operation on every version. It counts a task being marked terminally failed, which is the same moment. Turning history.TaskDLQEnabled off does not leave this panel accurate: the two failure paths then diverge and neither reaches it. A task failing with a corrupt or otherwise non-retryable error is dropped and marked complete - task_errors_corruption counts it, this panel does not. A task failing with unexpected but retryable errors, the 70-attempt path this panel is mostly about, is never dead-lettered at all and retries with no limit - neither metric counts it. So with the DLQ off, zero here does not mean nothing is being abandoned.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -8251,7 +8295,7 @@
           },
           "targets": [
             {
-              "expr": "sum(rate(task_terminal_failures{operation=~\"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\"}[$__rate_interval])) by (operation)",
+              "expr": "sum(rate(task_terminal_failures{operation=~\"Timer(Active|Standby)Task(ActivityRetryTimer|ActivityTimeout|UserTimer|WorkflowBackoffTimer)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\"}[$__rate_interval])) by (operation)",
               "legendFormat": "{{operation}}",
               "refId": "A"
             }
@@ -8419,7 +8463,7 @@
           },
           "targets": [
             {
-              "expr": "sum(rate(task_errors{operation=~\"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\"}[$__rate_interval])) by (operation)",
+              "expr": "sum(rate(task_errors{operation=~\"Timer(Active|Standby)Task(ActivityRetryTimer|ActivityTimeout|UserTimer|WorkflowBackoffTimer)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\"}[$__rate_interval])) by (operation)",
               "legendFormat": "{{operation}}",
               "refId": "A"
             }
@@ -8492,7 +8536,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "description": "Deepest attempt count reached by the execution-stranding task types - activity retry and timeout timers, and activity / workflow-task dispatch - read as the top bucket of the task_attempt histogram. The companion to Visibility Task Retry Depth, which shows the same thing for visibility tasks. A task records its attempt count on completion, and a task still retrying past 30 attempts also reports in flight, so a healthy cluster sits near 1 and is not expected to be empty - the signal is the line climbing. At history.TaskDLQUnexpectedErrorAttempts (70 by default, roughly 75 minutes with the retry backoff) the task is dead-lettered and its execution freezes. Read it together with Dead-Lettered Tasks - Execution-Stranding: a line that climbs toward the threshold and then RESETS without any dead-lettering means tasks are being discarded and reloaded before they can reach it, so they retry forever instead of being parked - the queue's position then stops advancing and its task table grows without bound. Thresholds mark 30 and 70, but the histogram buckets step 1/2/5/10/20/50/100, so readings are coarse and a threshold triggers on the bucket above. Cluster-wide - ignores the namespace variable.",
+          "description": "Deepest attempt count reached by the execution-stranding task types - activity retry and timeout timers, user timers, workflow start timers, and activity / workflow-task dispatch - read as the top bucket of the task_attempt histogram. The companion to Visibility Task Retry Depth, which shows the same thing for visibility tasks. A task records its attempt count on completion, and a task still retrying past 30 attempts also reports in flight, so a healthy cluster sits near 1 and is not expected to be empty - the signal is the line climbing. At history.TaskDLQUnexpectedErrorAttempts (70 by default, roughly 75 minutes with the retry backoff) the task is dead-lettered and its execution freezes. Read it together with Dead-Lettered Tasks - Execution-Stranding: a line that climbs toward the threshold and then RESETS without any dead-lettering means tasks are being discarded and reloaded before they can reach it, so they retry forever instead of being parked - the queue's position then stops advancing and its task table grows without bound. Thresholds mark 30 and 70, but the histogram buckets step 1/2/5/10/20/50/100, so readings are coarse and a threshold triggers on the bucket above. Cluster-wide - ignores the namespace variable.",
           "fieldConfig": {
             "defaults": {
               "unit": "none",
@@ -8545,7 +8589,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile(1.00, sum by (operation, le) (rate(task_attempt_bucket{operation=~\"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\",service_name=\"history\"}[$__rate_interval])))",
+              "expr": "histogram_quantile(1.00, sum by (operation, le) (rate(task_attempt_bucket{operation=~\"Timer(Active|Standby)Task(ActivityRetryTimer|ActivityTimeout|UserTimer|WorkflowBackoffTimer)|Transfer(Active|Standby)Task(Activity|WorkflowTask)\",service_name=\"history\"}[$__rate_interval])))",
               "legendFormat": "{{operation}}",
               "refId": "A"
             }
@@ -9830,7 +9874,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.30.2",
+  "title": "Temporal Server Dashboard v2.32.1",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

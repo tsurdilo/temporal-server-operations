@@ -145,7 +145,8 @@ end very differently:
 **Why the difference matters.** Throttling recovers on its own — the work waits, retries, and
 completes with nobody doing anything. A dead-lettered task does not. It is taken out of the queue
 and is never retried automatically, and for the task types that carry execution progress (activity
-retry and timeout timers, activity and workflow task dispatch) that leaves **workflows stuck** until
+retry and timeout timers, user timers, workflow start timers, and activity and workflow task
+dispatch) that leaves **workflows stuck** until
 an operator redrives the queue by hand with `tdbg dlq merge`. Other dead-lettered types, such as
 visibility or retention work, do not strand a running execution.
 

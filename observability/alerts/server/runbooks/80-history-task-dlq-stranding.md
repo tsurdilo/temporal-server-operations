@@ -10,6 +10,8 @@
 
 - `TimerActiveTaskActivityRetryTimer` / `TimerStandbyTaskActivityRetryTimer` — the retry timer that re-dispatches a retrying activity to matching
 - `TimerActiveTaskActivityTimeout` / `TimerStandbyTaskActivityTimeout` — the activity timeout timer
+- `TimerActiveTaskUserTimer` / `TimerStandbyTaskUserTimer` — a timer set in workflow code (a workflow sleep or timer)
+- `TimerActiveTaskWorkflowBackoffTimer` / `TimerStandbyTaskWorkflowBackoffTimer` — the start timer of a workflow started with a start delay or a cron schedule, or waiting before a workflow retry run
 - `TransferActiveTaskActivity` / `TransferStandbyTaskActivity` — initial activity dispatch
 - `TransferActiveTaskWorkflowTask` / `TransferStandbyTaskWorkflowTask` — workflow-task dispatch
 
@@ -18,6 +20,8 @@ A history task is sent to the DLQ after it fails processing with *unexpected* er
 ### Why it matters
 
 When the dead-lettered task is an `ActivityRetryTimer` or `ActivityTimeout`, the activity's next attempt is never dispatched — it sits "pending / scheduled" with nothing in the task queue and **never self-recovers**.
+
+When it is a `UserTimer` or `WorkflowBackoffTimer`, the timer never fires: the history service creates the task for a workflow's next timer only once, so the workflow stays asleep (or, for a start timer, never runs its first workflow task) until the DLQ is redriven.
 
 The usual trigger is a prolonged database outage or overload: persistence operations start timing out (`context deadline exceeded` / `context canceled`), which count as unexpected errors. After ~1h (70 attempts) a wave of timer/retry tasks crosses the threshold and dead-letters. DB-agnostic — the same on Cassandra and SQL.
 

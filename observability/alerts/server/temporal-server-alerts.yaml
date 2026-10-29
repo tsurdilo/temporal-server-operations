@@ -1510,7 +1510,7 @@ groups:
       datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
       model:
         editorMode: code
-        expr: sum(rate(task_terminal_failures{operation=~"Timer(Active|Standby)TaskActivity(RetryTimer|Timeout)|Transfer(Active|Standby)Task(Activity|WorkflowTask)"}[5m]))
+        expr: sum(rate(task_terminal_failures{operation=~"Timer(Active|Standby)Task(ActivityRetryTimer|ActivityTimeout|UserTimer|WorkflowBackoffTimer)|Transfer(Active|Standby)Task(Activity|WorkflowTask)"}[5m]))
         instant: true
         intervalMs: 1000
         maxDataPoints: 43200
@@ -1559,7 +1559,7 @@ groups:
       __dashboardUid__: temporal-overview-v1
       __panelId__: '2202'
       summary: 'Temporal: history tasks being dead-lettered and stranding executions ({{ $values.B.Value | printf "%.3f" }} tasks/s)'
-      description: 'Execution-stranding history tasks are being written to the history task DLQ (activity retry/timeout timers or activity/workflow-task dispatch). A DLQ''d task is removed from the active queue and is NOT auto-retried — for a retrying activity this strands the activity until an operator redrives the DLQ or pause/unpauses it. This is typically triggered by a prolonged database outage/overload driving persistence operations to time out (context deadline exceeded), which counts toward history.TaskDLQUnexpectedErrorAttempts (default 70 ≈ 1h). DB-agnostic (Cassandra and SQL alike).
+      description: 'Execution-stranding history tasks are being written to the history task DLQ (activity retry/timeout timers, user timers, workflow start timers, or activity/workflow-task dispatch). A DLQ''d task is removed from the active queue and is NOT auto-retried — for a retrying activity this strands the activity until an operator redrives the DLQ or pause/unpauses it; a dead-lettered user or start timer never fires, leaving the workflow asleep until the DLQ is redriven. This is typically triggered by a prolonged database outage/overload driving persistence operations to time out (context deadline exceeded), which counts toward history.TaskDLQUnexpectedErrorAttempts (default 70 ≈ 1h). DB-agnostic (Cassandra and SQL alike).
 
 
         This condition is intentionally strict (any rate > 0 sustained 10m). If your cluster legitimately produces occasional stranding-type DLQ writes, raise the threshold or the `for` window to suit — see the runbook.

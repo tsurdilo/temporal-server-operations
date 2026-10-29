@@ -1,5 +1,27 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.32.1 — 2026-10-28
+
+### Fixed
+
+- **Workflow Task StartToClose Timeouts per Namespace (sticky tq) (134)**: the readme row now uses the panel's actual title.
+
+## v2.32.0 — 2026-10-28
+
+### Changed
+
+- **Dead-Lettered Tasks — Execution-Stranding (page-worthy) (2202)**,
+  **Leading Indicator — Unexpected Errors on Stranding Task Types (2205)** and
+  **Task Retry Depth — Stranding Types (approaching DLQ) (2207)**: the stranding task types now
+  include user timers (`UserTimer`) and workflow start timers (`WorkflowBackoffTimer`).
+
+## v2.31.0 — 2026-10-28
+
+### Added
+
+- **Timer Tasks Processed by Type (2800)**, on the **History Timer Task Info** row: timer task
+  processing attempts in the selected namespace, by timer type (`task_requests` by `operation`).
+
 ## v2.30.2 — 2026-10-21
 
 ### Fixed
