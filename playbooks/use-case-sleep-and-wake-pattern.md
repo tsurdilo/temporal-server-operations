@@ -216,10 +216,7 @@ other add pressure, and why the size of the event history matters.
      its **worker in-memory cache**. A workflow woken by a user timer usually has a sticky queue.
    - **The normal task queue** otherwise, polled by all SDK workers on that task queue. A workflow
      woken by a start timer (a start delay or the cron start option) always uses it: the wake-up is
-     the run's first workflow task, so no SDK worker has completed one for it yet
-     ([section 1.4](#14-workflows-started-with-a-start-delay-or-the-cron-start-option)).
-
-   [Section 2.1](#21-timer-tasks-in-the-history-service).
+     the run's first workflow task, so no SDK worker has completed one for it yet.
 2. **The matching service pairs the workflow task with a poll on the same task queue.**
    An SDK worker asks for workflow tasks with `PollWorkflowTaskQueue` requests to the frontend
    service, which passes them on to the matching service. Each request names one task queue: the
@@ -227,7 +224,6 @@ other add pressure, and why the size of the event history matters.
    between the two. With no poll waiting, the workflow task waits in a backlog. If the SDK worker
    behind a sticky queue has stopped polling, or does not pick the workflow task up in time, the
    history service puts the wake-up on the normal task queue instead.
-   [Section 2.2](#22-workflow-tasks-in-the-matching-service).
 3. **The history service records the workflow task as started and reads its history events.**
    Before it answers the poll, the matching service asks the history service to record it as
    started. The history service reads from the database the events to send with it:
@@ -237,7 +233,6 @@ other add pressure, and why the size of the event history matters.
 
    The history service returns those events to the matching service. The matching service returns
    the workflow task and its events to the frontend service, which answers the SDK worker's poll.
-   [Section 2.3](#23-reading-the-event-history-when-a-workflow-task-is-recorded-as-started).
 4. **The SDK worker runs the workflow task.**
    - If the workflow is in its worker in-memory cache, it applies the new events and runs the
      workflow's next step.
@@ -245,8 +240,6 @@ other add pressure, and why the size of the event history matters.
      one page at a time: the whole event history if the workflow task came from the sticky queue,
      or the pages after the first one if it came from the normal task queue. Each page is another
      database read.
-
-   [Section 2.4](#24-event-history-replay-and-task-slots-on-sdk-workers).
 
 [Sections 2.1 to 2.4](#21-timer-tasks-in-the-history-service) take the four steps of a wake-up
 one at a time, and what each step costs.
@@ -369,9 +362,9 @@ events either way. How many events it reads depends on which task queue the work
 from:
 
 - **The workflow's sticky queue.** The history service reads only the new events, a few rows. If the
-  workflow is no longer in the SDK worker's worker in-memory cache, the SDK worker then fetches the
-  whole event history itself. After a sleep of hours this is likely: the cache drops the least
-  recently used workflows when it is full.
+  workflow is no longer in the worker in-memory cache of that SDK worker, the SDK worker then
+  fetches the whole event history itself. After a sleep of hours this is likely: the cache drops the
+  least recently used workflows when it is full.
 - **The workflow's normal task queue.** The history service reads the first page of the workflow's
   whole history, and the SDK worker that picks the task up fetches the rest. A user-timer wake-up
   uses the normal task queue in two cases:
@@ -387,8 +380,8 @@ history: its start event with the input, plus any signals received while it wait
 ([section 1.4](#14-workflows-started-with-a-start-delay-or-the-cron-start-option)).
 
 **You do not fully control whether a wake-up reads only the new events or the full event history.**
-That depends on the SDK workers' worker in-memory caches, how busy the SDK workers are, and whether
-they were restarted or scaled down while the workflow slept.
+That depends on the worker in-memory caches of the SDK workers, how busy the SDK workers are, and
+whether they were restarted or scaled down while the workflow slept.
 
 **For a long-running workflow, every wake-up finds a larger event history than the one before.**
 Each cycle adds events, so both the event history count and the event history size grow, and so
@@ -404,9 +397,9 @@ history events it was sent.
 
 Every workflow task takes one of the SDK worker's workflow task slots until it completes, and the
 time it takes counts against the **workflow task timeout** (10 seconds by default, set per workflow
-when it is started). If the workflow is not in the SDK worker's worker in-memory cache, that time
-includes fetching the remaining pages of the event history and replaying it. The larger the event
-history, the longer this takes:
+when it is started). If the workflow is not in the worker in-memory cache of the SDK worker, that
+time includes fetching the remaining pages of the event history and replaying it. The larger the
+event history, the longer this takes:
 
 - the workflow task slot stays busy for longer, so the SDK worker can run fewer workflow tasks at
   once;
@@ -531,7 +524,7 @@ The timer tasks of [section 2.1](#21-timer-tasks-in-the-history-service) show on
 | What to look at | Normal at the wake-up time | Worth acting on | Related sections and alerts |
 |---|---|---|---|
 | Timer tasks across the whole cluster, on **[Total Timer Tasks Processed](../observability/dashboards/server/temporal-server-readme.md#10-history-timer-task-info)** | A spike at the wake-up time that drops back within minutes | The spike at the wake-up time gets higher over time (see [section 4.5](#45-trends-that-show-the-wake-up-bursts-growing)) | [5.2](#52-spread-the-wake-up-times-workflow-implementation) |
-| Timer types in the namespace selected on the dashboard, on **[Timer Tasks Processed by Type](../observability/dashboards/server/temporal-server-readme.md#10-history-timer-task-info)**: user timers as `TimerActiveTaskUserTimer`, start timers ([section 1.4](#14-workflows-started-with-a-start-delay-or-the-cron-start-option)) and workflow retry waits as `TimerActiveTaskWorkflowBackoffTimer` | The timer type your workflows use spikes at the wake-up time. `TimerActiveTaskWorkflowTaskTimeout` rises with it: these are checks for the woken workflows' workflow task timeouts, processed even when the workflow task finished in time, not timeouts | The spike of that type gets higher over time (see [section 4.5](#45-trends-that-show-the-wake-up-bursts-growing)) | [5.2](#52-spread-the-wake-up-times-workflow-implementation) |
+| Timer types in the namespace selected on the dashboard, on **[Timer Tasks Processed by Type](../observability/dashboards/server/temporal-server-readme.md#10-history-timer-task-info)**: user timers as `TimerActiveTaskUserTimer`, start timers ([section 1.4](#14-workflows-started-with-a-start-delay-or-the-cron-start-option)) and workflow retry waits as `TimerActiveTaskWorkflowBackoffTimer` | The timer type your workflows use spikes at the wake-up time. `TimerActiveTaskWorkflowTaskTimeout` rises with it: these are checks for the workflow task timeouts of the woken workflows, processed even when the workflow task finished in time, not timeouts | The spike of that type gets higher over time (see [section 4.5](#45-trends-that-show-the-wake-up-bursts-growing)) | [5.2](#52-spread-the-wake-up-times-workflow-implementation) |
 | How long each timer task takes, on **[Timer Task Processing Latency](../observability/dashboards/server/temporal-server-readme.md#10-history-timer-task-info)** | Rises during the spike and drops back once the spike has drained | Stays high after the spike | [History Task Processing](./history-task-processing-tuning.md#2-how-task-processing-works); [alert 35](../observability/alerts/server/alerts-index.md#alert-35--timer-task-processing-latency-high) |
 | Whether timers fire late, on **[Task Load Latency by Task Type](../observability/dashboards/server/temporal-server-readme.md#9-shard-queue-health)** (the `TimerActive` series, at the 0.95 percentile) | Close to zero, with a short rise at the wake-up time | Keeps rising after the wake-up time: the timer queue is behind and timers fire late | [History Task Processing](./history-task-processing-tuning.md#2-how-task-processing-works) |
 | The workflow's current state loaded from the database when it is not in the history cache: the `GetWorkflowExecution` persistence operation on **[Persistence Requests Total per Operation](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** | Rises with the spike: workflows that slept longer than an hour have their current state read back | **[Write-Reject Loop Indicator (cleared / cache miss)](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** well above its healthy value, or `PersistenceLimit` on **[Resource Exhausted with Cause](../observability/dashboards/server/temporal-server-readme.md#6-throttling-and-limits)**: refused writes are turning into extra reads | [History Task Processing: the write-reject loop](./history-task-processing-tuning.md#3-what-happens-when-the-persistence-limit-refuses-a-tasks-write); [History Persistence QPS Limits](./history-persistence-qps-limits.md#41-first-confirm-the-limiter-is-what-rejected-the-calls); [alert 87](../observability/alerts/server/alerts-index.md#alert-87--history-write-reject-loop), [alert 29](../observability/alerts/server/alerts-index.md#alert-29--rpsqps-throttling-active) |
@@ -593,10 +586,7 @@ history shows there as:
 Most of these reads come from storage rather than the database's memory, because event history
 rows written hours or days before the wake-up are usually no longer in its memory cache. Storage
 read I/O at its limit with low CPU means the storage limits how fast the wake-ups can read their
-event histories. [Sections 5.1](#51-continue-as-new-before-the-long-sleep-workflow-implementation) and
-[5.3](#53-keep-payloads-small-workflow-implementation) reduce these reads, and
-[section 5.5](#55-cluster-limits-and-database-capacity-cluster) covers the storage read I/O to keep until
-they do.
+event histories.
 
 The next step of a wake-up is on the SDK worker: it replays the event history it was sent, and
 holds a workflow task slot while it does. [Section 4.4](#44-event-history-replay-and-task-slot-metrics-on-sdk-workers) covers the
@@ -836,8 +826,8 @@ by up to the largest random extra time you choose, so pick a range the use case 
 cluster does no extra work: the timers fire over a longer period instead of all at once.
 
 Fewer wake-ups at once lowers the peak.
-[Section 5.3](#53-keep-payloads-small-workflow-implementation) lowers what each event in an event
-history weighs.
+[Section 5.3](#53-keep-payloads-small-workflow-implementation) makes each event in an event history
+smaller, by keeping its payloads small.
 
 ### 5.3 Keep payloads small (workflow implementation)
 
