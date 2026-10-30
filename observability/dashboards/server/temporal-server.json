@@ -2581,50 +2581,6 @@
             "x": 0,
             "y": 18
           },
-          "id": 142,
-          "title": "Transfer Active Task Errors Limit Exceeded",
-          "description": "Rate of limit exceeded errors for active transfer operations.",
-          "type": "timeseries",
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "min",
-                "max",
-                "mean",
-                "lastNotNull"
-              ]
-            }
-          },
-          "targets": [
-            {
-              "expr": "sum(rate(task_errors_limit_exceeded_counter{operation=~\"TransferActive.*\",namespace=\"$namespace\"}[$__rate_interval]))",
-              "legendFormat": "limit exceeded/s",
-              "refId": "A"
-            }
-          ]
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "lineWidth": 2
-              }
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 7,
-            "w": 24,
-            "x": 0,
-            "y": 25
-          },
           "id": 143,
           "title": "Transfer Active Task Errors Workflow Busy",
           "description": "Rate of transfer active tasks throttled by workflow-lock contention (task_errors_throttled, cause BusyWorkflow). Replaces the never-emitted task_errors_workflow_busy counter used before v2.8.0.",
@@ -2667,7 +2623,7 @@
             "h": 7,
             "w": 24,
             "x": 0,
-            "y": 32
+            "y": 25
           },
           "id": 144,
           "title": "Transfer Active Task Errors Throttled",
@@ -9874,7 +9830,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.32.1",
+  "title": "Temporal Server Dashboard v2.33.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

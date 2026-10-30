@@ -4,7 +4,7 @@ A comprehensive Grafana dashboard for monitoring a self-hosted [Temporal](https:
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v2.32.1 — see [CHANGELOG](./temporal-server-changelog.md)
+> **Current version:** v2.33.0 — see [CHANGELOG](./temporal-server-changelog.md)
 
 ---
 
@@ -214,7 +214,6 @@ Tracks throttling events specific to the `BusyWorkflow` cause. This occurs when 
 | Panel | Description |
 |---|---|
 | **Transfer Active Task Errors Discarded** | Rate of active transfer task errors that were discarded. Indicates the cluster gave up retrying a task after repeated failures. |
-| **Transfer Active Task Errors Limit Exceeded** | Rate of active transfer task errors caused by internal processing rate limit exceeded conditions. |
 | **Transfer Active Task Errors Workflow Busy** | Rate of transfer active tasks throttled by workflow-lock contention — `task_errors_throttled` with cause `BusyWorkflow` (as of v2.8.1; earlier versions queried the never-emitted `task_errors_workflow_busy` counter, and v2.8.0 used the wrong cause value — both read flat). **Primary signal for busy workflow throttling.** A sustained rate typically indicates a workflow type receiving very high update rates, or elevated DB latency causing workflow locks to be held longer than expected. |
 | **Transfer Active Task Errors Throttled** | Rate of throttled active transfer task errors broken down by namespace and resource exhausted cause. Useful for identifying which namespaces are experiencing the most busy workflow throttling. |
 

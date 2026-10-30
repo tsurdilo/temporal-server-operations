@@ -1,5 +1,12 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.33.0 — 2026-10-30
+
+### Removed
+
+- **Transfer Active Task Errors Limit Exceeded (142)**: its metric,
+  `task_errors_limit_exceeded_counter`, is not emitted by any Temporal server release.
+
 ## v2.32.1 — 2026-10-28
 
 ### Fixed
