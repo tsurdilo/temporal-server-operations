@@ -294,7 +294,7 @@ groups:
             Check the [**Persistence Latencies** panel (§3 — Persistence Requests, Latencies and Errors)](../../../dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors) filtered to `CreateWorkflowExecution` and `UpdateWorkflowExecution` — high persistence latency is the most common root cause of cascading throttling on these operations. If the database is slow, the frontend service backs up and starts throttling callers.
 
             **3. Check namespace RPS limits.**
-            If the cause is `RpsLimit`, check whether `frontend.namespaceRPS` is set too low for your current traffic volume. Consider increasing it via dynamic config — but only after confirming persistence latency is healthy, otherwise increasing RPS into an already overloaded system will make things worse.
+            If the cause is `RpsLimit`, check whether `frontend.namespaceRPS` (or `frontend.globalNamespaceRPS` if your cluster sets it, because then it replaces `frontend.namespaceRPS`) is set too low for your current traffic volume. Consider increasing it via dynamic config — but only after confirming persistence latency is healthy, otherwise increasing RPS into an already overloaded system will make things worse.
 
             **4. Check total cluster RPS.**
             Check the [**Total RPS** panel (§1 — Cluster Throughput)](../../../dashboards/server/temporal-server-readme.md) — if total cluster RPS is at or near capacity, the problem is cluster-level saturation, not namespace limits. Consider scaling frontend pods or the underlying database.
@@ -362,7 +362,7 @@ groups:
             Check the [**Persistence Latencies** panel (§3 — Persistence Requests, Latencies and Errors)](../../../dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors) filtered to `UpdateWorkflowExecution` — high persistence latency on this operation is the most common root cause of throttling on respond operations. The frontend service backs up when the database is slow and starts shedding load.
 
             **3. Check namespace RPS limits.**
-            If the cause is `RpsLimit`, consider increasing `frontend.namespaceRPS` via dynamic config — but only after confirming persistence latency is healthy.
+            If the cause is `RpsLimit`, consider increasing `frontend.namespaceRPS` (or `frontend.globalNamespaceRPS` if your cluster sets it) via dynamic config — but only after confirming persistence latency is healthy.
 
             **4. Check for cascading timeouts.**
             Cross-check alert [#1a — NOT_FOUND on WFT Respond Operations](./01a-not-found-wft-respond.md) and alert [#1b — NOT_FOUND on Activity Respond Operations](./01b-not-found-activity-respond.md) — if those are also firing, throttling has already cascaded into task timeouts.

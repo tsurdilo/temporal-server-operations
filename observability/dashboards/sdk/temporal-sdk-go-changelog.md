@@ -1,5 +1,30 @@
 # Changelog — Temporal Go SDK Dashboard
 
+## v1.5.0 — 2026-11-01
+
+### Fixed
+
+- **Nexus Execution Failed (83)**, **Nexus Schedule To Start Latency (84)**, **Nexus Execution Latency (85)**: queries now use the Go SDK names `temporal_nexus_task_execution_failed`, `temporal_nexus_task_schedule_to_start_latency_bucket`, `temporal_nexus_task_execution_latency_bucket`; the old names do not exist and the panels were always empty.
+- **Request Latency (7)**, **Workflow Task Schedule To Start Latency (22)**, **Activity Schedule To Start Latency (23)**, **Workflow Task Execution Latency (44)**, **Local Activity Execution Latency (75)**: thresholds set in seconds (1/2, 1/5, 300/1800, 5/10, 900/1800); they were in milliseconds on panels that show seconds.
+
+---
+
+## v1.4.0 — 2026-11-01
+
+### Changed
+
+- All 45 panel queries and the Namespace variable: series from the Temporal server's own SDK clients and workers (`service_name` one of `frontend`, `internal_frontend`, `history`, `matching`, `worker`, `server`) are left out.
+
+---
+
+## v1.3.1 — 2026-11-01
+
+### Fixed
+
+- **Sticky Cache Forced Evictions (55)**: description now says the counter also counts completed workflows and cached workflows dropped for a full event history; orange threshold at any non-zero value removed.
+
+---
+
 ## v1.3.0 — 2026-06-17
 
 ### Changed — Alert threshold alignment

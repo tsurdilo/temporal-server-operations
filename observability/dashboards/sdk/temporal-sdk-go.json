@@ -118,7 +118,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, operation, status_code) (rate(temporal_request{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (namespace, operation, status_code) (rate(temporal_request{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{operation}} - {{status_code}}",
               "refId": "A"
             }
@@ -162,7 +162,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, operation, status_code) (rate(temporal_long_request{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (namespace, operation, status_code) (rate(temporal_long_request{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{operation}} - {{status_code}}",
               "refId": "A"
             }
@@ -225,7 +225,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, operation, status_code) (rate(temporal_request_failure{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (namespace, operation, status_code) (rate(temporal_request_failure{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{operation}} - {{status_code}}",
               "refId": "A"
             }
@@ -288,7 +288,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, operation, status_code) (rate(temporal_long_request_failure{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (namespace, operation, status_code) (rate(temporal_long_request_failure{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{operation}} - {{status_code}}",
               "refId": "A"
             }
@@ -317,11 +317,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 1000
+                    "value": 1
                   },
                   {
                     "color": "red",
-                    "value": 2000
+                    "value": 2
                   }
                 ]
               },
@@ -355,7 +355,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_request_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (operation, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_request_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (operation, le))",
               "legendFormat": "{{operation}}",
               "refId": "A"
             }
@@ -399,7 +399,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_long_request_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (operation, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_long_request_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (operation, le))",
               "legendFormat": "{{operation}}",
               "refId": "A"
             }
@@ -480,7 +480,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, task_queue, worker_type) (rate(temporal_worker_start{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (namespace, task_queue, worker_type) (rate(temporal_worker_start{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{worker_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -524,7 +524,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, poller_type, task_queue) (rate(temporal_poller_start{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (namespace, poller_type, task_queue) (rate(temporal_poller_start{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{poller_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -591,7 +591,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, worker_type, task_queue) (temporal_worker_task_slots_available{namespace=\"$namespace\"})",
+              "expr": "sum by (namespace, worker_type, task_queue) (temporal_worker_task_slots_available{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"})",
               "legendFormat": "{{worker_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -635,7 +635,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, worker_type, task_queue) (temporal_worker_task_slots_used{namespace=\"$namespace\"})",
+              "expr": "sum by (namespace, worker_type, task_queue) (temporal_worker_task_slots_used{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"})",
               "legendFormat": "{{worker_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -696,7 +696,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, poller_type, task_queue) (temporal_num_pollers{namespace=\"$namespace\"})",
+              "expr": "sum by (namespace, poller_type, task_queue) (temporal_num_pollers{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"})",
               "legendFormat": "{{poller_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -740,7 +740,7 @@
           },
           "targets": [
             {
-              "expr": "sum(temporal_workflow_active_thread_count{namespace=\"$namespace\"})",
+              "expr": "sum(temporal_workflow_active_thread_count{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"})",
               "legendFormat": "goroutines",
               "refId": "A"
             }
@@ -821,7 +821,7 @@
           },
           "targets": [
             {
-              "expr": "sum(rate(temporal_sticky_cache_hit{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum(rate(temporal_sticky_cache_hit{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "cache hits/s",
               "refId": "A"
             }
@@ -888,7 +888,7 @@
           },
           "targets": [
             {
-              "expr": "sum(rate(temporal_sticky_cache_miss{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum(rate(temporal_sticky_cache_miss{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "cache misses/s",
               "refId": "A"
             }
@@ -932,7 +932,7 @@
           },
           "targets": [
             {
-              "expr": "sum(temporal_sticky_cache_size{namespace=\"$namespace\"})",
+              "expr": "sum(temporal_sticky_cache_size{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"})",
               "legendFormat": "cache size",
               "refId": "A"
             }
@@ -947,26 +947,7 @@
             "defaults": {
               "unit": "short",
               "custom": {
-                "lineWidth": 2,
-                "thresholdsStyle": {
-                  "mode": "dashed"
-                }
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "orange",
-                    "value": 1
-                  }
-                ]
-              },
-              "color": {
-                "mode": "thresholds"
+                "lineWidth": 2
               }
             },
             "overrides": []
@@ -979,7 +960,7 @@
           },
           "id": 55,
           "title": "Sticky Cache Forced Evictions",
-          "description": "Rate of workflow executions forcibly evicted from the sticky cache.",
+          "description": "Rate of workflows dropped from the sticky cache. Besides workflows dropped to make room, it counts every workflow that completes, and every cached workflow dropped because a workflow task arrived with the full event history, so it is not zero on a healthy worker. The cache is too small only when this is non-zero while Sticky Cache Size is at its limit (SetStickyWorkflowCacheSize, default 10,000).",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -995,7 +976,7 @@
           },
           "targets": [
             {
-              "expr": "sum(rate(temporal_sticky_cache_total_forced_eviction{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum(rate(temporal_sticky_cache_total_forced_eviction{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "forced evictions/s",
               "refId": "A"
             }
@@ -1082,7 +1063,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (workflow_type, task_queue) (increase(temporal_workflow_completed{namespace=\"$namespace\"}[$__range]))",
+              "expr": "sum by (workflow_type, task_queue) (increase(temporal_workflow_completed{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__range]))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1132,7 +1113,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (workflow_type, task_queue) (increase(temporal_workflow_canceled{namespace=\"$namespace\"}[$__range]))",
+              "expr": "sum by (workflow_type, task_queue) (increase(temporal_workflow_canceled{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__range]))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1186,7 +1167,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (workflow_type, task_queue) (increase(temporal_workflow_failed{namespace=\"$namespace\"}[$__range]))",
+              "expr": "sum by (workflow_type, task_queue) (increase(temporal_workflow_failed{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__range]))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1236,7 +1217,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (workflow_type, task_queue) (increase(temporal_workflow_continue_as_new{namespace=\"$namespace\"}[$__range]))",
+              "expr": "sum by (workflow_type, task_queue) (increase(temporal_workflow_continue_as_new{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__range]))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1280,7 +1261,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_workflow_endtoend_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (workflow_type, task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_workflow_endtoend_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (workflow_type, task_queue, le))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1346,11 +1327,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 1000
+                    "value": 1
                   },
                   {
                     "color": "red",
-                    "value": 5000
+                    "value": 5
                   }
                 ]
               },
@@ -1384,7 +1365,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_workflow_task_schedule_to_start_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_workflow_task_schedule_to_start_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (task_queue, le))",
               "legendFormat": "{{task_queue}}",
               "refId": "A"
             }
@@ -1413,11 +1394,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 300000
+                    "value": 300
                   },
                   {
                     "color": "red",
-                    "value": 1800000
+                    "value": 1800
                   }
                 ]
               },
@@ -1451,7 +1432,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_activity_schedule_to_start_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (activity_type, task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_activity_schedule_to_start_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (activity_type, task_queue, le))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1532,7 +1513,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (workflow_type, task_queue) (rate(temporal_workflow_task_queue_poll_empty{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (workflow_type, task_queue) (rate(temporal_workflow_task_queue_poll_empty{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1576,7 +1557,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (workflow_type, task_queue) (rate(temporal_workflow_task_queue_poll_succeed{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (workflow_type, task_queue) (rate(temporal_workflow_task_queue_poll_succeed{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1602,11 +1583,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 5000
+                    "value": 5
                   },
                   {
                     "color": "red",
-                    "value": 10000
+                    "value": 10
                   }
                 ]
               }
@@ -1637,7 +1618,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_workflow_task_execution_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (workflow_type, task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_workflow_task_execution_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (workflow_type, task_queue, le))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1703,7 +1684,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_workflow_task_replay_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (workflow_type, task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_workflow_task_replay_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (workflow_type, task_queue, le))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1763,7 +1744,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (workflow_type, task_queue, failure_reason) (rate(temporal_workflow_task_execution_failed{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (workflow_type, task_queue, failure_reason) (rate(temporal_workflow_task_execution_failed{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{workflow_type}} - {{task_queue}} - {{failure_reason}}",
               "refId": "A"
             }
@@ -1823,7 +1804,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (workflow_type, task_queue) (rate(temporal_workflow_task_no_completion{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (workflow_type, task_queue) (rate(temporal_workflow_task_no_completion{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{workflow_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1904,7 +1885,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_activity_poll_no_task{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (activity_type, task_queue) (rate(temporal_activity_poll_no_task{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -1971,7 +1952,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_activity_execution_failed{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (activity_type, task_queue) (rate(temporal_activity_execution_failed{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2031,7 +2012,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_activity_task_error{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (activity_type, task_queue) (rate(temporal_activity_task_error{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2094,7 +2075,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_unregistered_activity_invocation{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (activity_type, task_queue) (rate(temporal_unregistered_activity_invocation{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2138,7 +2119,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_activity_execution_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (activity_type, task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_activity_execution_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (activity_type, task_queue, le))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2182,7 +2163,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_activity_succeed_endtoend_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (activity_type, task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_activity_succeed_endtoend_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (activity_type, task_queue, le))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2282,7 +2263,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_local_activity_execution_failed{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (activity_type, task_queue) (rate(temporal_local_activity_execution_failed{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2345,7 +2326,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_local_activity_execution_cancelled{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (activity_type, task_queue) (rate(temporal_local_activity_execution_cancelled{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2408,7 +2389,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (activity_type, task_queue) (rate(temporal_local_activity_error{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (activity_type, task_queue) (rate(temporal_local_activity_error{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2437,11 +2418,11 @@
                   },
                   {
                     "color": "orange",
-                    "value": 900000
+                    "value": 900
                   },
                   {
                     "color": "red",
-                    "value": 1800000
+                    "value": 1800
                   }
                 ]
               },
@@ -2475,7 +2456,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_local_activity_execution_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (activity_type, task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_local_activity_execution_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (activity_type, task_queue, le))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2541,7 +2522,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_local_activity_succeed_endtoend_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (activity_type, task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_local_activity_succeed_endtoend_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (activity_type, task_queue, le))",
               "legendFormat": "{{activity_type}} - {{task_queue}}",
               "refId": "A"
             }
@@ -2622,7 +2603,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, task_queue) (rate(temporal_nexus_poll_no_task{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (namespace, task_queue) (rate(temporal_nexus_poll_no_task{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{task_queue}}",
               "refId": "A"
             }
@@ -2682,7 +2663,7 @@
           },
           "targets": [
             {
-              "expr": "sum by (namespace, task_queue) (rate(temporal_nexus_execution_failed{namespace=\"$namespace\"}[$__rate_interval]))",
+              "expr": "sum by (namespace, task_queue) (rate(temporal_nexus_task_execution_failed{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval]))",
               "legendFormat": "{{task_queue}}",
               "refId": "A"
             }
@@ -2726,7 +2707,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_nexus_schedule_to_start_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_nexus_task_schedule_to_start_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (task_queue, le))",
               "legendFormat": "{{task_queue}}",
               "refId": "A"
             }
@@ -2770,7 +2751,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_nexus_execution_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_nexus_task_execution_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (task_queue, le))",
               "legendFormat": "{{task_queue}}",
               "refId": "A"
             }
@@ -2814,7 +2795,7 @@
           },
           "targets": [
             {
-              "expr": "histogram_quantile($p, sum(rate(temporal_nexus_task_endtoend_latency_bucket{namespace=\"$namespace\"}[$__rate_interval])) by (task_queue, le))",
+              "expr": "histogram_quantile($p, sum(rate(temporal_nexus_task_endtoend_latency_bucket{namespace=\"$namespace\", service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}[$__rate_interval])) by (task_queue, le))",
               "legendFormat": "{{task_queue}}",
               "refId": "A"
             }
@@ -2852,13 +2833,13 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(temporal_request, namespace)",
+        "definition": "label_values(temporal_request{service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}, namespace)",
         "hide": 0,
         "includeAll": false,
         "label": "Namespace",
         "multi": false,
         "name": "namespace",
-        "query": "label_values(temporal_request, namespace)",
+        "query": "label_values(temporal_request{service_name!~\"frontend|internal.frontend|history|matching|worker|server\"}, namespace)",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -2915,7 +2896,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Go SDK Dashboard v1.3.0",
+  "title": "Temporal Go SDK Dashboard v1.5.0",
   "uid": "temporal-sdk-go-v1",
   "version": 1,
   "weekStart": ""

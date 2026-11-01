@@ -118,7 +118,7 @@ component: worker | poller | cache | wft | activity | local-activity | request
 | 26 | [Activity Execution Failed Rate Elevated](./runbooks/26-activity-execution-failed.md) | ⚠️ Warning | activity | 2m |
 | 27 | [Unregistered Activity Invocation](./runbooks/27-unregistered-activity.md) ⚠️ Go SDK only | 🔴 Critical | activity | 1m |
 | 29 | [Local Activity Execution Latency Exceeds WFT Heartbeat Timeout](./runbooks/29-la-execution-latency-timeout.md) | 🔴 Critical | local-activity | 5m |
-| 30 | [Local Activity Total Execution Latency Exceeds WFT Heartbeat Timeout](./runbooks/30-la-total-latency-timeout.md) | 🔴 Critical | local-activity | 5m |
+| 30 | [Local Activity Total Execution Latency Exceeds WFT Heartbeat Timeout](./runbooks/30-la-total-latency-timeout.md) ⚠️ not in the Go SDK file (no such Go metric) | 🔴 Critical | local-activity | 5m |
 | 31 | [Request Latency High on Critical User-Facing Operations](./runbooks/31-request-latency-critical-ops.md) | 🔴 Critical | request | 5m |
 | 32 | [WFT Execution Latency Critical](./runbooks/32-wft-execution-latency-critical.md) | 🔴 Critical | wft | 5m |
 | 34 | [Sticky Cache Disabled](./runbooks/34-sticky-cache-disabled.md) | ⚠️ Warning | cache | 5m |

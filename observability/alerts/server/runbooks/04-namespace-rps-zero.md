@@ -21,5 +21,5 @@ Workers for that namespace have stopped receiving task assignments and clients c
 
 ### Relevant dynamic config
 
-- `frontend.namespaceRPS` — per-namespace per-host RPS limit; if set to `0` all requests for that namespace are rejected
-- `frontend.globalNamespaceRPS` — cluster-wide per-namespace RPS limit; if set to `0` same effect
+- `frontend.namespaceRPS` — per-namespace per-host RPS limit; if set to `0` (and `frontend.globalNamespaceRPS` is `0`) all requests for that namespace are rejected
+- `frontend.globalNamespaceRPS` — cluster-wide per-namespace RPS limit; `0` (the default) means it is off and `frontend.namespaceRPS` applies, so `0` does not reject anything. When set above `0` it replaces `frontend.namespaceRPS`, split evenly across frontend instances, so a very low value throttles the namespace

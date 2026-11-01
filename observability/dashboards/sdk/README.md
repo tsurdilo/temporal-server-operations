@@ -6,7 +6,7 @@ Grafana dashboards for monitoring Temporal SDK workers and clients.
 
 ## Dashboards
 
-### Temporal Go SDK Dashboard — v1.0.0
+### Temporal Go SDK Dashboard — v1.5.0
 
 Monitors Temporal Go SDK workers and clients using the default Prometheus metrics reporter.
 

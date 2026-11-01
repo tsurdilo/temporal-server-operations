@@ -228,8 +228,9 @@ other add pressure, and why the size of the event history matters.
    Before it answers the poll, the matching service asks the history service to record it as
    started. The history service reads from the database the events to send with it:
    - **Sticky queue:** only the events added since that SDK worker last ran the workflow.
-   - **Normal task queue:** the event history from the first event, up to one **page** (256 events
-     by default).
+   - **Normal task queue:** the event history from the first event, up to one **page**. The
+     database stores an event history as a series of writes, each holding one or more events, and
+     a page is up to 256 of those writes by default, usually several hundred events.
 
    The history service returns those events to the matching service. The matching service returns
    the workflow task and its events to the frontend service, which answers the SDK worker's poll.
@@ -387,7 +388,7 @@ whether they were restarted or scaled down while the workflow slept.
 Each cycle adds events, so both the event history count and the event history size grow, and so
 does the read when the full event history is needed. Take an **example workflow** that runs 10
 activities a day for 60 days, with a 3 KB input to each activity, and sleeps between them and
-overnight: its full event history is a few dozen KB on day 2 and about 2 MB on day 60, most of it
+overnight: its full event history is about 80 KB on day 2 and about 2.5 MB on day 60, most of it
 the 600 activity inputs (about 1.8 MB).
 
 [Section 2.4](#24-event-history-replay-and-task-slots-on-sdk-workers) covers what the SDK worker does with the
@@ -544,13 +545,16 @@ panels:
 | Workflow tasks waiting for an SDK worker, on **[Schedule to Start Latencies](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info)** and **[Approximate Task Backlog](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info)** | Schedule-to-start latency and the task queue backlog rise during the burst, and the task queue backlog drains within minutes | The task queue backlog keeps growing, or does not drain before the next burst | [Changing Task Queue Partitions](./change-task-queue-partitions.md#when-to-increase-partitions); [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers); [alert 48](../observability/alerts/server/alerts-index.md#alert-48--schedule-to-start-latency-high), [alert 50](../observability/alerts/server/alerts-index.md#alert-50--task-backlog-growing), [alert 88](../observability/alerts/server/alerts-index.md#alert-88--task-queue-partition-backlog-not-draining) |
 | Workflow tasks written to the backlog in the database, on **[Tasks Persisted to DB (can indicate task backlog)](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info)** | Some at the peak of the burst | High for the whole burst: most workflow tasks are going through the database instead of straight to a poll | [Changing Task Queue Partitions](./change-task-queue-partitions.md#how-a-partitions-throughput-works); [alert 52](../observability/alerts/server/alerts-index.md#alert-52--tasks-persisted-rate-high) |
 | Partitions of the workflow task queue falling behind, on **[Task Write Throttle Count by Partition](../observability/dashboards/server/task-queue-partitions-readme.md#row-3--backlog-write-path-2-ceiling)** and **[Approximate Backlog Age by Partition](../observability/dashboards/server/task-queue-partitions-readme.md#row-1--per-partition-backlog-drain--writeread-detection)** | No write throttling, and a backlog age under 5 seconds on every partition | Any write throttling, or a backlog age above 5 seconds: above that age the matching service stops matching workflow tasks straight to polls and sends every one through the database | [5.5](#55-cluster-limits-and-database-capacity-cluster); [Changing Task Queue Partitions](./change-task-queue-partitions.md#what-to-watch-on-the-dashboard); [alert 88](../observability/alerts/server/alerts-index.md#alert-88--task-queue-partition-backlog-not-draining) |
-| Sticky workflow tasks that timed out and were scheduled again on the normal task queue, on **[Workflow Task Schedule-to-Start Timeouts (sticky fallback)](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info)** | Close to zero; a few after an SDK worker restart | Rises at the wake-up time: SDK workers are not picking up their sticky tasks in time, and every such task becomes a read of the full event history | [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers); [alert 76](../observability/alerts/server/alerts-index.md#alert-76--workflow-task-scheduletostart-timeout) |
+| Sticky workflow tasks that timed out and were scheduled again on the normal task queue, on **[Workflow Task Schedule-to-Start Timeouts (sticky fallback)](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info)** | Close to zero; a few after an SDK worker restart | Rises at the wake-up time, and every such task becomes a read of the full event history. The cause: SDK workers too busy, or the frontend service refusing their polls (`RpsLimit` on **[Resource Exhausted with Cause](../observability/dashboards/server/temporal-server-readme.md#6-throttling-and-limits)**) | [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers); [5.5](#55-cluster-limits-and-database-capacity-cluster); [alert 76](../observability/alerts/server/alerts-index.md#alert-76--workflow-task-scheduletostart-timeout) |
 | Open polls on the frontend service, on **[Total Concurrent Pollers](../observability/dashboards/server/temporal-server-readme.md#15-pollers)** and **[Max Concurrent Pollers per Frontend Pod](../observability/dashboards/server/temporal-server-readme.md#15-pollers)** | Rises at the wake-up time when SDK workers add pollers as tasks arrive (poller autoscaling) or more SDK workers start; steady otherwise | **[Max Concurrent Pollers per Frontend Pod](../observability/dashboards/server/temporal-server-readme.md#15-pollers)** close to `frontend.namespaceCount`, which applies to each poll API on each frontend instance, or `ConcurrentLimit` on **[Resource Exhausted with Cause](../observability/dashboards/server/temporal-server-readme.md#6-throttling-and-limits)** | [5.5](#55-cluster-limits-and-database-capacity-cluster); [alert 58](../observability/alerts/server/alerts-index.md#alert-58--pollers-approaching-concurrent-limit) |
 
 > **Note:** no panel counts the sticky workflow tasks that the matching service rejects because the
 > SDK worker behind the sticky queue has stopped (the 10-second case in
-> [section 2.3](#23-reading-the-event-history-when-a-workflow-task-is-recorded-as-started)). Those show up
-> on the SDK side as cache misses and replays.
+> [section 2.3](#23-reading-the-event-history-when-a-workflow-task-is-recorded-as-started)). They are not
+> counted as cache misses on the SDK side either, because each rejected task arrives with the full event
+> history. They show only as more reads of the `ReadHistoryBranch` persistence operation on
+> **[Persistence Requests Total per Operation](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)**
+> ([section 4.3](#43-metrics-from-reading-the-event-history-in-the-database)).
 
 > **Note:** **[Task Write Throttle Count by Partition](../observability/dashboards/server/task-queue-partitions-readme.md#row-3--backlog-write-path-2-ceiling)** and
 > **[Approximate Backlog Age by Partition](../observability/dashboards/server/task-queue-partitions-readme.md#row-1--per-partition-backlog-drain--writeread-detection)**
@@ -604,7 +608,7 @@ in the same groups.
 |---|---|---|---|
 | Time until the matching service pairs a workflow task with an SDK worker's poll, on **[Workflow Task Schedule To Start Latency](../observability/dashboards/sdk/temporal-sdk-go-readme.md#5-schedule-to-start-latencies)** (**Schedule To Start Latencies** group) | Rises at the wake-up time and drops back within minutes. It measures the same wait as **[Schedule to Start Latencies](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info)** on the server dashboard, split by task queue | Stays high after the burst, or is high on some task queues while their backlog stays small: the SDK workers on those task queues do not have enough pollers or free slots, and more partitions would not help | [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers); [Changing Task Queue Partitions](./change-task-queue-partitions.md#recommendations-before-you-increase) |
 | Sticky workflow tasks for workflows already evicted from the worker in-memory cache, so the SDK worker fetches the full event history, on **[Sticky Cache Miss](../observability/dashboards/sdk/temporal-sdk-go-readme.md#3-worker-cache)** (**Worker Cache** group) | Rises at the wake-up time after sleeps of many hours | Also high for short sleeps during the day: the worker in-memory cache is too small, or SDK workers were restarted | [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers) |
-| Running workflows evicted from the worker in-memory cache because it is full, on **[Sticky Cache Size](../observability/dashboards/sdk/temporal-sdk-go-readme.md#3-worker-cache)** and **[Sticky Cache Forced Evictions](../observability/dashboards/sdk/temporal-sdk-go-readme.md#3-worker-cache)** (**Worker Cache** group) | Cache size at its limit | A steady rate of forced evictions, which cause the worker in-memory cache misses in the row above (Go SDK; see the note below for Java) | [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers) |
+| Running workflows evicted from the worker in-memory cache because it is full, on **[Sticky Cache Size](../observability/dashboards/sdk/temporal-sdk-go-readme.md#3-worker-cache)** and **[Sticky Cache Forced Evictions](../observability/dashboards/sdk/temporal-sdk-go-readme.md#3-worker-cache)** (**Worker Cache** group) | Cache size at its limit | Forced evictions while the cache size is at its limit, which cause the worker in-memory cache misses in the row above (Go SDK; see the notes below) | [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers) |
 | Time spent replaying the event history, on **[Workflow Task Replay Latency](../observability/dashboards/sdk/temporal-sdk-go-readme.md#6-workflow-task-info)** (**Workflow Task Info** group) | Rises at the wake-up time | Getting close to the workflow task timeout (10 seconds by default) | [5.1](#51-continue-as-new-before-the-long-sleep-workflow-implementation), [5.3](#53-keep-payloads-small-workflow-implementation) |
 | Available workflow task slots on the SDK worker, on **[Worker Task Slots Available](../observability/dashboards/sdk/temporal-sdk-go-readme.md#2-worker-lifecycle)** (**Worker Lifecycle** group) | Dips during the burst | Stays at zero for a long period, not just for a moment at the wake-up time | [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers) |
 | History page requests throttled: `GetWorkflowExecutionHistory` with `RESOURCE_EXHAUSTED` on **[Request Failures](../observability/dashboards/sdk/temporal-sdk-go-readme.md#1-grpc-requests-and-request-latencies)** (**gRPC Requests and Request Latencies** group), and `RpsLimit` on **[Resource Exhausted with Cause](../observability/dashboards/server/temporal-server-readme.md#6-throttling-and-limits)** | None | Any during the burst | [5.5](#55-cluster-limits-and-database-capacity-cluster); [alert 5](../observability/alerts/server/alerts-index.md#alert-5--namespace-rps-approaching-limit), [alert 6](../observability/alerts/server/alerts-index.md#alert-6--namespace-rps-over-limit) |
@@ -613,8 +617,10 @@ in the same groups.
 Two differences between SDKs matter when reading the SDK panels:
 
 - **Go SDK:** **[Sticky Cache Forced Evictions](../observability/dashboards/sdk/temporal-sdk-go-readme.md#3-worker-cache)**
-  counts every time the cache drops a running workflow to make room, so a steady non-zero rate means
-  the cache is smaller than the number of workflows that SDK worker is serving.
+  also counts every workflow that completes, so it is never zero on an SDK worker whose workflows
+  complete. The cache is too small only when there are forced evictions while
+  **[Sticky Cache Size](../observability/dashboards/sdk/temporal-sdk-go-readme.md#3-worker-cache)** is at
+  its limit.
 - **Java SDK:** **[Sticky Cache Forced Evictions](../observability/dashboards/sdk/temporal-sdk-java-micrometer-readme.md#3-worker-cache)** on the
   Java dashboards counts workflows dropped to free a workflow thread, and workflows removed from the
   cache when they complete or fail. It does not count workflows dropped because the cache is full,
@@ -695,7 +701,7 @@ benefits:
   ([section 2.3](#23-reading-the-event-history-when-a-workflow-task-is-recorded-as-started)) reads one cycle of events
   instead of the workflow's whole past. In the
   [example workflow in section 2.3](#23-reading-the-event-history-when-a-workflow-task-is-recorded-as-started), that is
-  about 30 KB and 110 events, a single page, instead of about 2 MB and 6,600 events, some 26 pages,
+  about 40 KB and 110 events, a single page, instead of about 2.5 MB and 6,600 events, some 15 pages,
   by day 60.
 - **Shorter event history replays on the SDK workers.** Replaying one cycle of events takes far less
   time, so each wake-up holds a workflow task slot for less time and stays well inside the workflow
@@ -932,7 +938,9 @@ keeps its cache and keeps polling its sticky queue, which brings these benefits:
 [section 4](#4-observing-the-pressure-from-the-timer-firings-on-your-dashboards):
 
 - **[Sticky Cache Miss](../observability/dashboards/sdk/temporal-sdk-go-readme.md#3-worker-cache)** is lower at the wake-up time
-  ([section 4.4](#44-event-history-replay-and-task-slot-metrics-on-sdk-workers)).
+  after the cache is made larger
+  ([section 4.4](#44-event-history-replay-and-task-slot-metrics-on-sdk-workers)). Keeping SDK workers
+  running does not show on this panel; it shows as fewer reads of the `ReadHistoryBranch` persistence operation, in the bullet below.
 - **[Workflow Task Schedule-to-Start Timeouts (sticky fallback)](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info)**
   stays close to zero ([section 4.2](#42-workflow-task-metrics-in-the-matching-service)).
 - The `ReadHistoryBranch` persistence operation on
@@ -982,13 +990,15 @@ the database reaching a limit during the wake-ups, tune the part they point to:*
   workflows that wake on the normal task queue: workflows started with a start delay or the cron
   start option, and workflows whose SDK workers were restarted or scaled down while they slept.
 - **The SDK workers' requests refused by the frontend service** ([sections 4.2](#42-workflow-task-metrics-in-the-matching-service)
-  and [4.4](#44-event-history-replay-and-task-slot-metrics-on-sdk-workers)): `RpsLimit` on `GetWorkflowExecutionHistory` or
-  `ConcurrentLimit` on the poll APIs in
+  and [4.4](#44-event-history-replay-and-task-slot-metrics-on-sdk-workers)): `RpsLimit` on `GetWorkflowExecutionHistory` or on
+  the poll APIs, or `ConcurrentLimit` on the poll APIs, in
   **[Resource Exhausted with Cause](../observability/dashboards/server/temporal-server-readme.md#6-throttling-and-limits)** means the namespace's
-  frontend limits are too low for the wake-ups. Raise `frontend.namespaceRPS` (history page
-  requests have a lower priority than starts, signals and task completions, so they are throttled
-  before those) or `frontend.namespaceCount` (open polls grow with the number of SDK workers and
-  their pollers) for the namespace.
+  frontend limits are too low for the wake-ups. For `RpsLimit`, raise `frontend.namespaceRPS` for
+  the namespace, or `frontend.globalNamespaceRPS` if your cluster sets it, because then it replaces
+  `frontend.namespaceRPS`. History page requests and polls have a lower priority than starts,
+  signals and task completions, so they are throttled first. For `ConcurrentLimit`, raise
+  `frontend.namespaceCount` for the namespace (open polls grow with the number of SDK workers and
+  their pollers).
 - **The database itself** ([section 4.3](#43-metrics-from-reading-the-event-history-in-the-database)): check your database's own
   metrics at the wake-up time, especially storage read I/O and CPU. Storage read I/O at its limit
   with low CPU means the database needs more storage read I/O, not more CPU. Keep that storage read
@@ -1030,8 +1040,8 @@ wake-ups bring these benefits:
   ([section 4.1](#41-timer-task-metrics-in-the-history-service)).
 - **The frontend service does not throttle the SDK workers:**
   **[Resource Exhausted with Cause](../observability/dashboards/server/temporal-server-readme.md#6-throttling-and-limits)** shows no `RpsLimit` on
-  `GetWorkflowExecutionHistory` and no `ConcurrentLimit` on `PollWorkflowTaskQueue` or
-  `PollActivityTaskQueue`, and
+  `GetWorkflowExecutionHistory`, `PollWorkflowTaskQueue` or `PollActivityTaskQueue`, and no
+  `ConcurrentLimit` on the two poll APIs, and
   **[Request Failures](../observability/dashboards/sdk/temporal-sdk-go-readme.md#1-grpc-requests-and-request-latencies)** on the SDK dashboards shows
   no `RESOURCE_EXHAUSTED` on `GetWorkflowExecutionHistory`. The namespace's request rate stays
   below its limit on

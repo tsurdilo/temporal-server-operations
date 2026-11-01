@@ -6,7 +6,7 @@ A Grafana dashboard for monitoring Temporal Go SDK clients and workers.
 >
 > **Reporter:** This dashboard targets Go SDK workers using the default Prometheus metrics reporter. Metric names are exported as-is from the SDK — no `_total` or `_seconds` suffixes are appended. If you are using the Java SDK, use the `temporal-sdk-java-micrometer` or `temporal-sdk-java-otel` dashboard instead.
 
-> **Current version:** v1.3.0 — see [CHANGELOG](./temporal-sdk-go-changelog.md)
+> **Current version:** v1.5.0 — see [CHANGELOG](./temporal-sdk-go-changelog.md)
 
 ---
 
@@ -42,6 +42,8 @@ This dashboard provides observability into Temporal Go SDK clients and workers f
 
 The Go SDK exports metrics using the standard Prometheus client library. Metric names are used exactly as defined by the SDK — no `_total` suffix is appended to counters and no `_seconds` suffix is appended to histograms. This is different from the Java SDK with Micrometer, which applies both transformations automatically.
 
+All latency histograms are in **seconds**: the Go SDK's Prometheus reporter records every duration in seconds, and the latency panels and their thresholds use seconds. tally's default histogram buckets stop at 10 seconds, so with them a latency above 10 s shows as exactly 10 s at any percentile; the thresholds above 10 s (Activity Schedule To Start Latency, Local Activity Execution Latency) are only reached if the reporter is configured with larger buckets (`DefaultHistogramBuckets` in the tally `prometheus.Configuration`).
+
 Note that the Go SDK uses `temporal_workflow_canceled` (one `l`) while the Java SDK uses `temporal_workflow_cancelled` (two `l`s).
 
 ### Go-specific metrics not present in the Java dashboards
@@ -63,7 +65,9 @@ Note that the Go SDK uses `temporal_workflow_canceled` (one `l`) while the Java 
 | **Namespace** | Filters panels to a specific Temporal namespace | — |
 | **Percentile** | Histogram quantile for latency panels | `0.99` |
 
-All panels that show rates use `$__rate_interval` for Prometheus rate calculations. All latency panels respect the selected percentile variable. The Namespace variable is populated from `label_values(temporal_request, namespace)`.
+All panels that show rates use `$__rate_interval` for Prometheus rate calculations. All latency panels respect the selected percentile variable. The Namespace variable is populated from the namespaces on `temporal_request`, with the same filter as the panels below.
+
+**The Temporal server's own SDK metrics are left out.** The server runs Go SDK clients and workers of its own (for example a worker in every namespace for schedules and batch jobs), and it reports their metrics under the same names and the same `namespace` label as your workers. If the server's metrics are scraped into the same Prometheus, they would be added into every panel. Every query on this dashboard therefore drops series whose `service_name` label is one of the server's service names (`frontend`, `internal_frontend`, `history`, `matching`, `worker`, `server`). The Go SDK does not set `service_name` on its own metrics, so your workers' series are kept. If your scrape setup adds a `service_name` label to your workers' metrics with one of those exact values, those workers drop off this dashboard; rename the label or the value.
 
 ---
 
@@ -81,7 +85,7 @@ This section focuses on gRPC metrics. These metrics are really useful for troubl
 | **Long-Poll Requests** | Rate of long-poll gRPC requests (`Poll*` calls) broken down by operation and status code. A drop to zero means workers have stopped polling. Uses `temporal_long_request`. |
 | **Request Failures** | Rate of failed gRPC requests broken down by operation and status code. Turns red at any non-zero value. Uses `temporal_request_failure`. |
 | **Long-Poll Request Failures** | Rate of failed long-poll requests broken down by operation and status code. Uses `temporal_long_request_failure`. |
-| **Request Latency** | Latency of short (non-poll) gRPC requests broken down by operation at the selected percentile. Uses `temporal_request_latency_bucket`. |
+| **Request Latency** | Latency of short (non-poll) gRPC requests broken down by operation at the selected percentile. Orange at 1 s, red at 2 s. Uses `temporal_request_latency_bucket`. |
 | **Long-Poll Request Latency** | Latency of long-poll gRPC requests broken down by operation at the selected percentile. Uses `temporal_long_request_latency_bucket`. |
 
 ---
@@ -110,7 +114,7 @@ This section focuses on Worker Sticky Cache info. The sticky cache keeps workflo
 | **Sticky Cache Hit** | Rate of workflow tasks that found a matching cached execution. A high hit rate means workers are efficiently avoiding cold replays. Uses `temporal_sticky_cache_hit`. |
 | **Sticky Cache Miss** | Rate of workflow tasks that found no cached execution, requiring a cold replay. Turns orange at any non-zero value. Uses `temporal_sticky_cache_miss`. |
 | **Sticky Cache Size** | Current number of workflow executions cached in the sticky cache. Uses `temporal_sticky_cache_size` (gauge). |
-| **Sticky Cache Forced Evictions** | Rate of executions forcibly evicted from the sticky cache. Turns orange at any non-zero value. Indicates the cache may be undersized for the workload. Uses `temporal_sticky_cache_total_forced_eviction`. |
+| **Sticky Cache Forced Evictions** | Rate of workflows dropped from the sticky cache. Besides workflows dropped to make room, it counts every workflow that completes, and every cached workflow dropped because a workflow task arrived with the full event history (for example after its sticky task timed out). So it is not zero on a healthy worker whose workflows complete, and a non-zero rate on its own says nothing about the cache size. The cache is too small only when there are forced evictions while **Sticky Cache Size** is at its limit (`worker.SetStickyWorkflowCacheSize`, default 10,000); the cost of that then shows on **Sticky Cache Miss**. Uses `temporal_sticky_cache_total_forced_eviction`. |
 
 ---
 
@@ -134,8 +138,8 @@ This section focuses on schedule to start latencies for workflow and activity ta
 
 | Panel | Description |
 |---|---|
-| **Workflow Task Schedule To Start Latency** | Time from a workflow task being scheduled to a worker picking it up, broken down by task queue at the selected percentile. Uses `temporal_workflow_task_schedule_to_start_latency_bucket`. |
-| **Activity Schedule To Start Latency** | Time from an activity task being scheduled to a worker picking it up, broken down by activity type and task queue at the selected percentile. Uses `temporal_activity_schedule_to_start_latency_bucket`. |
+| **Workflow Task Schedule To Start Latency** | Time from a workflow task being scheduled to a worker picking it up, broken down by task queue at the selected percentile. Orange at 1 s, red at 5 s. Uses `temporal_workflow_task_schedule_to_start_latency_bucket`. |
+| **Activity Schedule To Start Latency** | Time from an activity task being scheduled to a worker picking it up, broken down by activity type and task queue at the selected percentile. Orange at 300 s, red at 1,800 s. Uses `temporal_activity_schedule_to_start_latency_bucket`. |
 
 ---
 
@@ -147,7 +151,7 @@ This section focuses on Workflow Task Information. All panels are broken down by
 |---|---|
 | **Workflow Task Poll Empty** | Rate of polls that completed with no task returned (long-poll timeout). Uses `temporal_workflow_task_queue_poll_empty`. |
 | **Workflow Task Poll Succeed** | Rate of polls that returned a workflow task. Uses `temporal_workflow_task_queue_poll_succeed`. |
-| **Workflow Task Execution Latency** | Time to execute a single workflow task at the selected percentile. Uses `temporal_workflow_task_execution_latency_bucket`. |
+| **Workflow Task Execution Latency** | Time to execute a single workflow task at the selected percentile. Orange at 5 s, red at 10 s. Uses `temporal_workflow_task_execution_latency_bucket`. |
 | **Workflow Task Replay Latency** | Time spent replaying history during a workflow task at the selected percentile. Uses `temporal_workflow_task_replay_latency_bucket`. |
 | **Workflow Task Execution Failed** | Rate of workflow task execution failures broken down by workflow type, task queue, and failure reason. Turns red at any non-zero value. `failure_reason` will be `NonDeterminismError` or `WorkflowError`. Uses `temporal_workflow_task_execution_failed`. |
 | **Workflow Task No Completion** | Rate of workflow tasks processed but for which no completion was sent to the server. Turns orange at any non-zero value. Uses `temporal_workflow_task_no_completion`. |
@@ -178,7 +182,7 @@ This section focuses on Local Activities information. All panels are broken down
 | **Local Activity Execution Failed** | Rate of local activity execution failures. Turns red at any non-zero value. Uses `temporal_local_activity_execution_failed`. |
 | **Local Activity Execution Cancelled** | Rate of local activity execution cancellations. Turns orange at any non-zero value. Uses `temporal_local_activity_execution_cancelled`. |
 | **Local Activity Error** | Rate of internal errors during local activity execution. Turns red at any non-zero value. Uses `temporal_local_activity_error`. |
-| **Local Activity Execution Latency** | Time to execute a single local activity attempt at the selected percentile. Uses `temporal_local_activity_execution_latency_bucket`. |
+| **Local Activity Execution Latency** | Time to execute a single local activity attempt at the selected percentile. Orange at 900 s, red at 1,800 s. Uses `temporal_local_activity_execution_latency_bucket`. |
 | **Local Activity Succeed End-to-End Latency** | Total time from schedule to successful completion at the selected percentile. Uses `temporal_local_activity_succeed_endtoend_latency_bucket`. |
 
 ---
@@ -190,9 +194,9 @@ This section focuses on Nexus Tasks information. All panels are filtered by `nam
 | Panel | Description |
 |---|---|
 | **Nexus Poll No Task** | Rate of Nexus task polls that returned empty. Uses `temporal_nexus_poll_no_task`. |
-| **Nexus Execution Failed** | Rate of Nexus task execution failures. Turns red at any non-zero value. Uses `temporal_nexus_execution_failed`. |
-| **Nexus Schedule To Start Latency** | Time from a Nexus task being scheduled to a worker picking it up at the selected percentile. Uses `temporal_nexus_schedule_to_start_latency_bucket`. |
-| **Nexus Execution Latency** | Time to execute a Nexus task at the selected percentile. Uses `temporal_nexus_execution_latency_bucket`. |
+| **Nexus Execution Failed** | Rate of Nexus task execution failures. Turns red at any non-zero value. Uses `temporal_nexus_task_execution_failed`. |
+| **Nexus Schedule To Start Latency** | Time from a Nexus task being scheduled to a worker picking it up at the selected percentile. Uses `temporal_nexus_task_schedule_to_start_latency_bucket`. |
+| **Nexus Execution Latency** | Time to execute a Nexus task at the selected percentile. Uses `temporal_nexus_task_execution_latency_bucket`. |
 | **Nexus Task End-to-End Latency** | Total end-to-end time for a Nexus task at the selected percentile. Uses `temporal_nexus_task_endtoend_latency_bucket`. |
 
 ---

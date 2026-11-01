@@ -21,4 +21,5 @@ The Temporal frontend service is not reachable. This means clients cannot connec
 ### Relevant dynamic config
 
 - `frontend.rps` — per-host RPS limit; if set to `0` the frontend rejects all incoming requests
-- `frontend.globalNamespaceRPS` — cluster-wide namespace RPS limit; if set to `0` all namespace-scoped requests are rejected
+- `frontend.namespaceRPS` — per-namespace per-host RPS limit; if set to `0` (and `frontend.globalNamespaceRPS` is `0`) all requests for that namespace are rejected
+- `frontend.globalNamespaceRPS` — cluster-wide per-namespace RPS limit; `0` (the default) means it is off and `frontend.namespaceRPS` applies, so `0` does not reject anything. When set above `0` it replaces `frontend.namespaceRPS`, split evenly across frontend instances, so a very low value throttles the namespace
