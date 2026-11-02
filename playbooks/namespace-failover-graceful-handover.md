@@ -9,6 +9,7 @@
 - [What your clients and workers experience](#what-your-clients-and-workers-experience)
 - [Setting dcRedirectionPolicy](#setting-dcredirectionpolicy)
 - [Forwarding policy reference](#forwarding-policy-reference)
+- [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings)
 - [Dynamic config](#dynamic-config)
 - [Alerts](#alerts)
 - [Temporal Schedules](#temporal-schedules)
@@ -29,12 +30,12 @@ Quick reference — all recommendations below are explained in detail in the sec
 - Never run two handover workflows for the same namespace at the same time.
 - Set `history.EnableReplicationTaskTieredProcessing: true` on **both clusters**. Dynamic config, no restart needed. Strongly recommended for handover — without it, a low-priority replication backlog can stall the drain and trigger rollback. Set it the **same on both** (both `true`, both on v1.25.0+); a mismatch makes the replication stream loop-restart.
 - Set `system.enableNamespaceHandoverWait: true` on **both clusters**. Dynamic config, no restart needed. Eliminates the `Unavailable` error during the HANDOVER drain window — clients see latency instead.
-- Confirm `system.enableNamespaceNotActiveAutoForwarding` is `true` on both clusters (it is the default). If it was ever set to `false`, forwarding is disabled regardless of `dcRedirectionPolicy`.
+- Confirm `system.enableNamespaceNotActiveAutoForwarding` is not set to `false` on either cluster, for this namespace or for all namespaces. The setting is namespace-scoped and defaults to `true`. If it is `false` for a namespace, nothing is forwarded for that namespace regardless of `dcRedirectionPolicy`. A value of `true` does not turn forwarding on by itself, because forwarding also needs `dcRedirectionPolicy` to be set. See [Setting dcRedirectionPolicy](#setting-dcredirectionpolicy) and [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings).
 - Do not lower `history.standbyTaskMissingEventsDiscardDelay` below its default (15m) on the standby — lower values increase the risk of workflows getting stuck post-flip.
 - Use `AllowedLaggingSeconds: 10`, `AllowedLaggingTasks: 500`, `HandoverTimeoutSeconds: 30` as starting values. Tune `AllowedLaggingTasks` up on high-throughput clusters if WaitReplication stalls.
 - Use a consistent workflow ID convention — `handover-<namespace>` — so running handovers are easy to spot before starting a new one.
 - Tune history task processing on **both clusters**, sized for the load each would carry if its namespaces became active. A cluster holding only passive copies looks cheap to run, so its limits are often left low or unset — and then throttle the workload the moment it becomes active. See [History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md#63-if-you-run-more-than-one-cluster).
-- Use `system.forceNamespaceSelectedAPIAutoForwarding` (namespace-scoped dynamic config, no restart) to control which cluster's workers actively participate in workflow execution before and after a handover — see [Forwarding policy reference](#forwarding-policy-reference).
+- Use `system.forceNamespaceSelectedAPIAutoForwarding` (namespace-scoped dynamic config, no restart) to control which cluster's workers actively participate in workflow execution before and after a handover — see [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings).
 - If you use Schedules, confirm `worker.enableScheduler` is `true` (or not explicitly set to `false`) on the cluster you are failing over to — if `false`, schedules will not fire after the handover. See [Temporal Schedules — Pre-handover](#pre-handover).
 - If you use Schedules, ensure each schedule's `catchup_window` (a per-schedule spec field, default 365 days) is longer than the expected handover duration — fires outside that window are not backfilled after the handover.
 
@@ -101,7 +102,7 @@ dcRedirectionPolicy:
 | **Active (failing away from)** | `"all-apis-forwarding"` | After the flip this cluster becomes standby. Workers still pointed here need `Respond*`, heartbeats, and `UpdateWorkflowExecution` forwarded to the new active. Without it they get `NamespaceNotActive` (non-retryable) and WFTs must be re-executed. |
 | **Standby (failing over to)** | `"all-apis-forwarding"` | Before the flip, any write API calls that accidentally hit the standby are forwarded to the active. After the flip it becomes the new active and serves requests directly. |
 
-> **There is no dynamic config equivalent for upgrading to `all-apis-forwarding`.** The only runtime knob is `system.forceNamespaceSelectedAPIAutoForwarding`, which can downgrade a cluster running `all-apis-forwarding` to whitelist-only for a specific namespace — but it cannot upgrade `selected-apis-forwarding` to `all-apis-forwarding`. The base policy must be set in YAML. See [Forwarding policy reference](#forwarding-policy-reference) for the full breakdown.
+> **There is no dynamic config equivalent for upgrading to `all-apis-forwarding`.** The only runtime knob is `system.forceNamespaceSelectedAPIAutoForwarding`, which can downgrade a cluster running `all-apis-forwarding` to whitelist-only for a specific namespace — but it cannot upgrade `selected-apis-forwarding` to `all-apis-forwarding`. The base policy must be set in YAML. See [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings) for the full breakdown.
 
 ### Forwarding policy reference
 
@@ -113,42 +114,25 @@ What each policy forwards — and what it does not:
 | Worker polls — picking up workflow and activity tasks | ✓ | ✗ |
 | Workers completing tasks (`RespondWorkflowTaskCompleted`, `RespondActivityTask*`) | ✓ | ✗ |
 | Activity heartbeats (`RecordActivityTaskHeartbeat`) | ✓ | ✗ |
-| `UpdateWorkflowExecution`, `ExecuteMultiOperation` | ✓ | ✗ — not yet in whitelist (tracked) |
+| `UpdateWorkflowExecution`, `ExecuteMultiOperation` | ✓ | ✗ Not in the whitelist in any release up to v1.32.1 (see the note below the whitelist) |
 
-**The `selected-apis-forwarding` whitelist — the 11 APIs that are forwarded (as of v1.31.x):**
+**The `selected-apis-forwarding` whitelist, by release.** A cluster forwards an API in this list if its release is the one shown or later.
 
-```
-StartWorkflowExecution
-SignalWithStartWorkflowExecution
-SignalWorkflowExecution
-RequestCancelWorkflowExecution
-TerminateWorkflowExecution
-DeleteWorkflowExecution
-QueryWorkflow
-StartActivityExecution
-RequestCancelActivityExecution
-TerminateActivityExecution
-DeleteActivityExecution
-```
+| API | Forwarded from |
+|---|---|
+| `StartWorkflowExecution`, `SignalWithStartWorkflowExecution`, `SignalWorkflowExecution`, `RequestCancelWorkflowExecution`, `TerminateWorkflowExecution`, `QueryWorkflow` | v1.20.0 or earlier |
+| `DeleteWorkflowExecution`, `StartActivityExecution`, `RequestCancelActivityExecution`, `TerminateActivityExecution`, `DeleteActivityExecution` | v1.31.0 |
+| `PauseActivityExecution`, `UnpauseActivityExecution`, `ResetActivityExecution`, `UpdateActivityExecutionOptions`, `StartNexusOperationExecution`, `RequestCancelNexusOperationExecution`, `TerminateNexusOperationExecution`, `DeleteNexusOperationExecution` | v1.32.0 |
 
-> **Version note.** This list is the whitelist as of **v1.31.x** (the current release line). It has grown over time — v1.30.x and earlier had only the 6 workflow APIs (no `DeleteWorkflowExecution`, no standalone-activity APIs); those 5 were added in **v1.31.0**. **v1.32.0** (not yet released) adds **8 more**: `PauseActivityExecution`, `UnpauseActivityExecution`, `ResetActivityExecution`, `UpdateActivityExecutionOptions`, and four standalone Nexus-operation APIs (`Start`/`RequestCancel`/`Terminate`/`Delete NexusOperationExecution`) — 19 total. The exact list lives in `common/rpc/interceptor/dc_redirection_policy.go`. **The worker-availability conclusion is unchanged across all versions: polls, `Respond*`, and heartbeats are never in the whitelist**, so `selected-apis-forwarding` never lets workers on the standby pick up work.
+The whitelist has 6 APIs up to v1.30.x, 11 on v1.31.x and 19 on v1.32.x. Polls, `Respond*` calls and heartbeats are not in the whitelist in any release, so `selected-apis-forwarding` never lets workers on the standby pick up work.
 
 Everything else — polls, Respond*, heartbeats, Update, ExecuteMultiOperation — is not forwarded and will be served locally by the standby (which means no work for workers, and errors for anything that requires the active).
 
 **Batch operations are not in the whitelist.** `StartBatchOperation` — which covers every batch job (batch delete, terminate, signal, cancel, reset) — is not whitelisted. So under `selected-apis-forwarding` (and the default no-forwarding setup) a batch command sent to the standby is not forwarded and fails with `NamespaceNotActive`. Only `all-apis-forwarding` forwards it. Either way, the safe practice is to run batch operations against the active cluster. This matters for cleanup jobs like batch delete — see [Workflow Deletion](#workflow-deletion).
 
-> `UpdateWorkflowExecution` and `ExecuteMultiOperation` are not in the whitelist as of the current server version. A server issue has been filed to add them. Until then, Update calls to a cluster running `selected-apis-forwarding` while it is not the active will fail with `NamespaceNotActive`.
+> `UpdateWorkflowExecution` and `ExecuteMultiOperation` are not in the whitelist in any release up to and including v1.32.1. They have been added in the server's development branch, but no release includes that change yet. Until then, Update calls to a cluster running `selected-apis-forwarding` while it is not the active will fail with `NamespaceNotActive`.
 
-How `system.forceNamespaceSelectedAPIAutoForwarding` interacts with the static policy:
-
-| Static `dcRedirectionPolicy` | `system.forceNamespaceSelectedAPIAutoForwarding` | Effective behavior |
-|---|---|---|
-| `all-apis-forwarding` | `false` (default) | Full forwarding — all operations including polls |
-| `all-apis-forwarding` | `true` (namespace-scoped) | Whitelist-only for that namespace — polls and worker task completion not forwarded. No restart needed. |
-| `selected-apis-forwarding` | `false` (default) | Whitelist-only |
-| `selected-apis-forwarding` | `true` | No change — already whitelist-only; this setting has no effect |
-
-The practical implication: `system.forceNamespaceSelectedAPIAutoForwarding` is only meaningful if the static policy is `all-apis-forwarding`. Setting `all-apis-forwarding` in static config once gives you the flexibility to downgrade per-namespace at runtime without ever needing another restart.
+`system.forceNamespaceSelectedAPIAutoForwarding` is only meaningful if the static policy is `all-apis-forwarding`. Setting `all-apis-forwarding` in static config once gives you the flexibility to downgrade per-namespace at runtime without ever needing another restart.
 
 **Using `system.forceNamespaceSelectedAPIAutoForwarding` to control worker participation across a handover — without restarting clusters:**
 
@@ -162,13 +146,64 @@ This requires both clusters to have `dcRedirectionPolicy: all-apis-forwarding` s
 - **New active (was standby)** — set `system.forceNamespaceSelectedAPIAutoForwarding: false`. Full forwarding restored. Workers on the new active start picking up tasks immediately.
 - **Old active (now standby)** — do not set `true` immediately. Workers still pointed here may have in-flight WFTs they are completing — with `all-apis-forwarding` and `false`, those Respond* calls are forwarded to the new active transparently. Wait until in-flight work has drained and workers have been re-pointed to the new active, then set `true` to cut off remaining connections cleanly.
 
+### API forwarding to the active cluster: cluster policy and per-namespace settings
+
+Forwarding is controlled at two levels: the cluster's static config sets what forwarding is possible at all, and two dynamic config settings narrow it per namespace.
+
+**Static config: `dcRedirectionPolicy`.** This is one value for the whole cluster, in the server's static config YAML, and changing it needs a server restart.
+
+| `dcRedirectionPolicy` | What the cluster forwards |
+|---|---|
+| not set (the default) or `noop` | Nothing, for any namespace. The dynamic config settings below have no effect. |
+| `selected-apis-forwarding` | Only the APIs in the [selected-APIs whitelist](#forwarding-policy-reference). Polls, `Respond*` calls and heartbeats are not forwarded. |
+| `all-apis-forwarding` | All APIs, including polls, `Respond*` calls and heartbeats. |
+
+Any other value stops the frontend service from starting. For multi-cluster setups this playbook recommends `all-apis-forwarding` on every cluster; see [Setting `dcRedirectionPolicy`](#setting-dcredirectionpolicy). Only global (replicated) namespaces are ever forwarded, whatever the policy.
+
+**Dynamic config: two namespace-scoped settings.** With forwarding enabled in static config, these two settings narrow it for a single namespace, or for every namespace on the cluster. Changing either one needs no restart.
+
+| Setting | Default | Effect when changed from the default | Available in |
+|---|---|---|---|
+| `system.enableNamespaceNotActiveAutoForwarding` | `true` | `false` turns forwarding off for the namespace. Calls are handled by the cluster the client connected to. | v1.20.0 and later |
+| `system.forceNamespaceSelectedAPIAutoForwarding` | `false` | `true` limits the namespace to the whitelisted APIs, even when the cluster runs `all-apis-forwarding`. | v1.31.0 and later |
+
+Dynamic config can only narrow what the static policy allows. It cannot turn forwarding on, and it cannot make a `selected-apis-forwarding` cluster forward all APIs.
+
+**Setting a value for one namespace.** Add an entry with a `namespace` constraint for that namespace. An entry with no constraint applies to every other namespace on the cluster. For a namespace, the entry with its name is used whatever the order of the entries; a namespace with no matching entry gets the setting's default.
+
+```yaml
+system.forceNamespaceSelectedAPIAutoForwarding:
+  - value: true
+    constraints:
+      namespace: "my-namespace"
+  - value: false
+```
+
+With these two entries, `my-namespace` is limited to the whitelisted APIs, and every other namespace keeps whatever forwarding the cluster's `dcRedirectionPolicy` allows.
+
+`system.enableNamespaceNotActiveAutoForwarding` and `system.forceNamespaceSelectedAPIAutoForwarding` apply only to the cluster whose dynamic config they are set in. To change forwarding for a namespace on both clusters, set the value in the dynamic config of both clusters.
+
+**What gets forwarded for a namespace**, from the policy and the two settings together:
+
+| `dcRedirectionPolicy` | `system.enableNamespaceNotActiveAutoForwarding` | `system.forceNamespaceSelectedAPIAutoForwarding` | Forwarded for the namespace |
+|---|---|---|---|
+| not set (default) or `noop` | any | any | Nothing. Neither setting has any effect. |
+| `selected-apis-forwarding` or `all-apis-forwarding` | `false` | any | Nothing. |
+| `all-apis-forwarding` | `true` (default) | `false` (default) | All APIs, including polls |
+| `all-apis-forwarding` | `true` (default) | `true` | Whitelisted APIs only |
+| `selected-apis-forwarding` | `true` (default) | any | Whitelisted APIs only. `system.forceNamespaceSelectedAPIAutoForwarding` has no effect, because the policy is already whitelist-only. |
+
+**A handover does not reset the forwarding settings.** A value set for a namespace in `system.enableNamespaceNotActiveAutoForwarding` or `system.forceNamespaceSelectedAPIAutoForwarding` stays in that cluster's dynamic config until someone removes it. A handover changes which cluster is active for the namespace; it does not change dynamic config. Forwarding only happens for calls that reach a cluster that is not the namespace's active cluster, so a value left over from an earlier handover takes effect again each time that cluster becomes the standby. Before each handover, check `system.enableNamespaceNotActiveAutoForwarding` and `system.forceNamespaceSelectedAPIAutoForwarding` for the namespace on both clusters, as the [Recommendations](#recommendations) say.
+
+The next section, [Dynamic config](#dynamic-config), lists the dynamic config settings to have in place on both clusters before the first handover.
+
 ### Dynamic config
 
 These must be set on a running cluster before the first handover — no restart required. Treat them as permanent standing configuration for any multi-cluster deployment.
 
 | Config | Cluster | Required value | How to check |
 |---|---|---|---|
-| `system.enableNamespaceNotActiveAutoForwarding` | Both | `true` (default) | Confirm nobody set it `false` — if `false`, forwarding is disabled regardless of static policy |
+| `system.enableNamespaceNotActiveAutoForwarding` | Both | `true` (default) | Namespace-scoped. Confirm it is not set to `false` for the namespace being handed over, or for all namespaces. If it is `false`, nothing is forwarded for that namespace, whatever `dcRedirectionPolicy` says. See [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings). |
 | `history.EnableReplicationTaskTieredProcessing` | Both | **`true`** | If `false`, a LOW force-replication backlog can block WaitHandover and trigger the 30s rollback; also prevents namespace-filtered progress tracking |
 | `history.standbyTaskMissingEventsDiscardDelay` | Standby | Default (15m) or higher | Lower values increase discard risk during elevated lag |
 | `history.enableDeleteWorkflowExecutionReplication` | Both | **`true`** (v1.31.x only; default `false`) | Turns on delete replication so deletions on the active reach the standby. On v1.32.0+ it is always on — nothing to set. On v1.30.x and earlier the feature does not exist. See [Workflow Deletion](#workflow-deletion). |
@@ -960,16 +995,15 @@ tctl admin workflow refresh-workflow-tasks --namespace <ns>
 Now that the flip has happened, the old active is serving as standby and forwarding write calls to the new active. You need to decide when to tighten forwarding. **Order matters** — workers do two things: they poll for tasks, and they respond when done (completing a workflow task, finishing an activity, etc). As long as a worker is still polling the old active, it may pick up a task and try to respond on the old active too. With `all-apis-forwarding` active, that respond call is forwarded to the new active transparently. If you tighten forwarding before all workers are re-pointed, those respond calls stop being forwarded and the old active rejects them with an error the SDK cannot retry — the task fails.
 
 1. **Verify all workers are fully re-pointed to the new active first.** Workers completing tasks or sending heartbeats through the old active depend on `all-apis-forwarding` being active. If you tighten forwarding before workers are re-pointed, those calls will fail with a non-retryable error.
-2. **Set `system.forceNamespaceSelectedAPIAutoForwarding=true` on the old active** (scoped to the namespace, no restart). This switches the old active from forwarding all APIs including polls, to forwarding only the 11 write APIs in the whitelist. Workers will no longer be able to poll through the old active — they must be pointed at the new active directly.
-3. **Once no forwarding is needed at all**, set `system.enableNamespaceNotActiveAutoForwarding=false` on the old active to disable forwarding entirely.
+2. **Set `system.forceNamespaceSelectedAPIAutoForwarding=true` on the old active** (scoped to the namespace, no restart). This switches the old active from forwarding all APIs, including polls, to forwarding only the APIs in the [selected-APIs whitelist](#forwarding-policy-reference), which depends on your release. Workers can no longer poll through the old active, so they must be pointed at the new active directly.
+3. **Once no forwarding is needed at all**, set `system.enableNamespaceNotActiveAutoForwarding=false` on the old active, scoped to the namespace (no restart). This turns forwarding off for this namespace only; other namespaces on the old active keep forwarding. The value stays in place until you remove it. Before any later handover that makes this cluster the standby again, set it back to `true`, as the [pre-handover check](#recommendations) says. See [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings).
 
 Here is a summary of the config changes to make and when:
 
 | Config | Cluster | When to apply |
 |---|---|---|
 | `system.forceNamespaceSelectedAPIAutoForwarding` → `true` (namespace-scoped) | Old active | After all workers are re-pointed to new active |
-| `system.enableNamespaceNotActiveAutoForwarding` → `false` | Old active | After forwarding is no longer needed at all |
-| `dcRedirectionPolicy` → `"selected-apis-forwarding"` | Old active | On next restart, once polls are no longer needed through old active |
+| `system.enableNamespaceNotActiveAutoForwarding` → `false` (namespace-scoped) | Old active | After forwarding is no longer needed at all. Set it back to `true` before any later handover that makes this cluster the standby again. |
 | `frontend.namespaceRPS` → raise (or `frontend.globalNamespaceRPS` if your cluster sets it) | New active | If `ResourceExhausted` errors appear on Forwarding Error Rate panel |
 
 > If you set `system.forceNamespaceSelectedAPIAutoForwarding=true` too early and workers are still polling the old active, you will see `FailedPrecondition` errors on the [Forwarding Error Rate by Type panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series). Alert `FAILOVER-POST-01` detects this. To recover: set `system.forceNamespaceSelectedAPIAutoForwarding=false` immediately, wait 2 seconds for propagation, and verify the errors clear.
