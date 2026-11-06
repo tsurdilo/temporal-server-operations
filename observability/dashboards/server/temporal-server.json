@@ -5926,7 +5926,7 @@
           },
           "id": 82,
           "title": "Visibility Task End-to-End Latencies",
-          "description": "End-to-end visibility task latencies (queue latency) broken down by operation on the History service.",
+          "description": "End-to-end visibility task latencies (queue latency) broken down by operation on the History service. On Elasticsearch, about 0.5 s at p50 and 1 s at p99 is normal: the history service sends visibility writes to Elasticsearch in batches once a second (worker.ESProcessorFlushInterval, 1s default), so each write waits up to a second for the next send. That wait, not Elasticsearch, is most of this value (measured on a low-load test cluster, where Elasticsearch itself took 1-6 ms). A SQL store has no such wait.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -6171,7 +6171,7 @@
           },
           "id": 2119,
           "title": "Visibility Write Latency per Store",
-          "description": "P-selected percentile write latency per visibility store. Divergence between primary and secondary latency indicates one store is under pressure or recovering. Use alongside the error rate panel to distinguish a slow store from a failed one.",
+          "description": "P-selected percentile write latency per visibility store. Divergence between primary and secondary latency indicates one store is under pressure or recovering. Use alongside the error rate panel to distinguish a slow store from a failed one. On Elasticsearch, about 0.5 s at p50 and 1 s at p99 is normal: the history service sends visibility writes to Elasticsearch in batches once a second (worker.ESProcessorFlushInterval, 1s default), so each write waits up to a second for the next send. That wait, not Elasticsearch, is most of this value (measured on a low-load test cluster, where Elasticsearch itself took 1-6 ms). A SQL store has no such wait.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -6882,7 +6882,7 @@
           },
           "id": 2132,
           "title": "ES Write Confirm Latency vs Ack Timeout (Elasticsearch only)",
-          "description": "Selected percentile of the time from handing a document to the bulk processor until Elasticsearch confirms it was written. The red line marks worker.ESProcessorAckTimeout (30s default): anything reaching it fails the visibility task as a timeout, which does NOT appear on the Write Error Rate panel and counts toward the 70-attempt dead-letter threshold. If this climbs while the Write Error Rate panel stays flat, that is exactly the blind spot - confirm on the Errors by Type panel with error_type=TimeoutError. ELASTICSEARCH ONLY - this metric is emitted only when a visibility store is Elasticsearch, and only by the history service. It carries no store label, so with two Elasticsearch stores both report into the same series and cannot be told apart here; use panel 2125 for per-store attribution.",
+          "description": "Selected percentile of the time from handing a document to the bulk processor until Elasticsearch confirms it was written. The red line marks worker.ESProcessorAckTimeout (30s default): anything reaching it fails the visibility task as a timeout, which does NOT appear on the Write Error Rate panel and counts toward the 70-attempt dead-letter threshold. If this climbs while the Write Error Rate panel stays flat, that is exactly the blind spot - confirm on the Errors by Type panel with error_type=persistence_TimeoutError (the short form TimeoutError matches nothing). ELASTICSEARCH ONLY - this metric is emitted only when a visibility store is Elasticsearch, and only by the history service. It carries no store label, so with two Elasticsearch stores both report into the same series and cannot be told apart here; use panel 2125 for per-store attribution. On Elasticsearch, about 0.5 s at p50 and 1 s at p99 is normal: the history service sends visibility writes to Elasticsearch in batches once a second (worker.ESProcessorFlushInterval, 1s default), so each write waits up to a second for the next send. That wait, not Elasticsearch, is most of this value (measured on a low-load test cluster, where Elasticsearch itself took 1-6 ms). ES Write Latency Breakdown (2900) splits this time into its steps.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -6901,6 +6901,72 @@
               "expr": "histogram_quantile($p, sum(rate(elasticsearch_bulk_processor_request_latency_bucket{service_name=\"history\"}[$__rate_interval])) by (le))",
               "legendFormat": "p$p confirm latency",
               "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "scaleDistribution": {
+                  "type": "log",
+                  "log": 10
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 65
+          },
+          "id": 2900,
+          "title": "ES Write Latency Breakdown (Elasticsearch only)",
+          "description": "Splits ES Write Confirm Latency vs Ack Timeout (2132) into the steps a visibility write goes through in the history service's batch sender, at the selected percentile. 1. Hand-off to the batch sender: normally near zero. 2. Waiting for the next batch send: 0-1 s on a healthy cluster (worker.ESProcessorFlushInterval). 3. From the send until Elasticsearch confirms: network plus Elasticsearch. 4. The time Elasticsearch itself reports for the whole batch. Steps 1-3 add up to the confirm latency. How to read it: step 2 high with 3 and 4 flat is normal batching; 3 and 4 rising together means Elasticsearch is slowing down; 3 rising with 4 flat puts the extra time on the network or HTTP side, outside Elasticsearch's own processing (reasoning, not tested under pressure). Step 1 is recorded only after the hand-off returns, so while Elasticsearch is unreachable it shows nothing new and the long values appear once Elasticsearch is back; the live sign of a hung Elasticsearch is persistence_TimeoutError on Visibility Errors by Type per Store. Healthy values on a low-load test cluster: step 3 about 2-3 ms p50 / 9-16 ms p99, step 4 about 1 ms p50 / 6-7 ms p99. No thresholds: there is no source-backed limit. Log scale. The smallest bucket is 1 ms, so a step that is really near zero reads just under 1 ms at high percentiles. Step 4 needs server v1.21.0 or later. ELASTICSEARCH ONLY, history service only, whole cluster (ignores the namespace selector). No store label, so with two Elasticsearch stores both report into the same lines.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum(rate(elasticsearch_bulk_processor_wait_add_latency_bucket{service_name=\"history\"}[$__rate_interval])) by (le))",
+              "legendFormat": "1. hand-off to batch sender",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile($p, sum(rate(elasticsearch_bulk_processor_wait_start_latency_bucket{service_name=\"history\"}[$__rate_interval])) by (le))",
+              "legendFormat": "2. waiting for next batch send",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile($p, sum(rate(elasticsearch_bulk_processor_commit_latency_bucket{service_name=\"history\"}[$__rate_interval])) by (le))",
+              "legendFormat": "3. sent until Elasticsearch confirms",
+              "refId": "C"
+            },
+            {
+              "expr": "histogram_quantile($p, sum(rate(elasticsearch_bulk_processor_bulk_request_took_latency_bucket{service_name=\"history\"}[$__rate_interval])) by (le))",
+              "legendFormat": "4. Elasticsearch-reported time per batch",
+              "refId": "D"
             }
           ]
         }
@@ -8552,6 +8618,61 @@
           ],
           "title": "Task Retry Depth \u2014 Stranding Types (approaching DLQ)",
           "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "description": "Per visibility and archival task type, how many tasks were attempted, how many completed and how many failed with an error in each interval, as exact counts. Its main use is after merging the visibility or archival DLQ, on server v1.30.0 and later: attempts that rise with no matching completions and no errors are tasks the server dropped because their workflow no longer exists. A dropped task writes nothing and leaves no log line, so this is the only place to see it. Dropping is expected and harmless when the workflow was already deleted. Below v1.30.0 a dropped task is counted as completed, so a drop cannot be seen here. A task moved to the DLQ also counts as one attempt and one completion at the moment it is moved, so a burst of errors followed by an equal number of completions is tasks going to the DLQ, not tasks succeeding. During a visibility or archival outage, attempts with errors and no completions mean the tasks are still failing. The counts subtract each counter from its value one interval earlier, so a new series is counted from its first value; right after a history service restart, one interval can read low. Empty on an idle cluster. Cluster-wide - ignores the namespace variable.",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              },
+              "color": {
+                "mode": "palette-classic"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 44
+          },
+          "id": 3000,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "max",
+                "sum"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (operation) (clamp_min(task_requests{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} - (task_requests{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} offset $__interval or task_requests{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} * 0), 0))",
+              "legendFormat": "{{operation}} attempts",
+              "refId": "A"
+            },
+            {
+              "expr": "sum by (operation) (clamp_min(task_latency_count{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} - (task_latency_count{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} offset $__interval or task_latency_count{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} * 0), 0))",
+              "legendFormat": "{{operation}} completed",
+              "refId": "B"
+            },
+            {
+              "expr": "sum by (operation) (clamp_min(task_errors{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} - (task_errors{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} offset $__interval or task_errors{service_name=\"history\",operation=~\"VisibilityTask.*|ArchivalTaskArchiveExecution\"} * 0), 0))",
+              "legendFormat": "{{operation}} errors",
+              "refId": "C"
+            }
+          ],
+          "title": "Visibility & Archival Tasks \u2014 Attempts, Completions, Errors by Task Type",
+          "type": "timeseries"
         }
       ]
     },
@@ -9830,7 +9951,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.33.0",
+  "title": "Temporal Server Dashboard v2.35.0",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

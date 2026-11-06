@@ -1,5 +1,32 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.35.0 — 2026-11-06
+
+### Added
+
+- **Visibility & Archival Tasks — Attempts, Completions, Errors by Task Type (3000)**, on the
+  **History Task DLQ / Terminal Failures** row: attempts, completions and errors per visibility and
+  archival task type, to see tasks dropped after a DLQ merge (server v1.30.0 and later).
+
+## v2.34.0 — 2026-11-03
+
+### Added
+
+- **ES Write Latency Breakdown (Elasticsearch only) (2900)**, on the **Visibility** row: the
+  confirm latency split into hand-off, batching wait, send-to-confirm and Elasticsearch's own time.
+
+### Changed
+
+- **ES Write Confirm Latency vs Ack Timeout (Elasticsearch only) (2132)**,
+  **Visibility Write Latency per Store (2119)** and
+  **Visibility Task End-to-End Latencies (82)**: descriptions give the normal reading on
+  Elasticsearch (about 0.5 s p50, 1 s p99, from the once-a-second batch send).
+
+### Fixed
+
+- **ES Write Confirm Latency vs Ack Timeout (Elasticsearch only) (2132)**: description named
+  `error_type=TimeoutError`; the value is `persistence_TimeoutError`.
+
 ## v2.33.0 — 2026-10-30
 
 ### Removed

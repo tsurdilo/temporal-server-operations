@@ -1625,7 +1625,7 @@ No workers are actively polling for workflow or activity tasks in a namespace. W
 
 **Threshold:** > 0.1 errors/s
 
-A visibility store is returning write errors at low rate. History retries indefinitely — workflows are unaffected but visibility data is accumulating in the retry queue. `noDataState: OK` — metric only emits when errors occur; absence is healthy. Only meaningful when `system.secondaryVisibilityWritingMode = dual`.
+A visibility store is returning write errors at a low rate. Workflows are unaffected and keep running. Each failing visibility task is retried, and after `history.TaskDLQUnexpectedErrorAttempts` failed attempts (default 70, about an hour) it goes to the history task DLQ, where Alert 83 fires. Applies to any visibility store, with one store or two (dual visibility). `noDataState: OK`: the metric is only emitted when errors occur, so no data is healthy.
 
 **Runbook:** [59a-visibility-store-write-errors.md](./runbooks/59a-visibility-store-write-errors.md)
 
