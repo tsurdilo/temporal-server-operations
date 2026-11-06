@@ -202,7 +202,6 @@ commands that read, merge and purge the DLQ.
 
 - Clusters with archival enabled and Elasticsearch as the visibility store.
 - Cassandra persistence and SQL persistence (PostgreSQL, MySQL).
-- Server versions v1.29.0 through v1.32.1.
 
 ## Contents
 
@@ -863,7 +862,7 @@ tdbg dlq purge --dlq-type 4 --last-message-id 11690
 A purge deletes the tasks without processing them. None of the scenarios in this document calls for
 one.
 
-**5. Merging the archival DLQ needs a newer `tdbg`.** `tdbg` up to v1.32.1 rejects `--dlq-type 5`
+**5. Merging the archival DLQ needs a newer `tdbg`.** `tdbg` up to v1.32.2 rejects `--dlq-type 5`
 with `unknown dlq category 5`
 ([temporalio/temporal#11586](https://github.com/temporalio/temporal/issues/11586); fixed in
 [temporalio/temporal#11587](https://github.com/temporalio/temporal/pull/11587), not yet in a
