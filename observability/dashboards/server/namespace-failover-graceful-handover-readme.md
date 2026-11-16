@@ -15,7 +15,7 @@ Throughout this document, **Step N** refers to the internal activity steps of th
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v1.6.0 — see [CHANGELOG](./namespace-failover-graceful-handover-changelog.md)
+> **Current version:** v1.7.0 — see [CHANGELOG](./namespace-failover-graceful-handover-changelog.md)
 
 The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`](../../../playbooks/namespace-failover-graceful-handover.md).
 
@@ -33,6 +33,7 @@ The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`
   - [Stream Service Errors](#panel-stream-service-errors-stat)
   - [Backfill Activity](#panel-backfill-activity-stat)
   - [Standby Task Discards](#panel-standby-task-discards-stat)
+  - [Replication DLQ Writes](#panel-replication-dlq-writes-stat)
   - [Replication Lag](#panel-replication-lag-gauge)
   - [Send Backlog (Active)](#panel-send-backlog-active-stat)
   - [Send Channel Full (Active)](#panel-send-channel-full-active-stat)
@@ -46,7 +47,6 @@ The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`
   - [UNAVAILABLE Error Burst](#panel-unavailable-error-burst-expected-time-series)
   - [Namespace Handover Task Errors](#panel-namespace-handover-task-errors-time-series)
 - [Row 3 — Flip Confirmed (Step 6)](#row-3--flip-confirmed-step-6)
-  - [HANDOVER State Exited](#panel-handover-state-exited-stat)
   - [UNAVAILABLE Errors Gone](#panel-unavailable-errors-gone-stat)
   - [Forwarding Active](#panel-forwarding-active-stat)
   - [Version Fence Fired](#panel-version-fence-fired-stat)
@@ -57,6 +57,7 @@ The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`
   - [Replication Lag — Reverse Stream](#panel-replication-lag--reverse-stream-time-series)
   - [Forwarding Success Rate](#panel-forwarding-success-rate-time-series)
   - [Reverse Replication Active](#panel-reverse-replication-active-time-series)
+  - [Replication DLQ Writes (Previously Active Cluster)](#panel-replication-dlq-writes-previously-active-cluster-time-series)
 
 ---
 
@@ -64,8 +65,10 @@ The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`
 
 | Variable | Source | Notes |
 |---|---|---|
-| `$active_cluster` | `label_values(replication_tasks_lag, cluster)` | The cluster that is currently active for the namespace — the source of replication and the old active post-flip |
-| `$standby_cluster` | `label_values(replication_tasks_lag, cluster)` | The target cluster — receives replication, becomes the new active after flip |
+| `$active_cluster` | `label_values(replication_tasks_lag_count, cluster)` | The cluster that is currently active for the namespace — the source of replication and the old active post-flip |
+| `$standby_cluster` | `label_values(replication_tasks_lag_count, cluster)` | The target cluster — receives replication, becomes the new active after flip |
+
+`replication_tasks_lag` is a histogram, so Prometheus stores it only as `replication_tasks_lag_bucket`, `_count` and `_sum`. Both cluster variables read `_count`; before v1.7.0 they read the bare name, matched nothing, and left both dropdowns empty.
 | `$namespace` | `label_values(handover_ready_shard_count, namespace)` | The global namespace being failed over |
 | `$total_shards` | Custom (512/1024/2048/4096) | Total shard count for this cluster. Default 2048. Must match `numHistoryShards` in cluster config |
 | `$p` | Custom (0.50–0.999) | Percentile for histogram panels. Default 0.99 |
@@ -199,6 +202,28 @@ Rate of standby transfer and timer tasks discarded because `history.standbyTaskM
 
 See [playbook section 1.6](../../../playbooks/namespace-failover-graceful-handover.md#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip) for interpretation and go/no-go guidance.
 
+### Panel: Replication DLQ Writes (stat)
+
+**Metric:** `sum(dlq_writes{cluster="$standby_cluster", task_category="replication"}) or vector(0)`  
+**Cluster:** standby  
+**Thresholds:** green = 0, red ≥ 1  
+Replication updates the standby could not apply and wrote to its replication DLQ, counted since each history pod started. Each one means the standby's copy of a workflow is out of date until the DLQ is merged, and after the flip that out-of-date copy is the one that runs.
+
+How to read it:
+
+- **0** is the healthy reading, and what the panel shows when nothing was ever written.
+- **Any non-zero value** — list the standby's replication DLQ (`tdbg dlq list`) and merge it before handing over. The panel is the prompt to look; the DLQ listing is the answer.
+- **The count does not go down when the DLQ is merged.** It only resets when a history pod restarts. A non-zero count with an empty DLQ listing means the writes were already merged.
+- **It counts every namespace on the cluster** and ignores `$namespace`. `dlq_writes` has a `namespace` label only from server v1.32.0, so the panel sums across namespaces to read the same on every version.
+
+It reads the raw counter rather than a rate on purpose. A single write is the whole signal here, and a rate over a counter misses the write that creates the series.
+
+**Version floor:** replication updates are written to this DLQ (and counted by `dlq_writes` with `task_category`) by default from server v1.28.0. On v1.25.0–v1.27.x the panel stays 0 unless `history.enableHistoryReplicationDLQV2` is `true`; below v1.25.0 `dlq_writes` has no `task_category` label and the panel stays 0.
+
+> Note: `dlq_message_count` (the DLQ size gauge) is not used. The server emits it only every 3 hours (not configurable), too late for a pre-flight check. **DLQ Enqueue Failed** counts only writes to the DLQ that failed, never ones that succeeded.
+
+See [playbook section 1.2](../../../playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy) for interpretation and go/no-go guidance.
+
 ### Panel: Replication Lag (gauge)
 
 **Metric:** `histogram_quantile($p, sum(rate(replication_tasks_lag_bucket{cluster="$standby_cluster"})) by (le))`  
@@ -244,6 +269,8 @@ See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handov
 **Cluster:** standby  
 **Thresholds:** green < 10s, orange ≥ 10s, red ≥ 20s  
 End-to-end replication latency — wall-clock time from task creation on the active to task application on the standby (server source: `service/history/replication/executable_task.go`). The p99 is the time-based "how many seconds is the standby behind" signal, complementing the task-count `replication_tasks_lag` panels above. Use it to distinguish benign replication-stream reconnect churn from churn that is actually keeping the standby behind. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window and the handover is guaranteed to roll back.
+
+> Fixed in v1.7.0: from v1.5.0 to v1.6.0 this panel was nested inside the Row 1 header while the row was expanded, so Grafana never displayed it.
 
 **Alert:** [FAILOVER-PRE-07](../../../observability/alerts/server/alerts-index.md#alert-failover-pre-07--replication-latency-too-high-for-safe-handover) — fires at p99 ≥ 20s, severity critical.
 
@@ -312,16 +339,6 @@ See [playbook section 2b](../../../playbooks/namespace-failover-graceful-handove
 
 ## Row 3 — Flip Confirmed (Step 6)
 
-### Panel: HANDOVER State Exited (stat)
-
-**Metric:** `sum(handover_ready_shard_count{target_cluster="$standby_cluster", namespace="$namespace"})`  
-**Cluster:** standby (target)  
-Count of history shards that confirmed the HANDOVER watermark during the drain window. After WaitHandover stops, this gauge goes stale/NaN in Prometheus — it does not return to 0 after the flip completes.
-
-> Note: `handover_ready_shard_count` emits a `target_cluster` label (not `cluster`). Use `target_cluster="$standby_cluster"` in PromQL expressions.
-
-See [playbook section 3](../../../playbooks/namespace-failover-graceful-handover.md#3-flip-completed--confirm-the-namespace-switched-correctly-step-6) for interpretation and go/no-go guidance.
-
 ### Panel: UNAVAILABLE Errors Gone (stat)
 
 **Metric:** `rate(client_redirection_errors{cluster="$active_cluster", namespace="$namespace", error_type="Unavailable"})`  
@@ -335,8 +352,8 @@ See [playbook section 3](../../../playbooks/namespace-failover-graceful-handover
 
 **Metric:** `rate(client_redirection_requests{cluster="$active_cluster", namespace="$namespace"})`  
 **Cluster:** `$active_cluster` — now standby after flip  
-**Thresholds:** green > 0, red = 0  
-Rate of requests on the old active cluster being forwarded to the new active via `dcRedirectionPolicy`.
+**Thresholds:** green > 0, blue = 0  
+Rate of requests on the old active cluster being forwarded to the new active via `dcRedirectionPolicy`. Zero is normal when no client or worker calls the old active, for example when all of them already point at the new active, so 0 shows blue, not red. Shows 0 rather than "No data" when nothing was forwarded.
 
 See [playbook section 3](../../../playbooks/namespace-failover-graceful-handover.md#3-flip-completed--confirm-the-namespace-switched-correctly-step-6) for interpretation and go/no-go guidance.
 
@@ -344,8 +361,8 @@ See [playbook section 3](../../../playbooks/namespace-failover-graceful-handover
 
 **Metric:** `rate(task_errors_version_mismatch{cluster="$active_cluster"})`  
 **Cluster:** old active (now standby) — do not change `$active_cluster`  
-**Thresholds:** green > 0, red = 0  
-Rate at which the old active's task executor drops tasks whose failover version stamp no longer matches the namespace's current failover version. Fires as the old active flushes tasks created before the flip.
+**Thresholds:** green > 0, blue = 0  
+Rate at which the old active's task executor drops tasks whose failover version stamp no longer matches the namespace's current failover version. Fires as the old active flushes tasks created before the flip. Zero is also a normal outcome — the old active had no pending tasks left when the flip happened — so 0 shows blue, not red, and shows 0 rather than "No data".
 
 See [playbook section 3](../../../playbooks/namespace-failover-graceful-handover.md#3-flip-completed--confirm-the-namespace-switched-correctly-step-6) for interpretation and go/no-go guidance.
 
@@ -406,10 +423,28 @@ See [playbook section 4](../../../playbooks/namespace-failover-graceful-handover
 
 ### Panel: Reverse Replication Active (time series)
 
-**Metric:** `rate(replication_tasks_applied{cluster="$standby_cluster"})`  
-**Cluster:** `$standby_cluster` — the new active after the flip  
-Rate of replication tasks applied on the old active (now standby), confirming the reverse replication stream from the new active is established and flowing. Should go non-zero shortly after the flip as the new active's namespace cache refreshes (default 2s).
+**Metric:** `rate(replication_latency_count{cluster="$active_cluster", source_cluster="$standby_cluster"})`  
+**Cluster:** `$active_cluster` — the old active, now the standby — receiving from `$standby_cluster`, the new active  
+Rate of replication tasks from the new active that finished on the old active, confirming the reverse replication stream is established and flowing. Should go non-zero shortly after the flip while the namespace has traffic. It counts every task that finished, applied or failed, and every namespace on the cluster.
+
+> Fixed in v1.7.0: before, this panel read `replication_tasks_applied` on the new active. Only the old pull-based replication processor records that metric, so the panel was always empty on streaming replication.
 
 > Note: do not swap dashboard variables after the flip — leave `$standby_cluster` pointing at the new active throughout.
 
 See [playbook section 4](../../../playbooks/namespace-failover-graceful-handover.md#4-monitor-the-new-active-cluster-after-the-handover) for interpretation and go/no-go guidance.
+
+### Panel: Replication DLQ Writes (Previously Active Cluster) (time series)
+
+**Metric:** `sum(dlq_writes{cluster="$active_cluster", task_category="replication"}) or vector(0)`  
+**Cluster:** `$active_cluster` — the cluster the namespace was handed over from, now the standby  
+Replication updates that cluster could not apply and wrote to its replication DLQ, counted since each history pod started. A step up is a write.
+
+After handing over a namespace that was a local namespace before it was made global, the cluster handed over from can reject the first update for some workflows that were started before the namespace was made global. Most of those updates are applied at the next reconnect of the replication connection; any that run out of retries first are written to the DLQ and show here. A write means that cluster's copy of a workflow is out of date. Merge its replication DLQ before handing the namespace back, or the out-of-date copy is the one that runs after the hand-back.
+
+- **Flat at 0** is the healthy reading, and what the panel shows when nothing was ever written.
+- **The count does not go down when the DLQ is merged**, and resets when a history pod restarts.
+- **It counts every namespace on the cluster** and ignores `$namespace`, for the same reason as **Replication DLQ Writes**.
+
+**Version floor:** same as **Replication DLQ Writes** — by default from server v1.28.0.
+
+See [playbook section 4](../../../playbooks/namespace-failover-graceful-handover.md#4-monitor-the-new-active-cluster-after-the-handover) for interpretation and what to do.

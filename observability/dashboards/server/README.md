@@ -6,7 +6,7 @@ Grafana dashboards for monitoring a self-hosted Temporal Server cluster.
 
 ## Dashboards
 
-### Temporal Server Dashboard — v2.35.0
+### Temporal Server Dashboard — v2.37.0
 
 Comprehensive cluster monitoring: throughput, persistence (including which limit is rejecting database calls), service latencies, throttling, shard movement, workflow stats, matching, visibility (including dual visibility and the Elasticsearch write path), replication, authorization, and the resting load of an idle cluster.
 
@@ -54,7 +54,7 @@ Decision guide for tuning `history.shardIOConcurrency`: shard IO semaphore healt
 
 ---
 
-### Namespace Failover — Graceful Handover Dashboard — v1.6.0
+### Namespace Failover — Graceful Handover Dashboard — v1.7.0
 
 Pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, flip confirmation, and post-handover health for planned namespace failovers using `namespace-handover-v2`. Multi-cluster replication only.
 

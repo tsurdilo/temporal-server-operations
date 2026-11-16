@@ -32,6 +32,8 @@ Quick reference — all recommendations below are explained in detail in the sec
 - Set `system.enableNamespaceHandoverWait: true` on **both clusters**. Dynamic config, no restart needed. Eliminates the `Unavailable` error during the HANDOVER drain window — clients see latency instead.
 - Confirm `system.enableNamespaceNotActiveAutoForwarding` is not set to `false` on either cluster, for this namespace or for all namespaces. The setting is namespace-scoped and defaults to `true`. If it is `false` for a namespace, nothing is forwarded for that namespace regardless of `dcRedirectionPolicy`. A value of `true` does not turn forwarding on by itself, because forwarding also needs `dcRedirectionPolicy` to be set. See [Setting dcRedirectionPolicy](#setting-dcredirectionpolicy) and [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings).
 - Do not lower `history.standbyTaskMissingEventsDiscardDelay` below its default (15m) on the standby — lower values increase the risk of workflows getting stuck post-flip.
+- Before every handover, including one that hands a namespace back to the cluster it came from, check [Replication DLQ Writes](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-dlq-writes-stat). If it is non-zero, list the standby's replication DLQ and merge it first. An update left in that DLQ means the standby's copy of a workflow is out of date, and after the flip that copy is the one that runs. See [section 1.2](#12-is-the-replication-stream-between-clusters-healthy).
+- If a namespace was a local namespace before it was made global, and still has workflows that were started before then, do not raise `frontend.keepAliveMaxConnectionAge` (default 5 minutes) on either cluster, and do not lower `history.ReplicationExecutableTaskErrorRetryMaxAttempts` (default 80) or `history.ReplicationExecutableTaskErrorRetryExpiration` (default 10 minutes). A longer reconnect interval or a lower retry limit makes it more likely that replication updates for those workflows end up in the old active cluster's replication DLQ after a flip. See [Replication errors on the old active cluster after the flip](#replication-errors-on-the-old-active-cluster-after-the-flip).
 - Use `AllowedLaggingSeconds: 10`, `AllowedLaggingTasks: 500`, `HandoverTimeoutSeconds: 30` as starting values. Tune `AllowedLaggingTasks` up on high-throughput clusters if WaitReplication stalls.
 - Use a consistent workflow ID convention — `handover-<namespace>` — so running handovers are easy to spot before starting a new one.
 - Tune history task processing on **both clusters**, sized for the load each would carry if its namespaces became active. A cluster holding only passive copies looks cheap to run, so its limits are often left low or unset — and then throttle the workload the moment it becomes active. See [History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md#63-if-you-run-more-than-one-cluster).
@@ -41,14 +43,14 @@ Quick reference — all recommendations below are explained in detail in the sec
 
 ### Dashboard and workflow steps
 
-**Dashboard:** [Temporal — Namespace Failover: Graceful Handover](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — v1.6.0
+**Dashboard:** [Temporal — Namespace Failover: Graceful Handover](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md) — v1.7.0
 
 | Row | What you are watching for |
 |---|---|
 | **1. Pre-Flight** | Is the replication stream healthy and caught up? Nothing should be red before you start. |
 | **2a. WaitReplication** | Is the standby catching up? Progress rises steadily with no client impact. |
 | **2b. HANDOVER Drain** | Is the drain completing in time? Writes are briefly blocked — this window is at most 30 seconds. |
-| **3. Flip Confirmed** | Did the flip happen cleanly? Four indicators turn green at once when the namespace is live on the new active. |
+| **3. Flip Confirmed** | Did the flip happen cleanly? UNAVAILABLE errors on the old active return to 0. Confirm the flip itself with `temporal operator namespace describe` on both clusters. |
 | **4. Post-Handover Health** | Is the new active stable? Watch for the first 5–10 minutes after flip — traffic, latency, and replication should all normalize. |
 
 The dashboard rows and playbook sections map directly to the six internal activity steps of the `namespace-handover-v2` workflow:
@@ -670,6 +672,15 @@ Two limits apply to closed executions, both caused by namespace retention:
 
 Wait for the workflow to complete before starting the handover workflow.
 
+**If the handover has already run without `force-replication-v2`**, the executions it would have
+copied can still be copied afterwards. See
+[The handover completed but `force-replication-v2` was not run first](#the-handover-completed-but-force-replication-v2-was-not-run-first).
+
+**If the namespace was a local namespace before it was made global**, the old active cluster logs
+replication errors for some workflows after the flip. The errors clear on their own in most cases.
+[Replication errors on the old active cluster after the flip](#replication-errors-on-the-old-active-cluster-after-the-flip)
+covers what to check, and what to do before any later handover of the namespace.
+
 #### 1.2. Is the replication stream between clusters healthy?
 
 Alerts [`FAILOVER-PRE-01` through `FAILOVER-PRE-07`](../observability/alerts/server/alerts-index.md) fire on the blockers covered here. If any are already firing, you have your answer before opening the dashboard — but check the dashboard anyway. Alerts tell you something is wrong; the dashboard panels below tell you how bad it is, whether it is recovering, and what to do about it.
@@ -680,6 +691,7 @@ Open [Row 1 — Pre-Flight](../observability/dashboards/server/namespace-failove
 |---|---|---|
 | [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) | Any non-zero rate → **blocker** | The standby has a built-in liveness monitor — if the stream stops making progress it reconnects automatically within ~3 minutes. Wait before acting. If it does not clear, see section [5](#5-something-went-wrong--rollback-and-recovery). |
 | [DLQ Enqueue Failed](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-dlq-enqueue-failed-stat) | Any non-zero rate → **blocker** | Fires on the standby. The DLQ is the last resort for replication tasks the standby cannot apply — if even that is failing, those tasks are permanently lost. Running a handover in this state makes no sense. Investigate and fix before proceeding. |
+| [Replication DLQ Writes](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-dlq-writes-stat) | Any non-zero count → **blocker until the DLQ has been listed and merged** | Fires on the standby, for all namespaces on it. A write means the standby holds an out-of-date copy of a workflow, which runs after the flip. See the note below the table. |
 | [Receiver Backlog](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) | ≥ 500 → **blocker**, 400–499 → **do not start** | Replication tasks are backing up on the standby faster than it can apply them. Starting the handover now risks the backlog hitting its limit mid-flight, which causes the sender to pause and WaitReplication to stall indefinitely. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks). |
 | [Stream Errors (gRPC)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) | Elevated **and** paired with stalled progress → **investigate** | A steady non-zero rate here is **normal** — it is the connection recycling reconnecting the stream every few minutes (see the note below). On its own it is not a blocker. It only matters if it comes with **Stream Stuck** non-zero or **Replication Lag / Latency** rising — that combination means the stream is reconnecting *and* failing to catch up. Judge readiness by Stream Stuck and lag, not by this count. |
 | [Stream Service Errors](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-service-errors-stat) | Sustained unexplained rate → **investigate before proceeding** | Fires on the standby. A brief spike when the standby restarts is normal and clears on its own. A sustained rate with no obvious cause means the standby is struggling to process the replication stream — do not start until you understand why. |
@@ -690,6 +702,8 @@ Open [Row 1 — Pre-Flight](../observability/dashboards/server/namespace-failove
 | [Standby Task Discards](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat) | Any non-zero rate → **blocker** | Fires on the standby. Workflow executions on the standby had their tasks discarded because the history events they depended on never arrived in time. After the flip those workflows will be stuck on the new active with no pending task — direct business impact. Identify and understand the scope before proceeding. See section [1.6](#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip). |
 
 > If any blocker above is unresolved, our recommendation is not to proceed with the handover. Resolve the issue first and re-run this check before continuing.
+
+**Replication DLQ writes on the standby.** The **Replication DLQ Writes** count is the number of replication updates the standby could not apply and wrote to its replication DLQ (its queue of replication updates it could not apply) since its history pods last started. Each write leaves the standby's copy of a workflow out of date, and after the flip that copy is the one that runs. A non-zero count is the prompt to list the DLQ. The count does not go down after a merge, so an empty DLQ listing means the writes were already merged and the handover can go ahead. [Replication errors on the old active cluster after the flip](#replication-errors-on-the-old-active-cluster-after-the-flip) gives the commands to list and merge the DLQ.
 
 **Stream errors are usually normal — here is how to tell.** A steady, non-zero **Stream Errors (gRPC)** rate (often between 10s and 20s on a busy cluster) is expected. It is the connection between clusters being recycled every few minutes; the stream drops and re-establishes within a couple of seconds and resumes where it left off — no data is lost. 
 So looking at just raw error count is not really indication of a non-healthy stream. It's also important to look at two things:
@@ -705,8 +719,10 @@ Errors + healthy Stream Stuck and lag = benign, proceed. Errors + Stream Stuck n
 > The recycling keeps replication connections spread evenly across your frontend pods, so one pod doesn't end up carrying most of them. 
 > It is not a replication-performance setting.
 >
-> You can raise it (up to around 24 hours) to make the reconnects — and these errors — much less frequent. 
-> The trade-off: when connections recycle less often, they can build up unevenly, with some frontend pods holding far more replication connections than others. So only keep it short if you actually see that imbalance; if load across your frontend pods is already even, raising it is safe and quiets the noise.
+> You can raise `frontend.keepAliveMaxConnectionAge` (up to around 24 hours) to make the reconnects, and the stream errors they cause, much less frequent.
+> Connections that recycle less often can build up unevenly, with some frontend pods holding far more replication connections than others. So keep the setting short only if you actually see that imbalance. If load across your frontend pods is already even, a longer value quiets the stream errors.
+>
+> Keep `frontend.keepAliveMaxConnectionAge` at its default (5 minutes) on both clusters if any namespace was a local namespace before it was made global and still has workflows that were started before then. After a flip, the first update that adds history events to each such workflow is applied only at the next reconnect. If the update's retries run out first, the update is written to the replication DLQ instead, and a longer reconnect interval makes that the usual outcome (reasoned from the retry limits, not measured at a raised value). See [Replication errors on the old active cluster after the flip](#replication-errors-on-the-old-active-cluster-after-the-flip).
 >
 > If you run a proxy or load balancer in front of your clusters, it may enforce its own connection age limit that also forces these reconnects — in that case you have to raise it there too, not just in Temporal.
 >
@@ -890,14 +906,13 @@ After addressing the root cause, go back to section 1 and repeat all pre-flight 
 
 ## 3. Flip completed — confirm the namespace switched correctly (Step 6)
 
-Step 6 ran `UpdateActiveCluster` — the namespace is now active on the new cluster. Watch [Row 3 — Flip Confirmed](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#row-3--flip-confirmed-step-6) in the dashboard. All four signals should change in quick succession.
+Step 6 ran `UpdateActiveCluster`, and the namespace is now active on the new cluster. Watch [Row 3 — Flip Confirmed](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#row-3--flip-confirmed-step-6) in the dashboard. Of its three panels, only **UNAVAILABLE Errors Gone** is a pass or fail signal. **Forwarding Active** and **Version Fence Fired** describe the flip from the old active cluster's side, and 0 is a normal reading for both. Confirm the flip itself with `temporal operator namespace describe`, as described below the table.
 
-| Signal | What to look for |
+| Panel (on the old active) | What to look for |
 |---|---|
-| [`handover_ready_shard_count`](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-state-exited-stat) drops to 0 | HANDOVER state has exited — the flip is done |
-| [`client_redirection_errors{error_type="Unavailable"}`](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-unavailable-errors-gone-stat) on old active returns to 0 | The write block is lifted — clients are no longer being rejected |
-| [`client_redirection_requests`](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-active-stat) on old active starts rising | The old active is now forwarding write calls to the new active |
-| [`task_errors_version_mismatch`](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-fence-fired-stat) on old active may spike | Expected — see below. Zero is also a valid outcome. |
+| [UNAVAILABLE Errors Gone](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-unavailable-errors-gone-stat) (`client_redirection_errors`, `error_type="Unavailable"`) | Returns to 0. The write block is lifted, and clients are no longer being rejected. |
+| [Forwarding Active](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-active-stat) (`client_redirection_requests`) | Rises when clients or workers still call the old active and it forwards those calls to the new active. Zero, shown in blue, is normal when all of them already point at the new active. |
+| [Version Fence Fired](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-fence-fired-stat) (`task_errors_version_mismatch`) | May spike, which is expected, see below. Zero, shown in blue, is also a valid outcome. |
 
 **Why `task_errors_version_mismatch` may spike — and why zero is fine too**
 
@@ -948,7 +963,7 @@ The namespace is now active on the new cluster and the handover workflow has com
 | [Forwarding Error Rate by Type](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series) | Old active | Should be 0. `Unavailable` = new active unreachable. `ResourceExhausted` = new active throttling, raise `frontend.globalNamespaceRPS` if set, else `frontend.namespaceRPS`. `FailedPrecondition` = workers completing tasks on old active without forwarding — see dynamic config section below. |
 | [WFT Schedule-to-Start](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) | New active | Still elevated after 2 minutes = workers have not reconnected to the new active yet. Check that workers are polling the new active. |
 | [Replication Lag — Reverse Stream](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag--reverse-stream-time-series) | New active | Rising lag = old active (now standby) cannot keep up with replication from the new active. |
-| [Reverse Replication Active](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-reverse-replication-active-time-series) | Old active (now standby) | Should go non-zero shortly after the flip — the old active recognises it is now the standby once its namespace cache refreshes (default 2s). If it stays flat, the reverse stream has not established — check [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) on the old active. |
+| [Reverse Replication Active (New Active → Old Active)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-reverse-replication-active-time-series) | Old active (now standby) | Rises shortly after the flip while the namespace has traffic on the new active. Flat while there is traffic means the reverse stream has not been established. Check [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) on the old active. |
 
 **Re-check task processing on the new active.** That namespace's task load has just changed from
 verifying replicated work to doing it, so a task scheduler limit sized while the namespace was
@@ -990,6 +1005,96 @@ tctl admin workflow refresh-workflow-tasks --namespace <ns> --workflow-id <wfid>
 tctl admin workflow refresh-workflow-tasks --namespace <ns>
 ```
 
+#### Replication errors on the old active cluster after the flip
+
+Read this subsection only if the namespace was a local namespace before it was made global
+(promoted with `temporal operator namespace update --promote-global`). It covers replication errors
+the old active cluster logs after the flip, what they mean for its copy of the affected workflows, and
+the replication DLQ check to make before any later handover of the namespace.
+
+**What you see:** for some workflows, the old active cluster logs the message
+`SyncVersionedTransition replication task encountered error` at log level ERROR, with
+`event slices are not consecutive Expected N, but got 1` as its error. The message repeats every 1 to
+5 seconds by default for the same workflow, as the old active cluster retries the update. The repeats for one workflow end in one of two ways:
+
+- **The update is applied.** The old active cluster logs the message
+  `VerifyVersionedTransition replication task encountered error` at log level ERROR, with
+  `mutable state not up to date` as its error, once. Nothing more is logged for that workflow.
+- **The update is written to the DLQ.** The old active cluster logs the message
+  `Enqueued replication task to DLQ` at log level ERROR for that workflow, and
+  [Replication DLQ Writes (Previously Active Cluster)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-dlq-writes-previously-active-cluster-time-series)
+  shows a write. The update is now in the old active cluster's replication DLQ (its queue of
+  replication updates it could not apply).
+
+**Why the old active cluster rejects the update:** the affected workflows are the ones started while
+the namespace was still local, so their first history events were written before the namespace had a
+failover version. The first time the new active cluster adds history events to such a workflow, the
+old active cluster asks the new active cluster for the events it is missing. The reply starts at the
+workflow's first event instead of where the old active cluster's copy ends, so the old active cluster
+rejects it and retries the same update. Only that first update is affected. Once one update for a
+workflow has been applied, later updates for it apply normally.
+
+**Why the repeated errors for one workflow stop:**
+
+- **The replication connection is re-established.** Temporal re-establishes the connection between
+  the clusters about every five minutes by default (`frontend.keepAliveMaxConnectionAge`, default
+  `5m`). After the reconnect the update is sent again in a form the old active cluster applies.
+- **The update's retries run out first.** The old active cluster stops retrying the update after
+  `history.ReplicationExecutableTaskErrorRetryMaxAttempts` attempts (default `80`, about five and a
+  half minutes at the retry pace measured on a test cluster) or after `history.ReplicationExecutableTaskErrorRetryExpiration` (default `10m`),
+  whichever comes first, and writes the update to its replication DLQ.
+
+At their default values the reconnect interval and the retry limit are close, so either outcome is
+possible. Raising `frontend.keepAliveMaxConnectionAge`, or lowering either retry setting, makes the
+DLQ outcome more likely.
+
+**Impact:** none on the new active cluster. Workflows run normally there. On the old active cluster:
+
+- **An update applied at the reconnect needs nothing.** Measured on a test cluster, every such
+  workflow caught up and ended with the same state on both clusters, nothing was written to the DLQ,
+  and each workflow's errors cleared within five minutes.
+- **An update in the DLQ is repaired by the next update to the same workflow.** If no next update
+  comes, for example because the update in the DLQ was the workflow's termination or completion, the
+  old active cluster's copy stays out of date until the DLQ is merged. If the namespace is handed back
+  to the old active cluster before the merge, the out-of-date copy is the one that runs. Measured on a test
+  cluster, a workflow terminated after the flip was running again once the namespace was handed back, ran a
+  workflow task and completed, and the termination no longer showed on either cluster. Merging the DLQ before
+  handing the namespace back, as described below, brings the copy up to date first.
+
+**What to do:**
+
+1. Watch [Replication DLQ Writes (Previously Active Cluster)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-dlq-writes-previously-active-cluster-time-series)
+   for as long as workflows started before the namespace was made global are still running. An
+   affected workflow's first update can come long after the flip, for example when a long timer fires.
+2. If the panel shows writes, list the old active cluster's DLQs, then merge its replication DLQ:
+
+   ```bash
+   tdbg --address <old-active-cluster-frontend> dlq list
+
+   tdbg --address <old-active-cluster-frontend> dlq merge \
+     --dlq-type 3 \
+     --cluster <new-active-cluster-name> \
+     --last-message-id <LASTMESSAGEID of the replication DLQ>
+   ```
+
+   The replication DLQ is the line in the list whose name starts with `3_`. `--dlq-type 3` selects
+   it, and `--cluster` names the cluster the updates came from. Measured on a test cluster, the merge
+   brought every out-of-date copy up to date, and merging an update that had already been repaired did
+   no harm.
+   [Reading, merging and purging the DLQ with tdbg](./visibility-archival-tasks-dlq.md#7-reading-merging-and-purging-the-dlq-with-tdbg)
+   explains these `tdbg dlq` commands in full, including what the list shows, how to see which
+   workflows the updates belong to, why to always give `--last-message-id`, and how to check that a
+   merge finished. The same commands work for the replication DLQ with `--dlq-type 3` and
+   `--cluster <new-active-cluster-name>` added.
+3. Before any later handover of this namespace, including one that hands it back to the old active
+   cluster, check
+   [Replication DLQ Writes](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-dlq-writes-stat)
+   in [section 1.2](#12-is-the-replication-stream-between-clusters-healthy).
+
+**Replication errors on the old active cluster are now covered.**
+[Dynamic config changes after the flip](#dynamic-config-changes-after-the-flip) covers when to stop
+forwarding API calls from the old active cluster.
+
 #### Dynamic config changes after the flip
 
 Now that the flip has happened, the old active is serving as standby and forwarding write calls to the new active. You need to decide when to tighten forwarding. **Order matters** — workers do two things: they poll for tasks, and they respond when done (completing a workflow task, finishing an activity, etc). As long as a worker is still polling the old active, it may pick up a task and try to respond on the old active too. With `all-apis-forwarding` active, that respond call is forwarded to the new active transparently. If you tighten forwarding before all workers are re-pointed, those respond calls stop being forwarded and the old active rejects them with an error the SDK cannot retry — the task fails.
@@ -1008,7 +1113,7 @@ Here is a summary of the config changes to make and when:
 
 > If you set `system.forceNamespaceSelectedAPIAutoForwarding=true` too early and workers are still polling the old active, you will see `FailedPrecondition` errors on the [Forwarding Error Rate by Type panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series). Alert `FAILOVER-POST-01` detects this. To recover: set `system.forceNamespaceSelectedAPIAutoForwarding=false` immediately, wait 2 seconds for propagation, and verify the errors clear.
 
-> If all signals in Row 4 look healthy and no stuck workflows were found, the handover is complete. If anything went wrong at any point during the handover — the workflow rolled back, the drain timed out, or you need to force a failover — see section 5 below.
+> If all signals in Row 4 look healthy, no stuck workflows were found, and [Replication DLQ Writes (Previously Active Cluster)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-dlq-writes-previously-active-cluster-time-series) shows no writes, the handover is complete. If the handover workflow rolled back, the drain timed out, you need to force a failover, or executions are missing on the new active cluster, see [section 5](#5-something-went-wrong--rollback-and-recovery).
 
 ---
 
@@ -1016,7 +1121,7 @@ Here is a summary of the config changes to make and when:
 
 This section is a reference for situations where something did not go as expected. Each scenario below describes what you will see, why it happened, and what to do. Earlier sections in this playbook point here when they detect a problem.
 
-In most cases: **the namespace is safe**. The handover workflow is designed so that if anything goes wrong before the flip completes, the namespace is automatically returned to its original state. No flip means no data loss and no stuck active cluster. There is one rare exception — see [passive-passive state](#the-handover-completed-but-the-namespace-is-in-a-passive-passive-state) below.
+In most cases: **the namespace is safe**. The handover workflow is designed so that if anything goes wrong before the flip completes, the namespace is automatically returned to its original state. No flip means no data loss and no stuck active cluster. Two situations below come after a completed flip, so that automatic return does not apply to them. A [passive-passive state](#the-handover-completed-but-the-namespace-is-in-a-passive-passive-state) is rare. [A handover that completed before `force-replication-v2` was run](#the-handover-completed-but-force-replication-v2-was-not-run-first) leaves the new active cluster without the executions the standby never received, and those executions have to be copied over afterwards.
 
 ---
 
@@ -1102,3 +1207,79 @@ temporal operator namespace update \
 ```
 
 After running this, verify both clusters agree by re-running `temporal operator namespace describe` on both frontends. Both should show the same `Active Cluster` value.
+
+---
+
+#### The handover completed but `force-replication-v2` was not run first
+
+**What you see:** the handover workflow completed and the new active cluster is serving the
+namespace, but some executions are missing on the new active cluster. Whether an execution is there
+depends on when it last changed, compared with when the standby was added to the namespace:
+
+| Execution | On the new active cluster after the handover? |
+|---|---|
+| Closed before the standby was added to the namespace | **Missing** |
+| Running, and unchanged since the standby was added (for example, waiting for a signal, a long timer, or a workflow task no SDK worker has picked up) | **Missing** |
+| Running, and changed at least once since the standby was added | Present. That first change brought the whole execution over, with its full event history |
+| Started after the standby was added | Present |
+
+A describe or signal for a missing execution sent to the new active cluster returns
+`workflow not found`. When the old active cluster has `dcRedirectionPolicy` set to
+`all-apis-forwarding`, the same call sent to the old active cluster returns the same error, because
+the old active cluster forwards it to the new active cluster.
+
+**Why it happened:** live replication only carries changes made after the standby was added to the
+namespace, so an execution with no change since then never reaches the standby. The only way to copy
+such an execution to the standby is `force-replication-v2`
+(see [Do you need to run the force-replication workflow?](#11-do-you-need-to-run-the-force-replication-workflow)).
+The handover workflow does not copy executions either.
+
+**Impact:** a missing closed execution does not exist on the new active cluster, so describing or
+listing it there finds nothing. A missing running execution makes no progress. Its timers, activities and workflow tasks do not run on
+either cluster, and signals to it fail with `workflow not found`.
+
+**How to recover:** wait until the handover workflow has finished. While the namespace is in
+HANDOVER, a backlog from `force-replication-v2` can block the drain and roll the handover back when
+`history.EnableReplicationTaskTieredProcessing` is not `true`. Once the handover workflow has finished,
+start `force-replication-v2` on the **old active cluster**, which is now the standby. Start it as soon as
+you can, because running executions make no progress until they are copied.
+
+```bash
+temporal workflow start \
+  --address <old-active-cluster-frontend> \
+  --namespace temporal-system \
+  --type force-replication-v2 \
+  --task-queue default-worker-tq \
+  --input '{
+    "Namespace": "<your-namespace>",
+    "Query": "",
+    "ConcurrentActivityCount": 5,
+    "EnableVerification": true,
+    "TargetClusterName": "<new-active-cluster-name>"
+  }'
+```
+
+An empty `Query` copies running and closed executions. To copy only one kind, use the `Query` values
+in [Do you need to run the force-replication workflow?](#11-do-you-need-to-run-the-force-replication-workflow).
+
+- **Run it on the old active cluster, not the new one.** `force-replication-v2` copies the executions
+  it finds in the visibility store of the cluster it runs on. The new active cluster's visibility store
+  does not have the missing executions, so started there it finds nothing to copy.
+- **Copying works although the old active cluster is now the standby.** Copying executions does not
+  depend on which cluster is active for the namespace. Measured on a test cluster with
+  `force-replication-v2` started on the old active cluster after the flip, every closed execution was copied with its full event history, and
+  every running execution carried on normally on the new active cluster. Pending workflow tasks and
+  activities were delivered to workers, timers fired at their original time, and signals were
+  accepted. No further step was needed.
+- **Ignore `TotalWorkflowCount` in the workflow's progress query.** When the standby has
+  `dcRedirectionPolicy` set to `all-apis-forwarding`, the count comes from the new active cluster, so it shows
+  what the new active cluster already has, not what will be copied. Use `ReplicatedWorkflowCount`,
+  which counts executions confirmed on the new active cluster when `EnableVerification` is `true`.
+- **Check the result against the new active cluster's frontend.** When the standby has
+  `dcRedirectionPolicy` set to `all-apis-forwarding`, a describe or list sent to it is answered by the active cluster.
+- **Executions that namespace retention has already deleted on the old active cluster cannot be
+  copied**, the same limit as in
+  [Do you need to run the force-replication workflow?](#11-do-you-need-to-run-the-force-replication-workflow).
+- **Executions started before the namespace was made global** can cause replication errors on the
+  old active cluster afterwards. See
+  [Replication errors on the old active cluster after the flip](#replication-errors-on-the-old-active-cluster-after-the-flip).

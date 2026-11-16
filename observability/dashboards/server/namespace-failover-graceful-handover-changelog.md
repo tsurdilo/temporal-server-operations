@@ -1,5 +1,28 @@
 # Changelog — Temporal Namespace Failover — Graceful Handover Dashboard
 
+## v1.7.0 — 2026-11-16
+
+### Added
+
+- **Row 1 — Pre-Flight**: **Replication DLQ Writes (116)** stat — replication updates the standby wrote to its replication DLQ (`dlq_writes`, `task_category="replication"`), counted since each history pod started.
+- **Row 4 — Post-Handover Health**: **Replication DLQ Writes (Previously Active Cluster) (507)** time series — the same count on the cluster the namespace was handed over from.
+
+### Changed
+
+- **Row 1 — Pre-Flight**: **Standby Task Discards (114)** narrowed from 6 to 3 columns to make room for panel 116.
+- **Row 3 — Flip Confirmed**: **UNAVAILABLE Errors Gone (402)**, **Forwarding Active (403)** and **Version Fence Fired (404)** widened from 6 to 8 columns to fill the row.
+
+### Removed
+
+- **Row 3 — Flip Confirmed**: **HANDOVER State Exited (401)**. Row 2b's **HANDOVER Drain Progress (%)** shows the same gauge.
+
+### Fixed
+
+- Template variables `$active_cluster` and `$standby_cluster` read `label_values(replication_tasks_lag_count, cluster)` instead of the bare histogram name, which matched nothing.
+- **Row 1 — Pre-Flight**: **Replication Latency — Time Behind (Standby) (115)** moved out of the Row 1 header's panel list, so it is displayed.
+- **Row 3 — Flip Confirmed**: **Forwarding Active (403)** and **Version Fence Fired (404)** show 0 in blue instead of red or "No data".
+- **Row 4 — Post-Handover Health**: **Reverse Replication Active (New Active → Old Active) (506)** reads `replication_latency_count` on the old active from the new active instead of `replication_tasks_applied`.
+
 ## v1.6.0 — 2026-08-24
 
 ### Changed

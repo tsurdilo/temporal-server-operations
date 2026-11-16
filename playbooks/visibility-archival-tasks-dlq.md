@@ -779,6 +779,8 @@ with `tdbg`, the admin command-line tool that comes with the Temporal server. Po
 frontend service with `--address`, or set `TEMPORAL_CLI_ADDRESS`. Use `--dlq-type 4` for the
 visibility DLQ and `--dlq-type 5` for the archival DLQ, after the command name, as in the examples.
 
+The same commands manage the replication DLQ, with `--dlq-type 3` and `--cluster` naming the cluster the updates came from. [Replication errors on the old active cluster after the flip](./namespace-failover-graceful-handover.md#replication-errors-on-the-old-active-cluster-after-the-flip) covers when, after a namespace handover, the replication DLQ has to be merged.
+
 **1. Find the DLQs and the id of their newest task.**
 
 ```bash
