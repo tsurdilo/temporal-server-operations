@@ -4,9 +4,9 @@ This dashboard is an operator tool for **changing a task queue's partition count
 
 It shows metrics for the **single task queue you are focusing on** (`$namespace` + `$taskqueue` + `$task_type`). For a cluster-wide view, use the [Temporal Server — Overview](./temporal-server-readme.md) dashboard instead.
 
-> **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus. The `physical_approximate_backlog_*` panels require **v1.31.0+** (empty on older versions — use the approximate panels instead).
+> **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus. The `physical_approximate_backlog_*` panels require **v1.31.0+** (empty on older versions — use the approximate panels instead). The **Server-Managed Partitions and Backlog Routing** row (Row 5) requires **v1.32.0+**.
 
-> **Current version:** v1.1.0 — see [CHANGELOG](./task-queue-partitions-changelog.md)
+> **Current version:** v1.5.0 — see [CHANGELOG](./task-queue-partitions-changelog.md)
 
 The matching playbook is at [`playbooks/change-task-queue-partitions.md`](../../../playbooks/change-task-queue-partitions.md).
 
@@ -21,6 +21,7 @@ The matching playbook is at [`playbooks/change-task-queue-partitions.md`](../../
 - [Row 2 — Sync Match & Dispatch (Path 1 Ceiling)](#row-2--sync-match--dispatch-path-1-ceiling)
 - [Row 3 — Backlog Write (Path 2 Ceiling)](#row-3--backlog-write-path-2-ceiling)
 - [Row 4 — Rule-Outs (Is Matching Actually the Bottleneck?)](#row-4--rule-outs-is-matching-actually-the-bottleneck)
+- [Row 5 — Server-Managed Partitions and Backlog Routing (v1.32.0+)](#row-5--server-managed-partitions-and-backlog-routing-v1320)
 - [What each panel is scoped to](#what-each-panel-is-scoped-to)
 
 ---
@@ -97,6 +98,8 @@ Per-partition backlog depth and age — one series per partition index.
 
 > **Approximate vs. Physical backlog count.** Both count panels show the same backlog — use either. They diverge only under Worker Versioning: Approximate is split per worker version, Physical is the single combined total.
 
+> **The approximate backlog panels update about once a minute.** From v1.31.0, `approximate_backlog_count` and `approximate_backlog_age_seconds` are emitted by a background loop every `matching.backlogMetricsEmitInterval` (default `1m`, ±5%). A partition that drains in a few seconds keeps showing its old backlog until the next emit, and a backlog that moves between partitions faster than once a minute is not visible here. To make these panels follow faster for one task queue, set `matching.backlogMetricsEmitInterval` to `10s` for that queue (the loop reads counts from memory, so a shorter interval adds no database load); setting it to `0` does not help, because the panels then update only when matching saves the queue's state, about once a minute. To see where polls are going second by second, use **Waiting Worker Polls by Partition (v1.32.0+)** in Row 5.
+
 ---
 
 ## Row 2 — Sync Match & Dispatch (Path 1 Ceiling)
@@ -137,6 +140,26 @@ Per-partition backlog depth and age — one series per partition index.
 
 ---
 
+## Row 5 — Server-Managed Partitions and Backlog Routing (v1.32.0+)
+
+From v1.32.0 the matching service can manage a task queue's partition count itself (`matching.partitionScaler`, **off by default**), and can route new tasks and polls by each partition's backlog when that setting's `BacklogCap` is above 0. This row shows whether the server is managing the queue, and where worker polls are waiting.
+
+| Panel | Metric | What it measures |
+|---|---|---|
+| **Waiting Worker Polls by Partition (v1.32.0+)** | `pending_polls` | Worker polls currently waiting in each partition. With default routing they are spread roughly evenly. Many polls stacked on one or two partitions, moving to other partitions at a steady interval, means polls are being routed by backlog counts (see below). Per partition. Empty below v1.32.0 |
+| **Server-Managed Partition Count (v1.32.0+)** | `partition_scale_read`, `partition_scale_write`, `partition_scale_target` | Read and write partition counts the server has set for this queue, and the scaler's target. **0 on all three means the server is not managing the queue**, and the counts come from `matching.numTaskqueueReadPartitions` / `matching.numTaskqueueWritePartitions`. **-1 means the queue's root partition is not loaded** on any matching instance (for example after the queue went idle); the line keeps that value until the queue loads again. Updated when the counts change. Queue-level |
+| **Partition Scaler Decisions (v1.32.0+)** | `partition_scale_events` | How often the scaler made a decision, split by `scaler_shadow_mode`. In shadow mode the scaler only logs what it would do, and this also counts a periodic heartbeat. Empty when the scaler is off. Queue-level |
+
+**Empty is normal.** The partition scaler is off unless `matching.partitionScaler` is set for the queue, so the count panel reads 0 and the decisions panel is empty on a default cluster. **Waiting Worker Polls by Partition (v1.32.0+)** shows data on any v1.32.0+ cluster with workers polling.
+
+**What backlog routing looks like.** When `BacklogCap` is above 0, the frontend sends polls to partitions in proportion to their backlog, using counts the queue's root partition refreshes every `matching.partitionScaleManager` → `BackgroundInterval` (default `23s`, ±5%). Under a steady flow of new tasks, polls can pile onto the partitions that showed backlog at the last refresh while tasks wait on the others, and the pile moves at each refresh. On **Waiting Worker Polls by Partition (v1.32.0+)** this shows as most polls on one or two partitions, switching about every refresh interval; on **Schedule to Start Latency (queue)** as a high latency that does not fall when workers are added. On a test cluster (4 partitions, 32 pollers, 250 activity tasks per second) the oldest task waited up to about 20 seconds and reset at each refresh; setting `BacklogCap` to 0 spread the polls evenly again within seconds.
+
+**What this row cannot show.** The `BacklogCap` value and the backlog counts used for routing are not metrics. `tdbg taskqueue describe-task-queue-partition` (on partition 0) prints them under `scaleInfo` as `backlogCap` and `backlogCounts`, in an 8-bit encoded form (for example, a cap of 1000 prints as `27`). Any value below 32 is stored as 0, so a `BacklogCap` below 32 turns backlog routing off.
+
+> **How to read this row** — when to let the server manage partition counts, and what to do about backlog routing: see the playbook's [Letting the Server Manage Partition Counts (v1.32.0+)](../../../playbooks/change-task-queue-partitions.md#letting-the-server-manage-partition-counts-v1320) and [Routing by Backlog with `BacklogCap`](../../../playbooks/change-task-queue-partitions.md#routing-by-backlog-with-backlogcap).
+
+---
+
 ## What each panel is scoped to
 
 Not every panel can be split by partition — some metrics don't carry a `partition` (or even a `taskqueue`) tag, so they show a coarser aggregate. This is what you'll actually see per panel:
@@ -148,10 +171,13 @@ Not every panel can be split by partition — some metrics don't carry a `partit
 - Async Match Latency
 - Dispatch Rate-Limiting (opt-in — needs `matching.enablePollerScalingDecisionMetrics`)
 - Task Write Throttle Count / Latency
+- Waiting Worker Polls (v1.32.0+)
 
 **Whole task queue** — one line for the queue, not split by partition:
 - Schedule to Start Latency
 - Eager Activity Dispatch
+- Server-Managed Partition Count (v1.32.0+)
+- Partition Scaler Decisions (v1.32.0+)
 
 **Whole namespace** — covers the entire namespace, **not** just the task queue you picked in `$taskqueue`:
 - Resource Exhausted by Cause

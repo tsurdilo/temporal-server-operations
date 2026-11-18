@@ -1,5 +1,17 @@
 # Changelog — Temporal Task Queue Partitions Dashboard
 
+## v1.5.0 — 2026-11-17
+
+### Added
+- **Server-Managed Partitions and Backlog Routing (v1.32.0+)** row (40).
+- **Waiting Worker Polls by Partition (v1.32.0+)** (41): `pending_polls` per partition.
+- **Server-Managed Partition Count (v1.32.0+)** (42): `partition_scale_read`, `partition_scale_write`, `partition_scale_target`.
+- **Partition Scaler Decisions (v1.32.0+)** (43): `partition_scale_events` by `scaler_shadow_mode`.
+
+### Documentation
+- Readme: the approximate backlog panels update about once a minute (`matching.backlogMetricsEmitInterval`).
+- Readme: current-version line corrected (it still read v1.1.0).
+
 ## v1.4.0 — 2026-08-14
 
 ### Added

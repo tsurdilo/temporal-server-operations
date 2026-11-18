@@ -70,7 +70,7 @@ large scale.
 
 | Playbook | Scenarios | Dashboard | Alerts |
 |---------|-----------|-----------|--------|
-| [Changing Task Queue Partitions](./change-task-queue-partitions.md) | Changing a task queue's partition count safely — deciding when to increase or decrease, the drain-first decrease order, detecting and fixing a `Write > Read` misconfiguration, and why adding partitions won't drain an existing backlog | [Task Queue Partitions dashboard](../observability/dashboards/server/task-queue-partitions-readme.md) v1.4.0 | [88](../observability/alerts/server/alerts-index.md#alert-88--task-queue-partition-backlog-not-draining) |
+| [Changing Task Queue Partitions](./change-task-queue-partitions.md) | Changing a task queue's partition count safely — deciding when to increase or decrease, the drain-first decrease order, detecting and fixing a `Write > Read` misconfiguration, why adding partitions won't drain an existing backlog, and letting the server manage the partition count (v1.32.0+) | [Task Queue Partitions dashboard](../observability/dashboards/server/task-queue-partitions-readme.md) v1.5.0 | [88](../observability/alerts/server/alerts-index.md#alert-88--task-queue-partition-backlog-not-draining) |
 
 ### Cluster operations
 

@@ -27,9 +27,15 @@ This playbook covers how to safely change the number of partitions behind a task
   - [You have more partitions than the workload needs](#you-have-more-partitions-than-the-workload-needs)
   - [You want a per-task-queue rate limit to be exact](#you-want-a-per-task-queue-rate-limit-to-be-exact)
 - [Monitoring After a Decrease](#monitoring-after-a-decrease)
+- [Letting the Server Manage Partition Counts (v1.32.0+)](#letting-the-server-manage-partition-counts-v1320)
+  - [Turning On the Partition Scaler](#turning-on-the-partition-scaler)
+  - [Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap)
+  - [How Often the Server Refreshes Backlog Counts](#how-often-the-server-refreshes-backlog-counts)
+  - [Turning the Partition Scaler Off](#turning-the-partition-scaler-off)
 - [Signs of Trouble — Red Flags After a Change](#signs-of-trouble--red-flags-after-a-change)
 - [Reading the Metrics](#reading-the-metrics)
   - [Backlog age can read 0 even when it isn't](#backlog-age-can-read-0-even-when-it-isnt)
+  - [Backlog panels update about once a minute](#backlog-panels-update-about-once-a-minute)
   - [Activity queues can look empty: eager dispatch](#activity-queues-can-look-empty-eager-dispatch)
 - [Detecting and Fixing an Existing `Write > Read` Misconfiguration](#detecting-and-fixing-an-existing-write--read-misconfiguration)
   - [How to confirm](#how-to-confirm)
@@ -49,9 +55,11 @@ This playbook covers how to safely change the number of partitions behind a task
 |---|---|---|
 | `matching.numTaskqueueWritePartitions` | `4` | Number of write partitions **each** task queue gets (new tasks are written to these). Settable cluster-wide, per namespace, per task queue, or per task type — see [Scoping the Change](#scoping-the-change-namespace-task-queue-or-task-type). |
 | `matching.numTaskqueueReadPartitions` | `4` | Number of read partitions **each** task queue gets (workers poll these). Settable cluster-wide, per namespace, per task queue, or per task type — see [Scoping the Change](#scoping-the-change-namespace-task-queue-or-task-type). |
+| `matching.partitionScaler` | off | **v1.32.0+.** The matching service sets the queue's partition count itself, instead of the read and write partition settings. Its `BacklogCap` field routes tasks and polls by backlog. See [Letting the Server Manage Partition Counts (v1.32.0+)](#letting-the-server-manage-partition-counts-v1320). |
+| `matching.partitionScaleManager` | `BackgroundInterval: 23s` | **v1.32.0+.** How often the server refreshes each partition's backlog count for the partition scaler. Does nothing while the scaler is off. See [Letting the Server Manage Partition Counts (v1.32.0+)](#letting-the-server-manage-partition-counts-v1320). |
 | `metrics.breakdownByPartition` | `true` | Puts the real partition id in the `partition` tag. Required for per-partition backlog gauges. Settable per task queue — watch cardinality. |
 | `metrics.breakdownByTaskQueue` | `true` | Puts the real task queue name in the `taskqueue` tag (Matching **and** History metrics). Also required for per-partition backlog gauges. Settable per task queue — watch cardinality. |
-| `matching.backlogMetricsEmitInterval` | `1m` | Only relevant if you use Worker Versioning (v1.31.0+): how often the per-worker-version backlog breakdown is recomputed. Set `0` to turn that breakdown off. Otherwise ignore. |
+| `matching.backlogMetricsEmitInterval` | `1m` | **v1.31.0+.** How often the approximate backlog panels update. Set `10s` for a task queue you are watching closely. `0` does **not** make the panels faster. See [Backlog panels update about once a minute](#backlog-panels-update-about-once-a-minute). |
 | `matching.enablePollerScalingDecisionMetrics` | `false` | Opt-in. Emits `poller_scale_decision`, whose `reason="rate_limited"` series is the only per-partition signal for the sync-match / dispatch (path 1) ceiling on the default priority matcher. Enable it to populate the dashboard's **Dispatch Rate-Limiting by Partition** panel. Settable per task queue. |
 | `admin.matchingNamespaceTaskqueueToPartitionDispatchRate` | `1000` | **Changing this is not recommended** — scale by adding partitions, not by raising the cap. Max dispatch qps per partition (for a namespace + task queue); caps both sync match and backlog dispatch. |
 | `admin.matchingNamespaceToPartitionDispatchRate` | `10000` | **Changing this is not recommended.** The same per-partition cap, set at the namespace level (not a namespace-wide total across task queues). The effective per-partition limit is the **min** of this and the per-task-queue value above — so the `1000` binds by default. |
@@ -79,7 +87,7 @@ The order of the two entries doesn't matter — matching resolves the **most spe
 
 **One more opt-in for the dashboard.** The dashboard's **Dispatch Rate-Limiting by Partition** panel reads `poller_scale_decision`, which matching emits only when `matching.enablePollerScalingDecisionMetrics` is on (default off) — so that panel stays empty until you enable it. It's the path-1 (sync-match / dispatch cap) signal on the default priority matcher; set it the same way (scope it to the queue you're resizing) when you want that panel populated.
 
-4. **Alerting on a stuck partition backlog** — an optional per-queue alert (**Alert 83**) for a `Write > Read` stall or any non-draining per-partition backlog is documented in the [server alert index](../observability/alerts/server/alerts-index.md#alert-83--task-queue-partition-backlog-not-draining). It's not in the essential set — the threshold is workload-specific and the metric is opt-in per queue — so scope it to a queue you've instrumented and tune the threshold.
+4. **Alerting on a stuck partition backlog** — an optional per-queue alert (**Alert 88**) for a `Write > Read` stall or any non-draining per-partition backlog is documented in the [server alert index](../observability/alerts/server/alerts-index.md#alert-88--task-queue-partition-backlog-not-draining). It's not in the essential set — the threshold is workload-specific and the metric is opt-in per queue — so scope it to a queue you've instrumented and tune the threshold.
 
 ---
 
@@ -95,6 +103,7 @@ The dashboard's rows line up with the work here:
 | **Sync Match & Dispatch (Path 1)** | The [sync-match / dispatch-cap ceiling](#when-to-increase-partitions) |
 | **Backlog Write (Path 2)** | The [write ceiling](#when-to-increase-partitions) — is matching persisting tasks fast enough? |
 | **Rule-Outs** | Answering ["is matching even the bottleneck?"](#recommendations-before-you-increase) before you add partitions |
+| **Server-Managed Partitions and Backlog Routing (v1.32.0+)** | Whether the server is managing the queue's partition count, and where polls from SDK workers are waiting. See [Letting the Server Manage Partition Counts (v1.32.0+)](#letting-the-server-manage-partition-counts-v1320) |
 
 ---
 
@@ -109,7 +118,7 @@ Tuning goes both ways. A high-throughput task queue can **add** partitions to ra
 A queue's partitions have two sides, sized **independently** — how many partitions new tasks are **written** to, and how many workers **read** (poll) for them. Both counts refer to the **same** numbered partitions, not two separate sets you add together (a queue with write count 4 and read count 4 has **4** partitions, not 8):
 
 - **Write** — new tasks arriving for the queue are placed onto a partition.
-- **Read** — workers poll a partition to pick tasks up. "Read" doesn't mean a single reader: many pollers can wait on the same partition at once, and each poll is spread across the queue's partitions by the frontend's matching-client load balancer, which routes it to the partition with the fewest outstanding pollers.
+- **Read** — workers poll a partition to pick tasks up. "Read" doesn't mean a single reader: many pollers can wait on the same partition at once. The frontend service spreads polls across the queue's partitions, sending every poll to the partition with the fewest polls already waiting. (From v1.32.0, a task queue with `BacklogCap` turned on sends polls toward the partitions with the most backlog instead; see [Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap).)
 
 Each side is its own dynamic config:
 
@@ -181,6 +190,14 @@ INCREASE  (e.g. 4 → 8)          DECREASE  (e.g. 8 → 4)
 The reason is to avoid writing a task to a partition that no worker reads. Tasks are spread across the write partitions, but workers only poll the read partitions — so if there are more write partitions than read partitions, a task can land on a partition nobody is polling. It isn't lost: matching forwards that partition's backlog up to the root partition, which is always polled. But forwarding the task adds latency (it has to be moved before it can be picked up) and concentrates load on the root partition. Keeping `Write ≤ Read` guarantees every partition a task can be written to is also one that workers read. See [Detecting and Fixing an Existing `Write > Read` Misconfiguration](#detecting-and-fixing-an-existing-write--read-misconfiguration) if a queue is already in this state.
 
 So the two procedures below — [increasing partitions](#how-to-increase-partitions) and [decreasing partitions](#how-to-decrease-partitions) — are the same idea: change the read count and the write count in the order that keeps `Write ≤ Read` true the whole way through. This ordering is the safeguard, and it works on every version: [Signs of Trouble](#signs-of-trouble--red-flags-after-a-change) and [Detecting and Fixing an Existing `Write > Read` Misconfiguration](#detecting-and-fixing-an-existing-write--read-misconfiguration) below cover how to spot and repair a bad state if one already exists.
+
+**From v1.32.0, task queues whose partition count the server manages get a second safeguard.** When the partition scaler is managing a queue ([Letting the Server Manage Partition Counts (v1.32.0+)](#letting-the-server-manage-partition-counts-v1320)), the matching service turns away three kinds of request:
+
+- a poll or task sent to a partition outside the current read count
+- a new task sent to a partition being removed
+- a request from a frontend whose partition counts are well out of date
+
+The frontend then takes the current counts from the reply and sends the request again, once, to a valid partition. Workers normally never see this. The safeguard does not cover counts you set by hand with `matching.numTaskqueueReadPartitions` and `matching.numTaskqueueWritePartitions`, so the ordering rule above still applies to them.
 
 ---
 
@@ -448,6 +465,236 @@ The check that tells you *when* to lower read is part of the procedure itself �
 
 ---
 
+## Letting the Server Manage Partition Counts (v1.32.0+)
+
+From v1.32.0 the matching service can choose a task queue's partition count itself, from how fast tasks are added and how much backlog builds up, instead of you setting `matching.numTaskqueueReadPartitions` and `matching.numTaskqueueWritePartitions` by hand. The part of the matching service that does this is the **partition scaler**. The partition scaler is off by default and set per task queue, so on a cluster that has not set `matching.partitionScaler`, nothing in this section is running. The subsections below cover:
+
+- [Turning On the Partition Scaler](#turning-on-the-partition-scaler)
+- [Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap), the one scaler setting that changes how tasks and polls are routed
+- [How Often the Server Refreshes Backlog Counts](#how-often-the-server-refreshes-backlog-counts), and what else that refresh controls
+- [Turning the Partition Scaler Off](#turning-the-partition-scaler-off)
+
+### Turning On the Partition Scaler
+
+The partition scaler runs in the task queue's root partition (partition 0). It measures how many tasks are added per second and, if you configure it to, how much backlog each partition holds, and from those it sets a target partition count. The matching service uses that target for both the read and the write count, and applies the safe order from [The Rule for Changing Partition Counts](#the-rule-for-changing-partition-counts) itself:
+
+- **On the way up** it raises both counts together, and the [second safeguard](#the-rule-for-changing-partition-counts) turns away any request still sent with the old counts.
+- **On the way down** it lowers the write count first, keeps the partitions being removed polled until they are empty, and only then lowers the read count.
+
+While the scaler manages a queue, `matching.numTaskqueueReadPartitions` and `matching.numTaskqueueWritePartitions` are not used for it.
+
+`matching.partitionScaler` is one setting with several fields:
+
+| Field | Default | What the field does |
+|---|---|---|
+| `Enabled` | `false` | `true` turns the scaler on for the namespace, task queue or task type in `constraints`. `false` returns the queue to the dynamic config counts. See [Turning the Partition Scaler Off](#turning-the-partition-scaler-off). |
+| `Fixed` | `0` | A fixed partition count. Any value above 0 overrides every field below except `BacklogCap`. `0` means not used. |
+| `Ups` | none | A list of `Window` and `TargetRate` pairs. The scaler measures the add rate over `Window` and raises the count to about the rate divided by `TargetRate` (tasks per second per partition). |
+| `Downs` | none | Same shape as `Ups`, and may lower the count. Give it a lower `TargetRate` than `Ups`, so the count does not move up and down around one rate. |
+| `BacklogBase`, `BacklogReset` | `0` | Adds one partition for each partition whose backlog goes above `BacklogBase`, until that partition's backlog falls below `BacklogReset`. `BacklogBase` and `BacklogReset` must both be above 0 to apply. |
+| `Min`, `Max` | `0` | Lower and upper bounds on the count. `0` means no bound. |
+| `BacklogCap` | `0` | Routes tasks and polls by backlog. Leave it at `0`. See [Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap). |
+
+**The scaler waits for its longest window before it changes the partition count.** After you turn the scaler on, it does not change the partition count until it has measured the add rate over its longest `Window`:
+
+- With the 10-minute `Downs` window in the example below, the first change comes about 10 minutes after the setting goes in.
+- The same wait applies whenever the queue's root partition reloads, for example after a matching instance restarts, because those measurements are kept only in memory. Until then the queue keeps the partition count it already has.
+- Once the scaler is measuring, it changes the count at most about once every 3 seconds.
+
+On a test cluster running 250 activity tasks per second with an `Ups` `TargetRate` of 50, the scaler set 5 partitions (250 ÷ 50) about 2 minutes after the setting went in, the length of its 2-minute `Downs` window. When the tasks stopped, it lowered the write count first, and the read count about 45 seconds later once the removed partitions were empty.
+
+This example scales one activity queue at about 500 tasks per second per partition, the planning number from [Defaults and Sizing](#defaults-and-sizing), between 4 and 16 partitions:
+
+```yaml
+matching.partitionScaler:
+  - value:
+      Enabled: true
+      Ups:
+        - Window: 1m
+          TargetRate: 500     # raise to about (tasks per second ÷ 500) partitions
+      Downs:
+        - Window: 10m
+          TargetRate: 250     # lower only when well below that
+      Min: 4
+      Max: 16
+    constraints:
+      namespace: 'your-namespace'
+      taskQueueName: 'your-task-queue'
+      taskType: Activity
+```
+
+> **Recommendation: write every field you want in one entry.** Fields left out of `matching.partitionScaler` are 0, not a default. If any field is invalid, for example a `Window` under 100 milliseconds or a `TargetRate` under 1, the whole entry is ignored and the scaler stays off for that queue.
+
+> **Recommendation: leave `BacklogCap` at 0.** The scaler sets partition counts without it. [Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap) explains why turning it on can make tasks wait while workers sit idle.
+
+**Where to see the scaler working.** **Server-Managed Partition Count (v1.32.0+)** shows the read and write counts the server has set and the scaler's target. Read, write and target all at 0 means the server is not managing the queue, and -1 means the queue's root partition is not loaded on any matching instance. **Partition Scaler Decisions (v1.32.0+)** shows each time the scaler made a decision. The dashboard's **Server-Managed Partitions and Backlog Routing (v1.32.0+)** row holds these panels.
+
+Turning on the partition scaler is now covered. One of its fields, `BacklogCap`, changes where tasks and polls go rather than how many partitions there are; [Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap) covers it.
+
+### Routing by Backlog with `BacklogCap`
+
+This subsection explains what the `BacklogCap` field of `matching.partitionScaler` changes, why it can leave tasks waiting while workers sit idle, how that shows on the dashboard, and how to turn it off.
+
+**How the frontend service picks a partition by default.** Every time a task is added or an SDK worker polls, the frontend service picks one of the queue's partitions for it. With `BacklogCap` at 0, the default, the frontend service spreads both evenly:
+
+- each new task goes to a random partition
+- each poll goes to the partition with the fewest polls already waiting
+
+**What `BacklogCap` changes.** With `BacklogCap` above 0, the frontend service uses each partition's backlog when it picks:
+
+- **New tasks** go mostly to the partitions furthest below the cap. A partition at or above the cap gets no new tasks, and if every partition is at or above the cap, new tasks go back to random.
+- **Polls** go mostly to the partitions with the most tasks waiting, as long as at least one partition shows a backlog.
+
+The idea behind `BacklogCap` is sound. New work goes where there is room, and workers go where work has piled up.
+
+**Where the per-partition backlog counts come from.** The frontend service does not see each partition's live backlog. The queue's root partition reads every partition's backlog once per scale manager refresh, every 23 seconds by default (see [How Often the Server Refreshes Backlog Counts](#how-often-the-server-refreshes-backlog-counts)), and the frontend service routes on that snapshot until the next one arrives. The numbers are also rounded, and any backlog below 32 tasks counts as 0.
+
+**Why tasks can wait while workers sit idle.** Say the last refresh showed partition A with 9,000 tasks waiting and partition B with none:
+
+1. Nearly every poll goes to A. Workers empty A in a few seconds.
+2. New polls keep going to A, because the snapshot still shows its backlog. B gets almost no polls until the next refresh, while new tasks keep arriving on it. With no poll waiting there, those tasks go into B's backlog.
+3. At the next refresh, B shows a large backlog and A shows none, and the polls move to B.
+
+This playbook calls these three steps, repeating at every refresh, the **backlog swap**. At each refresh the backlog moves to the partitions the polls just left, instead of draining. During a backlog swap, tasks reach workers in bursts one refresh interval apart, the oldest task waits up to about one refresh interval, and workers sit idle in between. More pollers follow the same snapshot, so they make each burst larger without shortening the wait.
+
+A backlog swap keeps going as long as new tasks keep arriving at the same rate while workers are handed fewer of them. The backlog swap ends only when a refresh finds fewer than 32 tasks waiting on every partition. Under a steady flow of new tasks, the partitions that get few polls collect more than that between refreshes, so the backlog swap continues until someone changes `BacklogCap`.
+
+**A backlog swap measured on a test cluster.** With 4 partitions, 32 pollers and 250 activity tasks arriving per second, a burst of extra tasks started a backlog swap:
+
+- Each refresh released between 1,100 and 1,700 tasks to workers within one second.
+- Between refreshes, workers started only 100 to 140 tasks per second.
+- The oldest task waited up to about 20 seconds before the next refresh released it.
+- When new tasks instead slowed down whenever workers received fewer of them, the same burst caused three rounds of the backlog swap, and then the backlog swap ended.
+
+**How a backlog swap shows on the dashboard:**
+
+- **Waiting Worker Polls by Partition (v1.32.0+)** shows most of the queue's polls waiting on one or two partitions, moving to other partitions about once per refresh interval. With `BacklogCap` at 0 the polls are spread roughly evenly.
+- **Schedule to Start Latency (queue)** stays high while workers report free capacity, and does not come down when workers or pollers are added.
+- **Approximate Backlog Count by Partition** and **Approximate Backlog Age by Partition** cannot show the backlog moving, because by default they update only about once a minute. See [Backlog panels update about once a minute](#backlog-panels-update-about-once-a-minute).
+
+**How to check whether `BacklogCap` is on.** No metric shows the `BacklogCap` setting. Run `tdbg` against the queue's root partition, using the namespace ID from `temporal operator namespace describe`:
+
+```bash
+tdbg taskqueue describe-task-queue-partition --namespace-id <namespace-id> --task-queue <task-queue> --task-queue-type TASK_QUEUE_TYPE_ACTIVITY --partition-id 0
+```
+
+In the output, find `backlogCap` under `scaleInfo`:
+
+- **Missing or 0** means backlog routing is off.
+- **Any other number** means backlog routing is on. Read the number only as on or off. The server stores the cap in a compact form, so the printed number is not the value you set. For example, a `BacklogCap` of 1000 prints as `27`.
+
+A `BacklogCap` set below 32 is stored as 0, so it turns backlog routing off.
+
+**How to end a backlog swap.** Set `BacklogCap` to 0 for the task queue, and keep every other field of the entry as it was, because fields left out are 0:
+
+```yaml
+matching.partitionScaler:
+  - value:
+      Enabled: true
+      Ups:
+        - Window: 1m
+          TargetRate: 500
+      Downs:
+        - Window: 10m
+          TargetRate: 250
+      Min: 4
+      Max: 16
+      BacklogCap: 0         # was above 0
+    constraints:
+      namespace: 'your-namespace'
+      taskQueueName: 'your-task-queue'
+      taskType: Activity
+```
+
+Setting `BacklogCap` to 0 takes effect within about a second, and partition scaling keeps working. On the test cluster the polls were spread evenly again within a few seconds, and the waiting tasks reached workers about 5 seconds after the change.
+
+> **Recommendation: leave `BacklogCap` at 0, and set it back to 0 to end a backlog swap.** Do not turn the whole scaler off to end a backlog swap ([Turning the Partition Scaler Off](#turning-the-partition-scaler-off) covers what turning the scaler off changes), and do not add pollers or partitions, which follow the same snapshot.
+
+> **Recommendation: if you turn `BacklogCap` on anyway, set it to 32 or more**, keep `BacklogReset` below `BacklogBase` and `BacklogBase` below `BacklogCap`, and watch **Waiting Worker Polls by Partition (v1.32.0+)** for polls piling onto one or two partitions. A shorter refresh interval makes a backlog swap less likely; [How Often the Server Refreshes Backlog Counts](#how-often-the-server-refreshes-backlog-counts) covers it.
+
+Backlog routing is now covered. The numbers it routes on are refreshed once per scale manager refresh interval, and [How Often the Server Refreshes Backlog Counts](#how-often-the-server-refreshes-backlog-counts) covers that setting, what else it controls, and what shortening it adds.
+
+### How Often the Server Refreshes Backlog Counts
+
+This subsection covers `matching.partitionScaleManager`, the setting for the background work the partition scaler runs in the queue's root partition, and what shortening its refresh interval changes.
+
+**What each refresh does.** Every `BackgroundInterval` (23 seconds by default), the root partition of a task queue with the partition scaler on does three things:
+
+- **Runs the partition scaler**, even if few tasks arrived since the last run, so the scaler can lower the partition count when traffic stops. The scaler also runs after every 100 added tasks, so a busy queue does not wait for the refresh.
+- **Reads every read partition's backlog count**, with one internal request from the root partition to each read partition. Each partition answers from memory, not from the database. These counts are what `BacklogCap` routes on ([Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap)).
+- **Checks whether partitions being removed are empty**, so the read count can come down after a scale-down.
+
+Each refresh interval is changed at random by up to 5% in either direction, so the default refresh comes every 21.85 to 24.15 seconds. The 5% is fixed and no setting changes it. A changed `BackgroundInterval` applies from the next refresh, without restarting any matching instance. With the partition scaler off, the refresh makes no requests.
+
+`matching.partitionScaleManager` has several fields. Only these three are worth knowing:
+
+| Field | Default | What the field controls |
+|---|---|---|
+| `BackgroundInterval` | `23s` | How often each refresh runs. **Never `0`**, which makes the refresh run again as soon as the previous one finishes, with no pause. |
+| `DrainBufferTime` | `15s` | How long the server waits after lowering the write count before it checks whether the removed partitions are empty. |
+| `MaxRate` | `0.33` | The most partition count changes per second, so at most one change about every 3 seconds. |
+
+The other fields (`ShrinkRatio`, `ShrinkDelta`, `BatchSize`, `ShadowModeLogInterval`) are best left at their defaults.
+
+Unlike `matching.partitionScaler`, `matching.partitionScaleManager` keeps its defaults for any field you leave out, so list only the fields you change. If any field fails to parse, the whole entry falls back to the defaults. This example shortens the refresh for one activity queue:
+
+```yaml
+matching.partitionScaleManager:
+  - value:
+      BackgroundInterval: "5s"
+    constraints:
+      namespace: 'your-namespace'
+      taskQueueName: 'your-task-queue'
+      taskType: Activity
+```
+
+**What a shorter refresh interval changes.** A shorter `BackgroundInterval` gives `BacklogCap` fresher backlog counts to route on, so a backlog swap is less likely to start:
+
+- On the test cluster from [Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap), with `BackgroundInterval` at `5s`, the same burst that had started a backlog swap at the default drained in about 37 seconds, and workers went straight back to receiving tasks at a steady rate. Treat that as one run, not as proof that a 5-second refresh can never start a backlog swap.
+- The partition scaler also lowers the count sooner after traffic stops, and the read count comes down sooner after a scale-down.
+- The root partition sends more internal requests. Each refresh sends one request per read partition, so a queue with 8 read partitions sends 8 ÷ 23, about 0.35 requests per second, at the default, and 8 ÷ 5, about 1.6 requests per second, at `5s`. The requests are answered from memory, so they add no database load.
+
+> **Recommendation: to end a backlog swap, set `BacklogCap` to 0 rather than shortening `BackgroundInterval`.** A shorter `BackgroundInterval` only makes a backlog swap less likely while `BacklogCap` stays on. Shorten it only for a task queue that keeps `BacklogCap` above 0, and never to `0`.
+
+`matching.partitionScaleManager` controls only the partition scaler's refresh. How often the dashboard's backlog panels update is a separate setting, `matching.backlogMetricsEmitInterval`, covered in [Backlog panels update about once a minute](#backlog-panels-update-about-once-a-minute).
+
+How often the server refreshes backlog counts is now covered. What is left is turning the partition scaler off again, which changes the partition counts back to dynamic config; [Turning the Partition Scaler Off](#turning-the-partition-scaler-off) covers it.
+
+### Turning the Partition Scaler Off
+
+This subsection covers what happens to a task queue's partitions when you turn the partition scaler off, and how to do it without leaving tasks behind.
+
+**How to turn the partition scaler off.** Set `Enabled` to `false` in the queue's `matching.partitionScaler` entry, or remove the entry:
+
+```yaml
+matching.partitionScaler:
+  - value:
+      Enabled: false
+    constraints:
+      namespace: 'your-namespace'
+      taskQueueName: 'your-task-queue'
+      taskType: Activity
+```
+
+**What changes when the partition scaler is off.** Within a few seconds the server drops the partition counts it was managing:
+
+- The queue's read and write counts go back to `matching.numTaskqueueReadPartitions` and `matching.numTaskqueueWritePartitions`, the dynamic config counts.
+- `BacklogCap` stops applying, so tasks and polls are spread evenly again.
+- **Server-Managed Partition Count (v1.32.0+)** reads 0 for read, write and target.
+
+**Partitions above the dynamic config read count.** If the scaler was managing more partitions than `matching.numTaskqueueReadPartitions`, the extra partitions are no longer polled directly, the same situation as a [`Write > Read` misconfiguration](#detecting-and-fixing-an-existing-write--read-misconfiguration):
+
+- While one of those partitions stays loaded on a matching instance, it passes its waiting tasks to partitions that are polled, and its backlog drains. On a test cluster where the scaler was managing 8 partitions and dynamic config set 4, about 1,400 tasks waiting on each of partitions 4 to 7 reached workers within about 75 seconds of turning the scaler off.
+- If one of those partitions unloads before its backlog has drained, its tasks wait in the database until the partition loads again. A partition unloads after `matching.maxTaskQueueIdleTime` (5 minutes by default) with no polls and no new tasks. [The fix](#the-fix) for a `Write > Read` misconfiguration loads it again.
+
+> **Recommendation: before turning the partition scaler off, set the dynamic config counts to the count the server is using.** Read the current count on **Server-Managed Partition Count (v1.32.0+)**, set `matching.numTaskqueueReadPartitions` and `matching.numTaskqueueWritePartitions` to it for the queue (the scaler ignores them while it is on), then set `Enabled` to `false`. No partition leaves the read range, so no backlog has to move. To run with fewer partitions afterwards, follow [How to Decrease Partitions](#how-to-decrease-partitions).
+
+**How to confirm the partition scaler is off.** **Server-Managed Partition Count (v1.32.0+)** reads 0 for read, write and target, and on **Approximate Backlog Count by Partition** no partition at or above the new read count still shows a backlog. **Approximate Backlog Count by Partition** updates about once a minute by default.
+
+Server-managed partition counts are now covered, from turning the partition scaler on to turning it off. [Signs of Trouble](#signs-of-trouble--red-flags-after-a-change) collects what goes wrong after any partition change, manual or server-managed, and what to do about each.
+
+---
+
 ## Signs of Trouble — Red Flags After a Change
 
 Each sign below is something you can see on a dashboard panel — named in the first column, so you know where to look.
@@ -458,16 +705,42 @@ Each sign below is something you can see on a dashboard panel — named in the f
 | After an **increase**, the new partitions stay empty or latency got worse instead of better — **Tasks Added by Partition** flat on the new partitions, **Schedule to Start Latency** / **Async Match Latency by Partition** up | The change didn't reach the workers: the read change didn't propagate to all matching hosts, or workers didn't reconnect to poll the new partitions | Confirm the read change propagated and workers reconnected, and that write ≤ read |
 | After an **increase**, the throttle you were acting on didn't budge — **Task Write Throttle Count** / **Dispatch Rate-Limiting by Partition** flat (on the classic matcher, `sync_throttle_count`) | Matching partitions weren't the bottleneck | It's a worker problem, not a partition one — check **Schedule to Start Latency** and add pollers or activity slots |
 | After a **decrease**, a partition you removed still shows a backlog — **Approximate Backlog Count / Age by Partition** | You lowered the read count before it finished draining, so its leftover tasks now have no worker polling them | Raise the read count to reload and drain it; next time, wait for the drain before lowering read |
+| Most polls wait on one or two partitions on **Waiting Worker Polls by Partition (v1.32.0+)**, moving to others about every 23 seconds, while **Schedule to Start Latency (queue)** stays high and does not fall when workers are added | `BacklogCap` is above 0 and polls are following backlog counts up to one refresh old, a [backlog swap](#routing-by-backlog-with-backlogcap) | Set `BacklogCap` to 0 for the queue. See [Routing by Backlog with `BacklogCap`](#routing-by-backlog-with-backlogcap) |
+| After **turning the partition scaler off**, a partition at or above the new read count still shows a backlog on **Approximate Backlog Count by Partition** | The scaler was managing more partitions than `matching.numTaskqueueReadPartitions`, and that partition is outside the read range now | Raise `matching.numTaskqueueReadPartitions` to cover it. See [Turning the Partition Scaler Off](#turning-the-partition-scaler-off) |
 
 ---
 
 ## Reading the Metrics
 
-Two reasons the numbers might not show what you expect. (Turning the per-partition metrics *on* is covered up front, under [References](#references) → **Turning on the per-partition metrics**.)
+Three reasons the numbers might not show what you expect. (Turning the per-partition metrics *on* is covered up front, under [References](#references) → **Turning on the per-partition metrics**.)
 
 ### Backlog age can read 0 even when it isn't
 
 On the priority matcher, the **physical** backlog-age metric (`physical_approximate_backlog_age_seconds`) has a bug: it can read **0 even with thousands of tasks queued**. It's a known issue with a server-side fix underway. Until that lands, read backlog age from the dashboard's **Approximate Backlog Age by Partition** panel — it uses the reliable **logical** metric (`approximate_backlog_age_seconds`), the true age of the oldest waiting task. (This is also why the dashboard has no physical-*age* panel for now; the physical backlog **count** is unaffected.)
+
+### Backlog panels update about once a minute
+
+From v1.31.0, **Approximate Backlog Count by Partition** and **Approximate Backlog Age by Partition** update once every `matching.backlogMetricsEmitInterval`, 1 minute by default. Between updates, each of the two panels keeps showing its last value:
+
+- A partition that drains in a few seconds still shows its old backlog for up to a minute.
+- A backlog that moves between partitions faster than once a minute does not show at all, and every partition can look alike, as during a [backlog swap](#routing-by-backlog-with-backlogcap).
+
+There are two ways to see faster changes. **Waiting Worker Polls by Partition (v1.32.0+)** shows where polls are waiting at every metrics scrape. For a task queue you are watching closely, you can also set `matching.backlogMetricsEmitInterval` to `10s` for that queue, so the backlog panels update about every 10 seconds:
+
+```yaml
+matching.backlogMetricsEmitInterval:
+  - value: 10s
+    constraints:
+      namespace: 'your-namespace'
+      taskQueueName: 'your-task-queue'
+      taskType: Activity
+```
+
+The matching service reads these backlog counts from memory, so a shorter `matching.backlogMetricsEmitInterval` adds no database load. On a test cluster with the setting at `10s`, a 2,000-task backlog appeared on **Approximate Backlog Count by Partition** within about 13 seconds, and the panel read 0 within about 21 seconds of workers starting to drain the backlog.
+
+> **Recommendation: do not set `matching.backlogMetricsEmitInterval` to `0` to make the backlog panels faster.** A `0` turns off the per-worker-version backlog breakdown, and the backlog panels then update only when the matching service saves the queue's state, every `matching.updateAckInterval` (1 minute by default).
+
+How often the backlog panels update is now covered. [Activity queues can look empty: eager dispatch](#activity-queues-can-look-empty-eager-dispatch) covers the other reason an activity queue's panels can read empty under load.
 
 ### Activity queues can look empty: eager dispatch
 
@@ -487,7 +760,7 @@ A task queue can end up with the **write count higher than the read count** — 
 
 **Usually these tasks aren't stuck, just slow.** While such a partition stays loaded, it forwards its backlog to a partition that *is* polled, so the tasks still get dispatched — they just take an extra hop, which adds latency and concentrates load on that one partition. Nothing is lost, but it defeats the point of the extra write partitions.
 
-**They can get stuck in one case:** if an unpolled partition goes idle and unloads (`matching.maxTaskQueueIdleTime`, 5 min) while still holding a backlog, that backlog waits in the database until the partition loads again — and with no polls and no new writes, it may not reload promptly. You can catch it coming, though: a partition heading there shows a **backlog age that climbs and won't drain** on **Approximate Backlog Age by Partition**. A rising per-partition backlog age (`approximate_backlog_age_seconds`) is a good thing to alert on — it flags a `Write > Read` stall and any other non-draining backlog alike, and there's a ready-to-adapt rule for it in [Alert 83](../observability/alerts/server/alerts-index.md#alert-83--task-queue-partition-backlog-not-draining). Rising **Schedule to Start Latency** is the broader "tasks aren't getting picked up" catch-all. The fix is simple, so it's worth correcting rather than living with.
+**They can get stuck in one case:** if an unpolled partition goes idle and unloads (`matching.maxTaskQueueIdleTime`, 5 min) while still holding a backlog, that backlog waits in the database until the partition loads again — and with no polls and no new writes, it may not reload promptly. You can catch it coming, though: a partition heading there shows a **backlog age that climbs and won't drain** on **Approximate Backlog Age by Partition**. A rising per-partition backlog age (`approximate_backlog_age_seconds`) is a good thing to alert on — it flags a `Write > Read` stall and any other non-draining backlog alike, and there's a ready-to-adapt rule for it in [Alert 88](../observability/alerts/server/alerts-index.md#alert-88--task-queue-partition-backlog-not-draining). Rising **Schedule to Start Latency** is the broader "tasks aren't getting picked up" catch-all. The fix is simple, so it's worth correcting rather than living with.
 
 ### How to confirm
 

@@ -66,9 +66,9 @@ Pre-flight go/no-go checks, WaitReplication catchup progress, HANDOVER drain, fl
 
 ---
 
-### Temporal Task Queue Partitions — v1.4.0
+### Temporal Task Queue Partitions — v1.5.0
 
-Single-queue drill-down for changing a task queue's partition count safely: per-partition backlog drain and `Write > Read` detection, the three throughput ceilings (sync match, backlog write, backlog read+dispatch), and the rule-outs that tell you whether matching is even the bottleneck. Companion to the Changing Task Queue Partitions playbook.
+Single-queue drill-down for changing a task queue's partition count safely: per-partition backlog drain and `Write > Read` detection, the three throughput ceilings (sync match, backlog write, backlog read+dispatch), the rule-outs that tell you whether matching is even the bottleneck, and (v1.32.0+) server-managed partition counts and backlog routing. Companion to the Changing Task Queue Partitions playbook.
 
 | File | Description |
 |---|---|
