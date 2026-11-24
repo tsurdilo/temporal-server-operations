@@ -638,8 +638,8 @@ wake-up window over time shows whether the next bursts will put on more pressure
 
 | Trend over time | Panel | What a rise means | Related sections and alerts |
 |---|---|---|---|
-| Event histories getting longer or larger | **[Workflow History Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)** and **[Workflow History Event Count](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)**. These panels combine several recordings of history size, so read them as a trend, not as the size of any one workflow | Each read and replay of the full event history is getting larger ([2.3](#23-reading-the-event-history-when-a-workflow-task-is-recorded-as-started), [2.4](#24-event-history-replay-and-task-slots-on-sdk-workers)) | [5.1](#51-continue-as-new-before-the-long-sleep-workflow-implementation), [5.3](#53-keep-payloads-small-workflow-implementation); [alert 42](../observability/alerts/server/alerts-index.md#alert-42--workflow-history-size-warning) |
-| The workflows' current state getting larger | **[Mutable State Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)**, **[Search Attributes Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)** and **[Memo Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)** | Each reload of the current state at wake-up is getting larger ([2.1](#21-timer-tasks-in-the-history-service)) | [5.3](#53-keep-payloads-small-workflow-implementation); [alert 46](../observability/alerts/server/alerts-index.md#alert-46--mutable-state-size-warning) |
+| Event histories getting longer or larger | **[Workflow History Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)** and **[Workflow History Event Count](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)**. These panels combine several recordings of history size, so read them as a trend, not as the size of any one workflow | Each read and replay of the full event history is getting larger ([2.3](#23-reading-the-event-history-when-a-workflow-task-is-recorded-as-started), [2.4](#24-event-history-replay-and-task-slots-on-sdk-workers)) | [5.1](#51-continue-as-new-before-the-long-sleep-workflow-implementation), [5.3](#53-keep-payloads-small-workflow-implementation); [alert 42](../observability/alerts/server/alerts-index.md#alert-42--workflow-history-size-warning) |
+| The workflows' current state getting larger | **[Mutable State Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)**, **[Search Attributes Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)** and **[Memo Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)** | Each reload of the current state at wake-up is getting larger ([2.1](#21-timer-tasks-in-the-history-service)) | [5.3](#53-keep-payloads-small-workflow-implementation); [alert 46](../observability/alerts/server/alerts-index.md#alert-46--mutable-state-size-warning) |
 | A higher spike of timer tasks at the wake-up time | **[Total Timer Tasks Processed](../observability/dashboards/server/temporal-server-readme.md#10-history-timer-task-info)** and **[Timer Tasks Processed by Type](../observability/dashboards/server/temporal-server-readme.md#10-history-timer-task-info)** | More timers fire together: more workflows, or more of them set to the same time ([2.1](#21-timer-tasks-in-the-history-service)) | [5.2](#52-spread-the-wake-up-times-workflow-implementation), [5.5](#55-cluster-limits-and-database-capacity-cluster) |
 | More reads of the full event history at the wake-up time | **[Persistence Requests Total per Operation](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** (the `ReadHistoryBranch` persistence operation) and **[Persistence Latencies](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** | More wake-ups miss the sticky queue or the worker in-memory cache, or event histories are larger ([2.3](#23-reading-the-event-history-when-a-workflow-task-is-recorded-as-started)) | [5.1](#51-continue-as-new-before-the-long-sleep-workflow-implementation), [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers) |
 | More sticky fallbacks at the wake-up time | **[Workflow Task Schedule-to-Start Timeouts (sticky fallback)](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info)** | SDK workers are falling further behind during the burst, so more wake-ups read the full event history ([2.4](#24-event-history-replay-and-task-slots-on-sdk-workers)) | [5.4](#54-keep-sdk-workers-running-and-size-their-cache-sdk-workers) |
@@ -713,8 +713,8 @@ benefits:
 **How to see the change on the dashboards** from
 [section 4](#4-observing-the-pressure-from-the-timer-firings-on-your-dashboards):
 
-- **[Workflow History Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)** and
-  **[Workflow History Event Count](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)**
+- **[Workflow History Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)** and
+  **[Workflow History Event Count](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)**
   stop growing over time and level off at the size of one cycle
   ([section 4.5](#45-trends-that-show-the-wake-up-bursts-growing)).
 - The `ReadHistoryBranch` persistence operation on
@@ -858,13 +858,13 @@ whether or not the workflow continues-as-new, which brings these benefits:
 **How to see the change on the dashboards** from
 [section 4](#4-observing-the-pressure-from-the-timer-firings-on-your-dashboards):
 
-- **[Workflow History Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)** grows more slowly,
-  while **[Workflow History Event Count](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)** does
+- **[Workflow History Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)** grows more slowly,
+  while **[Workflow History Event Count](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)** does
   not change: the same events, each event smaller
   ([section 4.5](#45-trends-that-show-the-wake-up-bursts-growing)).
-- **[Mutable State Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)**,
-  **[Search Attributes Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)** and
-  **[Memo Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-execution-history-info)** are lower
+- **[Mutable State Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)**,
+  **[Search Attributes Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)** and
+  **[Memo Size](../observability/dashboards/server/temporal-server-readme.md#12-workflow-history-state-and-payload-sizes)** are lower
   ([section 4.5](#45-trends-that-show-the-wake-up-bursts-growing)).
 - **[Persistence Latencies](../observability/dashboards/server/temporal-server-readme.md#3-persistence-requests-latencies-and-errors)** for the
   `ReadHistoryBranch` persistence operation, and storage read I/O on the database's own monitoring,

@@ -123,7 +123,6 @@ Emitted by the sticky cache (workflow execution cache).
 | `temporal_activity_execution_latency` | Histogram | Time from when Core dispatched the task to lang completing it (success or failure) |
 | `temporal_activity_succeed_endtoend_latency` | Histogram | Total time from first schedule to successful completion (across all retries) |
 | `temporal_activity_execution_failed` | Counter | Activity execution failed |
-| `temporal_unregistered_activity_invocation` | Counter | Activity type dispatched to this worker is not registered |
 
 **Tags:** `activity_type`, `namespace`, `task_queue`
 

@@ -19,31 +19,23 @@
 
 ## What this alert detects
 
-The SDK worker attempted to heartbeat a running activity and received `NOT_FOUND` back from the server. This means the server has already cancelled the in-flight activity task — either the `heartbeatTimeout` fired before the worker's next heartbeat call, the `startToClose` timeout expired while the activity was still executing, or the workflow execution is no longer running. Note: normal workflow-side cancellation returns `CancelRequested=true` in the heartbeat response body, not a gRPC error — so NOT_FOUND on this operation is a reliable signal of timeout or forced closure, not intentional cancellation.
+The server answered heartbeat calls with `NOT_FOUND` for at least 5 minutes. The activity attempt that sent each call is no longer running: it timed out on its heartbeat timeout or its StartToClose timeout, or its workflow execution is no longer running. The server does not tell the SDK worker when an activity attempt times out. This `NOT_FOUND` is how the SDK worker finds out, and the SDK then cancels the activity.
 
 ## Why it matters
 
-If `heartbeatTimeout` is the cause, the server has already timed out this activity attempt and scheduled it for retry (if within retry policy). The activity will be re-executed from scratch on the next attempt. If the activity is not idempotent, re-execution can cause duplicate side effects. Repeated NOT_FOUND on heartbeat calls indicates that the worker is consistently failing to heartbeat within the configured interval — the activity will keep timing out on every attempt until the root cause is fixed, consuming worker slots and generating unnecessary retry tasks.
+Until this answer, the timed-out activity attempt kept running on the SDK worker, at the same time as the next attempt, so work can be done twice ([section 1.2 of the playbook](../../../../playbooks/activity-heartbeat-timeouts.md#12-what-the-sdks-do-when-a-heartbeat-call-fails)). This alert misses heartbeat timeouts after which the timed-out attempt makes no more heartbeat calls, for example when its SDK worker crashed. Server alert 55 counts every heartbeat timeout.
 
 ## Triage steps
 
-**1. Check the heartbeat interval vs heartbeatTimeout.**
-The worker must call heartbeat more frequently than the configured `heartbeatTimeout`. If the activity is slow between heartbeat calls — due to CPU pressure, blocking I/O, or downstream throttling — the effective heartbeat interval increases. Compare the activity's heartbeat call frequency in worker logs against its `heartbeatTimeout` setting.
+**Follow the [Activity Heartbeat Timeouts playbook](../../../../playbooks/activity-heartbeat-timeouts.md).** In short:
 
-**2. Check worker CPU utilization.**
-A CPU-starved worker slows down between heartbeat calls even when the activity is making progress. Check per-pod CPU utilization — if consistently high, consider reducing `maxConcurrentActivityExecutionSize` to lower per-pod concurrency, or scale out horizontally.
-
-**3. Check for RESOURCE_EXHAUSTED on RecordActivityTaskHeartbeat.**
-Cross-check alert [#2d — RESOURCE_EXHAUSTED on Other Operations](../alerts-index.md#alert-2d--request-failure-resource_exhausted-on-other-operations). If the server is throttling heartbeat calls, the effective heartbeat interval increases and can push past `heartbeatTimeout` even when the worker is calling on time. Check the [**Resource Exhausted with Cause** panel (§6 — Throttling and Limits)](../../../dashboards/server/temporal-server-readme.md) on the server dashboard.
-
-**4. Check startToClose timeout.**
-If the activity has been running longer than its `startToClose` timeout, the server times it out at the history level while the activity is still executing — the next heartbeat then returns NOT_FOUND. Check `temporal_activity_execution_latency` for the affected `activity_type` against the configured `startToClose` timeout.
-
-**5. Check heartbeat payload size.**
-The last heartbeat details payload is stored in shard mutable state and held in history service memory for the life of the activity attempt. Large heartbeat payloads on high-throughput activity workers can contribute to history host memory pressure. Keep heartbeat payloads small — store only the minimum progress state needed to resume on retry.
+1. **Confirm the heartbeat timeouts** on [**Activity Heartbeat Timeout (Every Attempt)**](../../../dashboards/server/temporal-server-readme.md#14-sdk-workers-info). When it shows none, the `NOT_FOUND` answers come from StartToClose timeouts or from workflow executions that are no longer running, which the playbook does not cover.
+2. **Find where the heartbeats were delayed**, with [section 5 of the playbook](../../../../playbooks/activity-heartbeat-timeouts.md#5-how-to-find-where-the-heartbeats-were-delayed).
+3. **Follow the recommendation for what section 5 found**, in [section 6](../../../../playbooks/activity-heartbeat-timeouts.md#6-which-recommendations-apply-to-each-cause-of-late-heartbeats).
 
 ## Related alerts
 
+- [Server alert 55 — Activity Heartbeat Timeouts](../../server/runbooks/55-activity-heartbeat-timeouts.md)
 - [#1b — NOT_FOUND on Activity Respond Operations](./01b-not-found-activity-respond.md)
 - [#2d — RESOURCE_EXHAUSTED on Other Operations](../alerts-index.md#alert-2d--request-failure-resource_exhausted-on-other-operations)
 - [#14 — Worker Task Slots Exhausted](./14-worker-slots-exhausted.md)

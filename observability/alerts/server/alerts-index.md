@@ -43,12 +43,12 @@ Sections 0–19 below are all in `temporal-server-alerts.yaml`. Section 20 is in
 - [Section 9 — Shard Queue Health](#section-9--shard-queue-health) (#34a–#34j)
 - [Section 10 — History Timer Task Info](#section-10--history-timer-task-info) (#35–#39)
 - [Section 11 — Workflow Stats](#section-11--workflow-stats) (#40–#41)
-- [Section 12 — Workflow Execution History Info](#section-12--workflow-execution-history-info) (#42–#47, #75)
+- [Section 12 — Workflow History, State and Payload Sizes](#section-12--workflow-history-state-and-payload-sizes) (#42–#47, #75)
 - [Section 13 — Matching Task Queue Info](#section-13--matching-task-queue-info) (#74, #88)
 - [Section 14 — SDK Workers Info](#section-14--sdk-workers-info) (#48–#56, #76–#77)
 - [Section 15 — Pollers](#section-15--pollers) (#57–#58)
 - [Section 16 — Visibility](#section-16--visibility) (#59–#63, #59a–#59c)
-- [Section 18 — Cluster Replication](#section-18--cluster-replication) (#64–#71)
+- [Section 18 — Cluster Replication](#section-18--cluster-replication) (#64–#71, #93)
 - [Section 19 — Authorization](#section-19--authorization) (#72–#73)
 - [Section 20 — Namespace Failover: Graceful Handover](#section-20--namespace-failover-graceful-handover) (#FAILOVER-PRE-01–#FAILOVER-POST-03)
 
@@ -616,7 +616,7 @@ Resource exhausted errors with cause `SYSTEM_OVERLOADED` or `CIRCUIT_BREAKER_OPE
 
 ## Section 7 — Busy Workflow Throttling
 
-> **Dashboard panels:** Transfer Active Task Errors Workflow Busy, Transfer Active Task Errors Discarded (panel 141)
+> **Dashboard panels:** Transfer Tasks Throttled by a Busy Workflow (panel 143), Transfer Active Task Errors Discarded (panel 141)
 > **Metric:** `task_errors`, `task_errors_discarded`
 > **Component:** history
 
@@ -626,7 +626,7 @@ Resource exhausted errors with cause `SYSTEM_OVERLOADED` or `CIRCUIT_BREAKER_OPE
 |---|---|
 | Status | 📋 Planned |
 | Severity | warning |
-| Panel | Transfer Active Task Errors Workflow Busy |
+| Panel | Transfer Tasks Throttled by a Busy Workflow |
 
 **Condition:** Sustained busy workflow error rate above zero.
 
@@ -638,7 +638,7 @@ Resource exhausted errors with cause `SYSTEM_OVERLOADED` or `CIRCUIT_BREAKER_OPE
 |---|---|
 | Status | 📋 Planned |
 | Severity | critical |
-| Panel | Transfer Active Task Errors Workflow Busy |
+| Panel | Transfer Tasks Throttled by a Busy Workflow |
 
 **Condition:** High sustained busy workflow error rate.
 
@@ -1191,7 +1191,7 @@ Two properties shape the threshold. The metric has a floor equal to the queue's 
 
 ---
 
-## Section 12 — Workflow Execution History Info
+## Section 12 — Workflow History, State and Payload Sizes
 
 > **Dashboard panels:** Workflow History Size, Workflow History Event Count, Mutable State Size
 > **Metrics:** `workflow_completed_latency`, `history_size`, `history_count`, `mutable_state_size`
@@ -1426,21 +1426,33 @@ A partition's oldest backlog task has stayed older than the threshold for the wh
 |---|---|
 | Status | 📋 Planned |
 | Severity | warning |
-| Panel | Activity StartToClose Timeout |
+| Panel | Activity StartToClose Timeout (Final Attempt) |
 
 **Condition:** Any sustained activity start-to-close timeouts.
 
 ---
 
-### Alert 55 — Activity Heartbeat Timeout
+### Alert 55 — Activity Heartbeat Timeouts
 
 | Field | Value |
 |---|---|
-| Status | 📋 Planned |
+| Status | Documented — **not in the Essential Set** (needs server v1.29.0 or later) |
+| UID | `temporal-alert-055` |
 | Severity | warning |
-| Panel | Activity Heartbeat Timeout |
+| Panel | Activity Heartbeat Timeout (Every Attempt) (3101) |
+| `for` | 10m |
+| `noDataState` | OK |
 
-**Condition:** Any sustained heartbeat timeouts — workers crashing during long activities.
+**Condition:**
+```promql
+sum by (namespace) (rate(activity_task_timeout{timeout_type="Heartbeat"}[5m])) > 0
+```
+
+**What firing means.** Activity attempts in the namespace have timed out on their heartbeat timeout for at least 10 minutes, with no gap of 5 minutes or more between heartbeat timeouts. The count includes every timed-out attempt, also the ones the server retries, so it fires while workflows still look healthy. A single SDK worker crash makes a short burst, one heartbeat timeout per activity it was running, and usually does not keep the alert firing; heartbeat timeouts that go on for 10 minutes mean heartbeats keep arriving late. Built on `activity_task_timeout` rather than `heartbeat_timeout`, because `heartbeat_timeout` counts only timeouts that end the activity and stays at zero while every timeout is retried (measured: 5,493 retried heartbeat timeouts in 12 minutes, `heartbeat_timeout` at 0).
+
+**What it does not tell you.** Where the heartbeats were delayed, which the [Activity Heartbeat Timeouts playbook](../../../playbooks/activity-heartbeat-timeouts.md) finds in its section 5. It sums over all activity types in the namespace, and activities with no heartbeat timeout are never counted.
+
+**Why it's not in the Essential Set:** servers older than v1.29.0 do not emit the metric, and the alert applies only to namespaces whose activities heartbeat.
 
 ---
 
@@ -1675,8 +1687,8 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 
 ## Section 18 — Cluster Replication
 
-> **Dashboard panels:** Stream Health, Replication Latencies, Replication DLQ Non-Empty and Enqueue Failures, Replication Task Throughput
-> **Metrics:** `replication_stream_stuck`, `replication_latency`, `replication_dlq_non_empty`, `replication_dlq_enqueue_failures`
+> **Dashboard panels:** Stream Health, Replication Latencies, Replication DLQ Non-Empty and Enqueue Failures, Replication Task Throughput, Replication Streams Received from Each Remote Cluster
+> **Metrics:** `replication_stream_stuck`, `replication_latency`, `replication_dlq_non_empty`, `replication_dlq_enqueue_failures`, `replication_tasks_send`
 > **Component:** history
 > **Note:** Replication alerts are only meaningful on multi-cluster active-standby deployments.
 
@@ -1777,6 +1789,28 @@ p99 write latency to a visibility store has exceeded 3s. May indicate recovery f
 | Panel | Replication Task Throughput |
 
 **Condition:** Sustained replication task failure rate above zero.
+
+### Alert 93 — Replication Stream Status Messages Stopped
+
+| Field | Value |
+|---|---|
+| Status | Documented — **not in the Essential Set** (applies only to clusters with a remote cluster connected) |
+| UID | `temporal-alert-093` |
+| Severity | warning |
+| Panel | Replication Streams Received from Each Remote Cluster (3202) |
+| `for` | 10m |
+| `noDataState` | OK |
+
+**Condition:**
+```promql
+sum by (to_cluster) (rate(replication_tasks_send{operation="SyncWatermark"}[5m])) < 0.01
+```
+
+**What firing means.** Every replication stream a cluster receives sends a status message back about every second, whether or not anything is replicated, so the rate for a connected remote cluster is never zero. Zero for 10 minutes means this cluster is not receiving from that remote cluster, most often because it is down or unreachable. While that lasts this cluster cannot deliver to it either, so it keeps every replication task the remote cluster has not acknowledged and its replication task table grows. The `to_cluster` label is the remote cluster's initial failover version, not its name. Measured on a two-cluster test bed (v1.31.0): the rate was one per shard per second while connected and read zero once the remote cluster was stopped, and the active cluster's replication task rows grew for as long as it was down.
+
+**What it does not tell you.** A single shard's stream stopping does not bring the sum to zero (alert 64 covers a stuck stream). If a history service instance restarts while the remote cluster is unreachable, its series is not recreated and the alert can go quiet although the stream is still down.
+
+**Why it's not in the Essential Set:** only multi-cluster deployments have the series; a single cluster never fires it.
 
 ---
 

@@ -488,14 +488,6 @@
                   {
                     "color": "green",
                     "value": null
-                  },
-                  {
-                    "color": "orange",
-                    "value": 1000
-                  },
-                  {
-                    "color": "red",
-                    "value": 5000
                   }
                 ]
               },
@@ -511,7 +503,7 @@
           },
           "id": 1011,
           "title": "Replication Tasks Lag",
-          "description": "Task ID delta between standby and active. Lower is better.",
+          "description": "How far behind the most-behind connected remote cluster is on this cluster's outgoing replication, as a distance in task IDs. It is not a count of replication tasks: every history task a shard creates, of any kind, takes the next ID from one sequence per shard, so the distance grows with all of that shard's task writes since the oldest position a remote cluster has not acknowledged. A cluster that is busy applying replication can read thousands here with no replication task outstanding. The server samples it on the cluster that holds the outgoing tasks, once per shard each time replication task cleanup runs (history.ReplicationTaskProcessorCleanupInterval, default 1m), and only when cleanup has something new to delete. For how far the standby is behind, read this panel against the active cluster, or use Replication Latency \u2014 Time Behind (End-to-End) here, which is in seconds and is the better signal. The gauge is the selected percentile of the samples from the last 10 minutes. Values above 100,000 show as exactly 100K, the top of the metric's buckets. Samples are few, so a high percentile reads close to the largest one; on a test cluster p99 sat at the cap for about 10 minutes after the clusters started and again after a standby outage, while p50 stayed low. Set the percentile to 0.50 to see the typical shard. There is no fixed healthy level, so compare with your own normal reading. Samples stop while a remote cluster has stopped acknowledging, because cleanup then has nothing to delete, so an empty or frozen gauge is not proof of health: check Replication Streams Received from Each Remote Cluster on the Temporal Server Dashboard. Earlier versions averaged the metric's sum by its count; that sum reads +Inf on real clusters.",
           "type": "gauge",
           "options": {
             "reduceOptions": {
@@ -519,12 +511,12 @@
                 "lastNotNull"
               ]
             },
-            "showThresholdLabels": true,
-            "showThresholdMarkers": true
+            "showThresholdLabels": false,
+            "showThresholdMarkers": false
           },
           "targets": [
             {
-              "expr": "avg(replication_tasks_lag_sum / replication_tasks_lag_count)",
+              "expr": "histogram_quantile($p, sum by (le) (increase(replication_tasks_lag_bucket{}[10m])))",
               "legendFormat": "Replication Tasks Lag",
               "refId": "A"
             }
@@ -629,7 +621,7 @@
           },
           "id": 1013,
           "title": "Send Backlog Depth",
-          "description": "Average depth of the sender-side (active cluster) backlog. Elevated values may explain standby lag.",
+          "description": "Average depth of the sender-side (active cluster) backlog. Emitted only by pull-based replication (history.enableReplicationStream false), so it is always empty on streaming replication, the default. On streaming replication, read Recv Backlog Depth and Replication Latency \u2014 Time Behind (End-to-End) instead.",
           "type": "gauge",
           "options": {
             "reduceOptions": {
@@ -774,7 +766,7 @@
           },
           "id": 1015,
           "title": "Sender Rate Limit Latency (Active \u2192 Standby)",
-          "description": "Time the active cluster spent rate-limiting replication sends. Elevated values here explain standby lag with no other visible cause on the standby side. Controlled by ReplicationEnableRateLimit on the active cluster.",
+          "description": "Time spent on the active cluster waiting on a server-side limiter before sending a low-priority replication task (history.ReplicationEnableRateLimit, default true). In every release through v1.32.2 that limiter lets every task through at once, so this panel reads near zero, and it is empty when no low-priority task is sent. Through v1.32.2, force-replication backfill is sent as high priority whenever transition history is on (the default from v1.30.0), so low-priority sends are rare. The per-stream sender limits, history.ReplicationStreamSenderHighPriorityQPS and history.ReplicationStreamSenderLowPriorityQPS (default 100 tasks per second per stream each), apply only when history.EnableReplicationTaskTieredProcessing is true; with it false, the default, nothing limits the send rate. Neither is measured by this panel.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -996,7 +988,7 @@
           },
           "id": 1021,
           "title": "Replication Task Throughput (Recv vs Applied vs Failed)",
-          "description": "The gap between received and applied lines is your live standby backlog. Sustained failed/s requires immediate investigation.",
+          "description": "Received, applied, failed and skipped replication tasks per second on this cluster. On streaming replication, the default (history.enableReplicationStream true), the server does not emit the applied series, so that line is always empty and there is no received-minus-applied gap to read: use Recv Backlog Depth for the backlog. Applied is emitted only by pull-based replication. Sustained failed/s requires immediate investigation.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -2792,7 +2784,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Standby Cluster \u2014 Replication Health v2.3.0",
+  "title": "Temporal Standby Cluster \u2014 Replication Health v2.4.1",
   "uid": "temporal-standby-replication-v1",
   "version": 1,
   "weekStart": ""

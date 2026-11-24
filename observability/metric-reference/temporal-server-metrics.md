@@ -237,10 +237,10 @@ This document lists all OSS Temporal server metrics defined in `metrics_defs.go`
 | `auto_reset_point_corruption` | Counter | Corrupted auto-reset points. |
 | `batchable_task_batch_count` | Gauge | Batchable task batch count. |
 | `concurrency_update_failure` | Counter | Concurrency update failures. |
-| `heartbeat_timeout` | Counter | Activity heartbeat timeouts. |
-| `schedule_to_start_timeout` | Counter | Schedule-to-start timeouts. |
-| `start_to_close_timeout` | Counter | Start-to-close timeouts. |
-| `schedule_to_close_timeout` | Counter | Schedule-to-close timeouts. |
+| `heartbeat_timeout` | Counter | Activity heartbeat timeouts that ended the activity (no retry left); a retried timeout is not counted. Every attempt: `activity_task_timeout`. |
+| `schedule_to_start_timeout` | Counter | Schedule-to-start timeouts, of activities (operation `TimerActiveTaskActivityTimeout`; never retried, so every one) and of workflow tasks (operation `TimerActiveTaskWorkflowTaskTimeout`; every one). |
+| `start_to_close_timeout` | Counter | Start-to-close timeouts. Activities: only those that ended the activity (no retry left); every attempt is `activity_task_timeout`. Workflow tasks: every one. |
+| `schedule_to_close_timeout` | Counter | Activity schedule-to-close timeouts; always final. |
 | `new_timer_notifications` | Counter | New timer notification count. |
 | `state_machine_timer_processing_failures` | Counter | State machine timer processing failures. |
 | `state_machine_timer_skips` | Counter | State machine timer skips. |
@@ -360,9 +360,10 @@ This document lists all OSS Temporal server metrics defined in `metrics_defs.go`
 | `activity_task_fail` | Counter | Activity task failures (includes retries). |
 | `activity_cancel` | Counter | Cancelled activities. |
 | `activity_terminate` | Counter | Terminated activities. |
-| `activity_task_timeout` | Counter | Activity task timeouts (including retries). |
-| `activity_timeout` | Counter | Terminal activity timeouts. |
-| `activity_payload_size` | Counter | Activity payload sizes in bytes. |
+| `activity_task_timeout` | Counter | Activity task timeouts (including retries), label `timeout_type` (`Heartbeat`, `StartToClose`, `ScheduleToStart`, `ScheduleToClose`). Counts the same timeout again if the write recording it fails and is retried. Server v1.29.0+. |
+| `activity_timeout` | Counter | Terminal activity timeouts, label `timeout_type`. Server v1.29.0+. |
+| `activity_payload_size` | Counter | Activity payload sizes in bytes, label `operation` (heartbeat details are `RecordActivityTaskHeartbeat`). Server v1.30.0+. |
+| `activity_heartbeat_count` | Counter | Heartbeat details accepted by History, label `has_details`; also counted when an activity fails with heartbeat details. Server v1.32.0+. |
 | `paused_activities` | Counter | Paused activity count. |
 | `activity_pause_requests` | Counter | Activity pause requests. |
 | `activity_unpause_requests` | Counter | Activity unpause requests. |

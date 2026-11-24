@@ -792,6 +792,82 @@ groups:
         Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/38-timer-scheduling-lag-critical.md
 
         '
+  - uid: temporal-alert-055
+    title: 'Temporal: Activity Heartbeat Timeouts'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (namespace) (rate(activity_task_timeout{timeout_type="Heartbeat"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id055
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id055
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0
+            type: gt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: warning
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '3101'
+      summary: 'Temporal: activities in namespace {{ $labels.namespace }} keep timing out on their heartbeat timeout'
+      description: 'Activity attempts in this namespace have timed out on their heartbeat timeout for at least 10 minutes, with no gap of 5 minutes or more between heartbeat timeouts. The count includes every timed-out attempt, also the ones the server retries, so it fires while workflows still look healthy. Needs server v1.29.0 or later; older servers do not emit the metric and never fire.
+
+
+        A single SDK worker crash makes a short burst of heartbeat timeouts, one per activity it was running, and usually does not keep this alert firing. Heartbeat timeouts that go on for 10 minutes mean heartbeats keep arriving late: the server refuses or slows the heartbeat calls, or the SDK workers send them late, for example when they are short of CPU.
+
+
+        The alert does not say where the heartbeats were delayed. Work through the playbook section that finds the place, then the one that gives the recommendation for it.
+
+
+        Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/activity-heartbeat-timeouts.md
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/55-activity-heartbeat-timeouts.md
+
+        '
+    isPaused: false
   - uid: temporal-alert-057
     title: 'Temporal: All Pollers Disconnected'
     condition: C
@@ -2291,6 +2367,85 @@ groups:
 
 
         Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/92-namespace-deletion-failed.md
+
+        '
+    isPaused: false
+  - uid: temporal-alert-093
+    title: 'Temporal: Replication Stream Status Messages Stopped'
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange:
+        from: 300
+        to: 0
+      datasourceUid: Prometheus  # DATASOURCE — change to match your Prometheus datasource name or UID
+      model:
+        editorMode: code
+        expr: sum by (to_cluster) (rate(replication_tasks_send{operation="SyncWatermark"}[5m]))
+        instant: true
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: A
+    - refId: B
+      datasourceUid: __expr__
+      model:
+        type: reduce
+        reducer: last
+        expression: A
+        datasource: &id093
+          type: __expr__
+          uid: __expr__
+        refId: B
+        settings:
+          mode: dropNN
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        type: threshold
+        expression: B
+        datasource: *id093
+        refId: C
+        conditions:
+        - evaluator:
+            params:
+            - 0.01
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+    noDataState: OK
+    execErrState: Error
+    for: 10m
+    labels:
+      severity: warning
+      service: temporal
+      component: history
+    annotations:
+      __dashboardUid__: temporal-overview-v1
+      __panelId__: '3202'
+      summary: 'Temporal: this cluster is not receiving replication from cluster {{ $labels.to_cluster }} — replication tasks are being kept until it reconnects'
+      description: 'Each replication stream this cluster receives sends a status message about every second whether or not anything is replicated. For the remote cluster in the to_cluster label (its initial failover version, not its name) those messages have stopped for 10 minutes.
+
+
+        The most common cause is the remote cluster being down or unreachable. While that lasts, this cluster cannot deliver replication tasks to it either, so it keeps every replication task the remote cluster has not acknowledged, for every replicated namespace, and its replication task table grows. Nothing is lost while the remote cluster is only away: the kept tasks are sent when it reconnects.
+
+
+        Bring the remote cluster back if you can. If it will be away for a long time, the playbook covers removing it from this cluster''s cluster list to stop the growth, and the force-replication that is then needed when it returns.
+
+
+        Only clusters with at least one remote cluster connected are covered; a single cluster has no series and never fires. If a history service instance restarts while the remote cluster is unreachable, its series is not recreated, so the alert can go quiet without the stream being back. Check Replication Streams Received from Each Remote Cluster.
+
+
+        Playbook: https://github.com/tsurdilo/temporal-metrics/blob/main/playbooks/replication-load-on-each-cluster.md
+
+
+        Runbook: https://github.com/tsurdilo/temporal-metrics/blob/main/observability/alerts/server/runbooks/93-replication-stream-status-messages-stopped.md
 
         '
     isPaused: false

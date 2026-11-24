@@ -1,5 +1,29 @@
 # Changelog — Temporal Standby Cluster — Replication Health Dashboard
 
+## v2.4.1 — 2026-11-21
+
+### Documentation
+
+- **Replication Tasks Lag (1011)**: values above 100,000 show as exactly 100K; high percentiles sit at the cap after start-up and outages.
+
+## v2.4.0 — 2026-11-19
+
+### Fixed
+
+- **Replication Tasks Lag (1011)**: reads a percentile over the last 10 minutes instead of an
+  average of the metric's sum, which reads +Inf; orange and red thresholds removed.
+
+### Documentation
+
+- **Replication Tasks Lag (1011)**: a distance in task IDs, not a count of replication tasks;
+  sampled on the cluster that holds the outgoing tasks, only when cleanup runs; stops while a remote
+  cluster is not acknowledging.
+- **Send Backlog Depth (1013)**: always empty on streaming replication.
+- **Sender Rate Limit Latency (Active → Standby) (1015)**: measures a limiter that lets every task
+  through, for low-priority sends only.
+- **Replication Task Throughput (Recv vs Applied vs Failed) (1021)**: the applied series is empty
+  on streaming replication.
+
 ## v2.3.0 — 2026-10-01
 
 The whole Replication DLQ section was wrong in four ways at once, and three of them were silent.

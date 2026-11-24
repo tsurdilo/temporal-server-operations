@@ -1,11 +1,15 @@
 # Playbooks
 
-Playbooks for running Temporal at scale on self-hosted clusters. They come in two groups:
+Playbooks for running Temporal at scale on self-hosted clusters. They come in three groups:
 
 - **[Use-case playbooks](#use-case-playbooks)**, for developers who write Temporal applications and
   for the operators who run the cluster. Each one starts from a workload pattern. It explains the
   pressure the pattern puts on the cluster, shows how to see it on the dashboards, and recommends
   changes to the application, the SDK workers and the cluster.
+- **[Feature playbooks](#feature-playbooks)**, for developers who write Temporal applications and
+  for the operators who run the cluster. Each one explains one Temporal feature in detail, from the
+  SDK to the server. It shows how to observe and alert on the feature's failures, and recommends how
+  to use the feature in application code and how to run it on the cluster, at small and large scale.
 - **[Server playbooks](#server-playbooks)**, for Temporal cluster operators. Each one starts from a
   server symptom or a server component. It explains how that part of the server works internally,
   how to detect problems with it on the dashboards, and how to tune the cluster for large scale.
@@ -20,7 +24,7 @@ A playbook belongs in this directory once it meets all of the following criteria
 |-----------|------------------------|
 | **Documented** | Written, reviewed, and accurate against server source code |
 | **Dashboard** | Grafana panels exist that surface the signals described |
-| **Alerts** | Alert rules wired in `observability/alerts/server/temporal-server-alerts.yaml` |
+| **Alerts** | Alert rules wired in the server or SDK alert rule files under `observability/alerts/` |
 | **Tested** | Failure scenarios exercised against a real cluster; metric signals confirmed |
 
 Use-case playbooks list the existing alerts that cover the pressure they describe; a workload pattern
@@ -45,6 +49,18 @@ cluster side.
 | Playbook | Use case | Dashboards | Alerts |
 |---------|----------|------------|--------|
 | [The Sleep-and-Wake Pattern — Many Timers Firing at the Same Time](./use-case-sleep-and-wake-pattern.md) | Many workflows that sleep and wake up close to each other, such as reminders, follow-ups or daily jobs. How to optimize both the workflow code and the cluster to run this pattern at large scale. | [Temporal Server dashboard](../observability/dashboards/server/temporal-server-readme.md) v2.32.0+, [SDK dashboards](../observability/dashboards/sdk/README.md) | [5](../observability/alerts/server/alerts-index.md#alert-5--namespace-rps-approaching-limit), [6](../observability/alerts/server/alerts-index.md#alert-6--namespace-rps-over-limit), [11](../observability/alerts/server/alerts-index.md#alert-11--persistence-latency-high), [13](../observability/alerts/server/alerts-index.md#alert-13--persistence-qps-approaching-limit), [29](../observability/alerts/server/alerts-index.md#alert-29--rpsqps-throttling-active), [35](../observability/alerts/server/alerts-index.md#alert-35--timer-task-processing-latency-high), [42](../observability/alerts/server/alerts-index.md#alert-42--workflow-history-size-warning), [46](../observability/alerts/server/alerts-index.md#alert-46--mutable-state-size-warning), [48](../observability/alerts/server/alerts-index.md#alert-48--schedule-to-start-latency-high), [50](../observability/alerts/server/alerts-index.md#alert-50--task-backlog-growing), [52](../observability/alerts/server/alerts-index.md#alert-52--tasks-persisted-rate-high), [56](../observability/alerts/server/alerts-index.md#alert-56--workflow-task-timeout-sticky), [58](../observability/alerts/server/alerts-index.md#alert-58--pollers-approaching-concurrent-limit), [76](../observability/alerts/server/alerts-index.md#alert-76--workflow-task-scheduletostart-timeout), [80](../observability/alerts/server/alerts-index.md#alert-80--history-task-dlq-stranding), [87](../observability/alerts/server/alerts-index.md#alert-87--history-write-reject-loop), [88](../observability/alerts/server/alerts-index.md#alert-88--task-queue-partition-backlog-not-draining) |
+
+---
+
+## Feature playbooks
+
+For developers who write Temporal applications and for the operators who run the cluster. Each
+playbook explains one Temporal feature in detail, shows how to observe and alert on its failures,
+and recommends how to use it and run it at small and large scale.
+
+| Playbook | Feature and failure | Dashboards | Alerts |
+|---------|---------------------|------------|--------|
+| [Activity Heartbeat Timeouts — Finding the Cause and Tuning](./activity-heartbeat-timeouts.md) | Activity heartbeats. How they work from the SDK worker to the server, how to find why activities time out on their heartbeat timeout and what to change, how to alert on it, and the heartbeat load on a large cluster. Go and Java SDKs, any persistence store. | [Temporal Server dashboard](../observability/dashboards/server/temporal-server-readme.md#14-sdk-workers-info) v2.36.0+, [SDK dashboards](../observability/dashboards/sdk/README.md) | [55](../observability/alerts/server/alerts-index.md#alert-55--activity-heartbeat-timeouts), SDK [1c](../observability/alerts/sdk/alerts-index.md#alert-1c--request-failure-not_found-on-recordactivitytaskheartbeat) |
 
 ---
 

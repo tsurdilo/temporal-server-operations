@@ -1,5 +1,35 @@
 # Changelog — Temporal Namespace Failover — Graceful Handover Dashboard
 
+## v1.8.1 — 2026-11-21
+
+### Fixed
+
+- **Replication Tasks Sent per Second (Active) (117)** — description gives both causes of flat sending while lag rises, not only the standby.
+- **Catchup Progress (%) (201)** — description says the panel does not filter by namespace and the label exists only from v1.32.0.
+
+### Documentation
+
+- Readme: **Replication Latency p99** — "task-count" corrected to task-ID distance; "guaranteed to roll back" replaced by the drain-step rule.
+- Readme: **Catchup Progress %** and **Handover Progress — Catchup + Drain Combined** — metric lines no longer show a namespace filter the queries do not have.
+
+## v1.8.0 — 2026-11-19
+
+### Added
+
+- **Row 1 — Pre-Flight**: **Replication Tasks Sent per Second (Active) (117)** stat — replication tasks the active is sending (`replication_tasks_send`, stream status messages left out).
+
+### Changed
+
+- **Replication Lag — Task-ID Distance ($p) (110)** — was **Replication Lag ($p task count)**; reads the active cluster, `increase` over 10 minutes, thresholds removed, description says the value is a task-ID distance.
+- **Replication Lag Trend (Pre-Flight) (111)** — reads the active cluster, `increase` over 10 minutes.
+- **Replication Lag — New Active → Old Active (Reverse Stream) (504)** — reads the new active (`$standby_cluster`), `increase` over 10 minutes.
+- **Receive Buffer Full (Standby) (113)** — was **Send Channel Full (Active)**; reads the standby cluster.
+- **Replication Lag — Task-ID Distance ($p) (110)** narrowed to 6 columns; **Replication Tasks Sent per Second (Active) (117)** and **Receive Buffer Full (Standby) (113)** widened to 6 so their titles fit.
+
+### Removed
+
+- **Send Backlog (Active) (112)** — always empty on streaming replication; replaced by **Replication Tasks Sent per Second (Active) (117)**.
+
 ## v1.7.0 — 2026-11-16
 
 ### Added

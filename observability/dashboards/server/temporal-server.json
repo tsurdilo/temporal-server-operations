@@ -1728,10 +1728,54 @@
             "overrides": []
           },
           "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 14
+          },
+          "id": 3106,
+          "title": "Heartbeat Call Latency (Frontend and History)",
+          "description": "How long an activity heartbeat call takes at each service, at the selected percentile. History's time is the wait for the workflow's lock plus the database write; the heartbeat is recorded only once History has the lock, so time before that counts against the activity's heartbeat margin. Both lines high and close together: the time is spent in History (lock wait or database -- see Workflow Lock Latency). Frontend high and History low: the time is spent before History (rate limiting, routing). Both low while heartbeat timeouts happen: the server is not the cause; look at the worker (the SDK dashboards show the same calls from the worker's side). All server versions.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum by (service_name, le) (rate(service_latency_bucket{operation=\"RecordActivityTaskHeartbeat\",namespace=\"$namespace\"}[$__rate_interval])))",
+              "legendFormat": "{{service_name}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 14
+            "y": 22
           },
           "id": 326,
           "title": "Service Latency No-User Latency",
@@ -1775,7 +1819,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 14
+            "y": 22
           },
           "id": 327,
           "title": "Service Latency User Latency",
@@ -1841,7 +1885,7 @@
             "h": 7,
             "w": 24,
             "x": 0,
-            "y": 21
+            "y": 29
           },
           "id": 315,
           "title": "Matching Service Latency",
@@ -2402,6 +2446,94 @@
             "x": 0,
             "y": 16
           },
+          "id": 3104,
+          "title": "Activity Heartbeat Calls",
+          "description": "Activity heartbeat calls per second that reached the History service in the selected namespace. Each accepted call is one workflow write to the database; the activity timeout check adds about one more write per heartbeat with the SDKs' usual batching window (80% of the heartbeat timeout). Read it next to Heartbeat Calls Refused by Cause. On server v1.32.0 and later, activity_heartbeat_count is the dedicated metric (it also counts activity failures that carry heartbeat details). All server versions.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(service_requests{service_name=\"history\",operation=\"RecordActivityTaskHeartbeat\",namespace=\"$namespace\"}[$__rate_interval]))",
+              "legendFormat": "heartbeat calls/s",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "id": 3105,
+          "title": "Heartbeat Calls Refused by Cause",
+          "description": "Activity heartbeat calls refused with RESOURCE_EXHAUSTED, by service and cause. history - RpsLimit: the history service's requests-per-second limits (history.rps). history - BusyWorkflow: the heartbeat call waited for the workflow's lock until half a second before its deadline -- rare, because the workflow's own history tasks wait only half a second and are refused long before (measured once in about 4,900 calls under heavy lock contention; see Busy Workflow Throttling). history - PersistenceLimit: the history service's persistence QPS limits refused the heartbeat's database write. frontend - RpsLimit: the namespace's rate limit in the frontend service, or a history - RpsLimit refusal passed on. Any other frontend line with the same cause as a history line shows the same refusals, passed on by the frontend service. The Go SDK retries a refused heartbeat until the batching window ends or 10 seconds pass, whichever comes first (half the window or 10 seconds up to Go SDK v1.50.0), then cancels the activity itself; the Java SDK retries once a second. Empty is normal. All server versions.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (service_name, resource_exhausted_cause) (rate(service_errors_resource_exhausted{operation=\"RecordActivityTaskHeartbeat\",namespace=\"$namespace\"}[$__rate_interval]))",
+              "legendFormat": "{{service_name}} - {{resource_exhausted_cause}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 23
+          },
           "id": 122,
           "title": "Actual RPS vs Host RPS Limit",
           "description": "Actual frontend request rate per instance overlaid with the configured host RPS limit. When traffic approaches the limit line expect RpsLimit throttle errors.",
@@ -2449,7 +2581,7 @@
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 16
+            "y": 23
           },
           "id": 123,
           "title": "Actual RPS vs Namespace Host RPS Limit",
@@ -2577,13 +2709,13 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 24,
+            "w": 12,
             "x": 0,
             "y": 18
           },
           "id": 143,
-          "title": "Transfer Active Task Errors Workflow Busy",
-          "description": "Rate of transfer active tasks throttled by workflow-lock contention (task_errors_throttled, cause BusyWorkflow). Replaces the never-emitted task_errors_workflow_busy counter used before v2.8.0.",
+          "title": "Transfer Tasks Throttled by a Busy Workflow",
+          "description": "Transfer tasks (for example dispatching an activity or a workflow task) that could not get their workflow's lock within 500ms and were retried later (task_errors_throttled, cause BusyWorkflow). Transfer tasks only; the timer side is Timer Tasks Throttled by a Busy Workflow, next to this panel. A busy workflow slows that workflow down; it does not fail calls. Empty is normal. Replaces the never-emitted task_errors_workflow_busy counter used before v2.8.0.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -2601,6 +2733,50 @@
             {
               "expr": "sum(rate(task_errors_throttled{operation=~\"TransferActive.*\",namespace=\"$namespace\",resource_exhausted_cause=\"BusyWorkflow\"}[$__rate_interval]))",
               "legendFormat": "workflow busy/s",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 18
+          },
+          "id": 3109,
+          "title": "Timer Tasks Throttled by a Busy Workflow",
+          "description": "Timer tasks that could not get their workflow's lock within 500ms and were retried later (task_errors_throttled, cause BusyWorkflow), by timer type. Many heartbeating activities on one workflow with a slow database show here first: measured 5,668 activity timeout timer tasks refused in about 8 minutes against 1 refused heartbeat call, with the workflow running 2.5-4.4x slower and no failed calls. A delayed timer task only makes a timeout later, never earlier. Empty is normal. All server versions.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (operation) (rate(task_errors_throttled{operation=~\"TimerActive.*\",resource_exhausted_cause=\"BusyWorkflow\",namespace=\"$namespace\"}[$__rate_interval]))",
+              "legendFormat": "{{operation}}",
               "refId": "A"
             }
           ]
@@ -3683,7 +3859,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "description": "Tasks that ran and then had their database call refused by a persistence limit (task_errors_throttled), broken down by task type and namespace. The task-side companion to Rejected Database Calls by Namespace: that panel counts the refused database call and says which limit refused it, this one says which KIND of task was refused and for which namespace. Use it when a task table is growing and you need to know whether the refusals are hitting timer, transfer, visibility or archival work - task_type carries the category as a prefix, for example TimerActiveTaskDeleteHistoryEvent. A refusal is NOT a failure: it is excluded from task_errors, it never advances the attempt counter that sends a task to the DLQ, and nothing is logged - so this counter and task_scheduler_throttled are the only places a throttled task appears at all. ABOVE ZERO IS NOT ITSELF A FAULT: throttling is the intended behaviour once persistence limits are set, and a healthy cluster shows a steady non-zero rate. What matters is the shape - one namespace orders of magnitude above the others, sustained and flat rather than rising and falling with load, means that namespace's tasks are not getting through at all. That stalls task row cleanup for EVERY namespace sharing those shards, because the deletion watermark is the oldest unfinished task across the whole shard. Empty is normal on a cluster that is not reaching its persistence limits. CLUSTER-WIDE: ignores the $namespace variable by design, because comparing namespaces against each other is the point.",
+          "description": "Tasks that ran and were then refused and retried later (task_errors_throttled, every cause summed), broken down by task type and namespace. Two kinds of refusal land here: the task's database call refused by a persistence limit, and the task unable to get its workflow's lock within 500ms (cause BusyWorkflow). To tell them apart: Transfer Tasks Throttled by a Busy Workflow and Timer Tasks Throttled by a Busy Workflow (Busy Workflow Throttling row) show the busy-workflow part, and Transfer Active Task Errors Throttled splits transfer tasks by cause. The task-side companion to Rejected Database Calls by Namespace: that panel counts the refused database call and says which limit refused it, this one says which KIND of task was refused and for which namespace. Use it when a task table is growing and you need to know whether the refusals are hitting timer, transfer, visibility or archival work - task_type carries the category as a prefix, for example TimerActiveTaskDeleteHistoryEvent. A refusal is NOT a failure: it is excluded from task_errors, it never advances the attempt counter that sends a task to the DLQ, and nothing is logged - so this counter and task_scheduler_throttled are the only places a throttled task appears at all. ABOVE ZERO IS NOT ITSELF A FAULT: throttling is the intended behaviour once persistence limits are set, and a healthy cluster shows a steady non-zero rate. What matters is the shape - one namespace orders of magnitude above the others, sustained and flat rather than rising and falling with load, means that namespace's tasks are not getting through at all. That stalls task row cleanup for EVERY namespace sharing those shards, because the deletion watermark is the oldest unfinished task across the whole shard. Empty is normal on a cluster that is not reaching its persistence limits. CLUSTER-WIDE: ignores the $namespace variable by design, because comparing namespaces against each other is the point.",
           "fieldConfig": {
             "defaults": {
               "unit": "ops",
@@ -3973,7 +4149,7 @@
           },
           "gridPos": {
             "h": 8,
-            "w": 24,
+            "w": 12,
             "x": 0,
             "y": 26
           },
@@ -3996,6 +4172,50 @@
           "targets": [
             {
               "expr": "sum by (operation) (rate(task_requests{operation=~\"TimerActive.*\",service_name=\"history\",namespace=\"$namespace\"}[$__rate_interval]))",
+              "legendFormat": "{{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 26
+          },
+          "id": 3108,
+          "title": "Timer Task Delay After Due Time by Type",
+          "description": "How long after its due time each kind of timer task finished, at the selected percentile (task_latency_queue). For TimerActiveTaskActivityTimeout this is how late the server checked an activity's timeout deadlines, including heartbeat deadlines. A late check never times anything out early; it only gives activities more time, so dead workers are noticed later. Timer runs that found nothing to do are not counted. Heartbeat timeouts under 1s are checked about once a second at most. Measured on a test cluster: about 0.24s at p99 normally, about 98s with a busy workflow and slow database writes. Read it next to Timer Tasks Processed by Type. All server versions.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile($p, sum by (operation, le) (rate(task_latency_queue_bucket{service_name=\"history\",operation=~\"TimerActive.*\",namespace=\"$namespace\"}[$__rate_interval])))",
               "legendFormat": "{{operation}}",
               "refId": "A"
             }
@@ -4489,7 +4709,7 @@
         "y": 11
       },
       "id": 210,
-      "title": "Workflow Execution History Info",
+      "title": "Workflow History, State and Payload Sizes",
       "type": "row",
       "panels": [
         {
@@ -4773,7 +4993,7 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 8,
+            "w": 6,
             "x": 0,
             "y": 28
           },
@@ -4817,8 +5037,8 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 8,
-            "x": 8,
+            "w": 6,
+            "x": 6,
             "y": 28
           },
           "id": 217,
@@ -4861,8 +5081,8 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 8,
-            "x": 16,
+            "w": 6,
+            "x": 12,
             "y": 28
           },
           "id": 218,
@@ -4886,6 +5106,65 @@
               "expr": "histogram_quantile($p, sum by (namespace, le) (rate(memo_size_bucket{namespace=\"$namespace\"}[$__rate_interval])))",
               "legendFormat": "{{namespace}}",
               "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "bytes/s"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "Bps"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 18,
+            "y": 28
+          },
+          "id": 3107,
+          "title": "Heartbeat Details Size",
+          "description": "Activity heartbeat details accepted by the History service: total bytes per second, and the average per heartbeat call. Heartbeat details are not part of the event history: they are stored in the activity's record (part of the workflow's mutable state) and rewritten on every heartbeat, so large details make every heartbeat write bigger. The average is per call, so it reads low when many heartbeats carry no details. Per namespace only -- there is no activity type label. Details over the blob size error limit (2 MB by default) are rejected and show on Blob Size Errors. Empty below server v1.30.0 and when activities send no details.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "calcs": [
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(activity_payload_size{operation=\"RecordActivityTaskHeartbeat\",namespace=\"$namespace\"}[$__rate_interval]))",
+              "legendFormat": "bytes/s",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(activity_payload_size{operation=\"RecordActivityTaskHeartbeat\",namespace=\"$namespace\"}[$__rate_interval])) / sum(rate(service_requests{service_name=\"history\",operation=\"RecordActivityTaskHeartbeat\",namespace=\"$namespace\"}[$__rate_interval]))",
+              "legendFormat": "average bytes per heartbeat call",
+              "refId": "B"
             }
           ]
         }
@@ -5327,13 +5606,13 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 6,
+            "w": 12,
             "x": 0,
-            "y": 36
+            "y": 43
           },
           "id": 131,
-          "title": "Activity StartToClose Timeout",
-          "description": "Rate of Activity StartToClose timeouts by namespace and operation.",
+          "title": "Activity StartToClose Timeout (Final Attempt)",
+          "description": "Activity StartToClose timeouts per second. Counts a timeout only when it ended the activity -- no retry left (maximum attempts reached, the next attempt would pass the schedule-to-close deadline, or the timeout is non-retryable). That is the timeout the workflow receives as a failure. While an activity is still retrying, this panel does not move: see the (Every Attempt) panel next to it. Empty is normal when activities succeed on a retry.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -5371,13 +5650,57 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 6,
-            "x": 6,
-            "y": 36
+            "w": 12,
+            "x": 12,
+            "y": 43
+          },
+          "id": 3102,
+          "title": "Activity StartToClose Timeout (Every Attempt)",
+          "description": "Activity StartToClose timeouts per second. Counts every attempt that hit the timeout, whether it was retried or not, by activity type (activity_task_timeout). With the default retry policy (no attempt limit) this is where these timeouts show at all; the (Final Attempt) panel next to it counts only those that ended the activity. Counts the same timeout again when the database write that records it fails and is retried (measured 8 counts for 1 timeout), so it can read high during database trouble. Empty below server v1.29.0.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (activityType) (rate(activity_task_timeout{namespace=\"$namespace\",timeout_type=\"StartToClose\"}[$__rate_interval]))",
+              "legendFormat": "{{activityType}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 50
           },
           "id": 132,
           "title": "Activity ScheduleToStart Timeout",
-          "description": "Rate of Activity ScheduleToStart timeouts by namespace and operation.",
+          "description": "Activity ScheduleToStart timeouts per second: the activity task waited longer than its ScheduleToStart timeout for a worker to pick it up. A ScheduleToStart timeout is never retried, so every one ends the activity: this panel is both the final and the every-attempt count. A high rate is a strong sign that workers are not polling fast enough.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -5415,13 +5738,57 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 6,
+            "w": 12,
             "x": 12,
+            "y": 50
+          },
+          "id": 3103,
+          "title": "Activity ScheduleToClose Timeout",
+          "description": "Activity ScheduleToClose timers that fired, per second; always final. When a retry is skipped because the next attempt would pass the schedule-to-close deadline, the history event says ScheduleToClose but the count goes to the timeout type that fired (StartToClose or Heartbeat). All server versions.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(schedule_to_close_timeout{operation=\"TimerActiveTaskActivityTimeout\",namespace=\"$namespace\"}[$__rate_interval])) by (namespace, operation)",
+              "legendFormat": "{{namespace}} - {{operation}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
             "y": 36
           },
           "id": 133,
-          "title": "Activity Heartbeat Timeout",
-          "description": "Rate of Activity Heartbeat timeouts by namespace and operation.",
+          "title": "Activity Heartbeat Timeout (Final Attempt)",
+          "description": "Activity heartbeat timeouts per second. Counts a timeout only when it ended the activity -- no retry left (maximum attempts reached, the next attempt would pass the schedule-to-close deadline, or the timeout is non-retryable). That is the timeout the workflow receives as a failure. While an activity is still retrying, this panel does not move: see the (Every Attempt) panel next to it. Empty is normal when activities succeed on a retry. Heartbeat timeouts are not only crashed workers: a busy worker, rate limits or a slow server delay heartbeats too.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -5459,9 +5826,53 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 6,
-            "x": 18,
+            "w": 12,
+            "x": 12,
             "y": 36
+          },
+          "id": 3101,
+          "title": "Activity Heartbeat Timeout (Every Attempt)",
+          "description": "Activity heartbeat timeouts per second. Counts every attempt that hit the timeout, whether it was retried or not, by activity type (activity_task_timeout). With the default retry policy (no attempt limit) this is where these timeouts show at all; the (Final Attempt) panel next to it counts only those that ended the activity. Counts the same timeout again when the database write that records it fails and is retried (measured 8 counts for 1 timeout), so it can read high during database trouble. Empty below server v1.29.0.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (activityType) (rate(activity_task_timeout{namespace=\"$namespace\",timeout_type=\"Heartbeat\"}[$__rate_interval]))",
+              "legendFormat": "{{activityType}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 57
           },
           "id": 134,
           "title": "Workflow Task StartToClose Timeouts per Namespace (sticky tq)",
@@ -5503,9 +5914,9 @@
           },
           "gridPos": {
             "h": 7,
-            "w": 6,
-            "x": 0,
-            "y": 43
+            "w": 12,
+            "x": 12,
+            "y": 57
           },
           "id": 2121,
           "title": "Workflow Task Schedule-to-Start Timeouts (sticky fallback)",
@@ -5571,7 +5982,7 @@
             "h": 7,
             "w": 24,
             "x": 0,
-            "y": 50
+            "y": 64
           },
           "id": 135,
           "title": "Approximate Task Backlog",
@@ -7320,7 +7731,7 @@
           },
           "id": 172,
           "title": "Replication Task Throughput",
-          "description": "Rate of replication tasks received, applied, failed, and skipped.",
+          "description": "Rate of replication tasks received, applied, failed, and skipped. On streaming replication, the default (history.enableReplicationStream true), the server does not emit the applied series, so that line is always empty: compare received with failed and skipped instead. Applied is emitted only by pull-based replication.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -7428,7 +7839,7 @@
           },
           "id": 174,
           "title": "Send and Recv Backlog",
-          "description": "Average backlog depth on the sender and receiver sides.",
+          "description": "Average backlog depth on the sender and receiver sides. The send backlog series is emitted only by pull-based replication (history.enableReplicationStream false), so it is always empty on streaming replication, the default. The receive backlog works on both.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -7477,7 +7888,7 @@
           },
           "id": 175,
           "title": "Tasks Fetched per Batch and Attempts per Task",
-          "description": "Average number of tasks fetched per batch and average attempts per replication task.",
+          "description": "Average number of tasks fetched per batch and average attempts per replication task. Tasks fetched is emitted only by pull-based replication (history.enableReplicationStream false), so it is always empty on streaming replication, the default. Attempts per task works on both.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -7799,7 +8210,7 @@
           },
           "id": 2002,
           "title": "Sender Rate Limit Latency",
-          "description": "Time the active cluster spent rate-limiting sends to standby clusters. Elevated values here are the active-side cause of standby lag with no other visible signal on the standby. Controlled by history.ReplicationEnableRateLimit dynamic config.",
+          "description": "Time spent waiting on a server-side limiter before sending a low-priority replication task (history.ReplicationEnableRateLimit, default true). In every release through v1.32.2 that limiter lets every task through at once, so this panel reads near zero, and it is empty when no low-priority task is sent. Through v1.32.2, force-replication backfill is sent as high priority whenever transition history is on (the default from v1.30.0), so low-priority sends are rare. The per-stream sender limits, history.ReplicationStreamSenderHighPriorityQPS and history.ReplicationStreamSenderLowPriorityQPS (default 100 tasks per second per stream each), apply only when history.EnableReplicationTaskTieredProcessing is true; with it false, the default, nothing limits the send rate. Neither is measured by this panel.",
           "type": "timeseries",
           "options": {
             "legend": {
@@ -7999,6 +8410,143 @@
             {
               "expr": "sum(increase(replication_dlq_non_empty{}[11m]))",
               "legendFormat": "Non-empty observations (11m)",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 74
+          },
+          "id": 3201,
+          "title": "Replication Tasks Sent per Second by Task Type",
+          "description": "Replication tasks this cluster sends to each remote cluster, per second, by task type. Only a cluster that is the active cluster for at least one namespace whose cluster list holds another cluster sends anything; a cluster that is the standby for every replicated namespace shows nothing here. The rate follows workload: each workflow update in such a namespace produces one or more of these tasks. The to_cluster label is the remote cluster's initial failover version (initialFailoverVersion in its cluster metadata), not its name. The once-a-second stream status messages are left out; they are on Replication Streams Received from Each Remote Cluster. Empty while a remote cluster is down or not connected, or when nothing is replicated. Streaming replication only, which is the default (history.enableReplicationStream true).",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (operation, to_cluster) (rate(replication_tasks_send{operation!=\"SyncWatermark\"}[$__rate_interval]))",
+              "legendFormat": "{{operation}} to cluster {{to_cluster}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 81
+          },
+          "id": 3202,
+          "title": "Replication Streams Received from Each Remote Cluster",
+          "description": "Status messages this cluster sends back on the replication streams it receives from each remote cluster, per second. Each stream sends one about every second (history.ReplicationStreamSyncStatusDuration, default 1s) whether or not anything is being replicated, so a steady line means the streams from that remote cluster are connected. With equal shard counts on both clusters there is one stream per shard, so the line reads about this cluster's shard count. A line falling to zero means this cluster is not receiving from that remote cluster, most often because the remote cluster is down or cannot be reached. While that lasts, this cluster also cannot deliver replication tasks to the remote cluster, so it keeps every replication task the remote cluster has not acknowledged and its replication task table grows; Replication Task Cleanup Runs and Failures stops at the same time. The label is the remote cluster's initial failover version, not its name. If a history service instance restarts while the remote cluster is unreachable, its series is not recreated and the line disappears instead of reading zero. Alert 93 fires on this panel. Streaming replication only, which is the default.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum by (to_cluster) (rate(replication_tasks_send{operation=\"SyncWatermark\"}[$__rate_interval]))",
+              "legendFormat": "from cluster {{to_cluster}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 81
+          },
+          "id": 3203,
+          "title": "Replication Task Cleanup Runs and Failures",
+          "description": "How often this cluster deletes replication tasks that every connected remote cluster has acknowledged, and how often that delete fails. Each shard checks every history.ReplicationTaskProcessorCleanupInterval (default 1m) and records a run only when there is something new to delete, so on a cluster that is sending replication tasks the runs line reads about the shard count divided by 60. When a history service instance starts, each shard it owns records one run within about a minute, so a short burst of about that many runs is normal after a restart. Zero runs on its own is not a fault: a cluster that sends no replication tasks has nothing to delete. Zero runs while workflows are being updated in replicated namespaces, with Replication Streams Received from Each Remote Cluster at zero, means a remote cluster has stopped acknowledging: replication tasks are kept and the replication task table grows until the remote cluster reconnects or is removed from this cluster's cluster list. A remote cluster that is down does not show as failures; cleanup simply does not run. Failures are delete calls the database returned an error for.",
+          "type": "timeseries",
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ]
+            }
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(replication_task_cleanup_count[$__rate_interval]))",
+              "legendFormat": "Cleanup runs/s",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rate(replication_task_cleanup_failed[$__rate_interval]))",
+              "legendFormat": "Cleanup failures/s",
               "refId": "B"
             }
           ]
@@ -9951,7 +10499,7 @@
   },
   "timepicker": {},
   "timezone": "utc",
-  "title": "Temporal Server Dashboard v2.35.0",
+  "title": "Temporal Server Dashboard v2.38.2",
   "uid": "temporal-overview-v1",
   "version": 11,
   "weekStart": ""

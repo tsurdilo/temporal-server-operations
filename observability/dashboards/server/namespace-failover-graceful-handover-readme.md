@@ -15,7 +15,7 @@ Throughout this document, **Step N** refers to the internal activity steps of th
 
 > **Compatibility:** Temporal Server v1.20+ · Grafana 9.0+ · Prometheus
 
-> **Current version:** v1.7.0 — see [CHANGELOG](./namespace-failover-graceful-handover-changelog.md)
+> **Current version:** v1.8.1 — see [CHANGELOG](./namespace-failover-graceful-handover-changelog.md)
 
 The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`](../../../playbooks/namespace-failover-graceful-handover.md).
 
@@ -35,8 +35,8 @@ The matching playbook is at [`playbooks/namespace-failover-graceful-handover.md`
   - [Standby Task Discards](#panel-standby-task-discards-stat)
   - [Replication DLQ Writes](#panel-replication-dlq-writes-stat)
   - [Replication Lag](#panel-replication-lag-gauge)
-  - [Send Backlog (Active)](#panel-send-backlog-active-stat)
-  - [Send Channel Full (Active)](#panel-send-channel-full-active-stat)
+  - [Replication Tasks Sent per Second (Active)](#panel-replication-tasks-sent-per-second-active-stat)
+  - [Receive Buffer Full (Standby)](#panel-receive-buffer-full-standby-stat)
   - [Replication Lag Trend](#panel-replication-lag-trend-time-series)
   - [Replication Latency p99](#panel-replication-latency-p99-time-series)
 - [Row 2a — WaitReplication (Steps 1–3)](#row-2a--waitreplication-steps-13--no-client-impact)
@@ -226,40 +226,58 @@ See [playbook section 1.2](../../../playbooks/namespace-failover-graceful-handov
 
 ### Panel: Replication Lag (gauge)
 
-**Metric:** `histogram_quantile($p, sum(rate(replication_tasks_lag_bucket{cluster="$standby_cluster"})) by (le))`  
+Panel title: **Replication Lag — Task-ID Distance ($p)**
+
+**Metric:** `histogram_quantile($p, sum by (le) (increase(replication_tasks_lag_bucket{cluster="$active_cluster"}[10m])))`  
+**Cluster:** active  
+**Thresholds:** none (no level of this value has a fixed meaning)  
+How far the standby's acknowledgements trail the active, as a **distance in task IDs**, p`$p` across shards over the last 10 minutes. It is not a count of replication tasks waiting. Each shard numbers every history task it creates, of any kind, from one sequence, so the value also grows with the active's other task writes. On a test cluster under steady load, the active read under 1,000 throughout.
+
+The active emits it only when its replication task cleanup advances, about once a minute per shard. When the standby stops acknowledging, cleanup stops advancing and **no new values arrive**; the value does not climb. Because the panel looks back 10 minutes, it keeps showing the last values during a short outage and goes empty only after about 10 minutes without acknowledgements. On a test cluster, samples stopped about 2 minutes into a 4-minute standby outage, and once the standby was back the value jumped to the 100K cap (see below).
+
+Values above 100,000 show as exactly 100K, the top of the metric's buckets, so a reading of 100K means "100K or more". On a test cluster p99 sat at the cap for about 10 minutes after the clusters started, after a 4-minute standby outage, and on the reverse stream right after a handover, until those samples left the 10-minute window; p50 stayed low (about 200 on the reverse stream with load on the new active). Read p50 for the usual level and p99 for spikes. The same applies to [Replication Lag Trend](#panel-replication-lag-trend-time-series) and [Replication Lag — Reverse Stream](#panel-replication-lag--reverse-stream-time-series).
+
+Use it for direction: rising, falling, flat. For how far behind the standby is in seconds, which is what the 30-second drain window depends on, use [Replication Latency p99](#panel-replication-latency-p99-time-series).
+
+Do not copy this value into the handover workflow's `AllowedLaggingTasks` input. WaitReplication measures a smaller distance per shard (newest replication task minus the last one the standby acknowledged, zero when fully caught up).
+
+Before v1.8.0 this panel read the standby cluster, which holds no tasks for the forward stream.
+
+See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed) for interpretation and go/no-go guidance.
+
+### Panel: Replication Tasks Sent per Second (Active) (stat)
+
+**Metric:** `sum(rate(replication_tasks_send{cluster="$active_cluster", operation!="SyncWatermark"}[$__rate_interval]))`  
+**Cluster:** active  
+**Thresholds:** none  
+Replication tasks per second the active is sending to the standby, all task types. `SyncWatermark` is left out: it is a stream status message, sent about once a second per stream, not a replication task. Zero is normal when no replicated namespace has traffic.
+
+Read it next to the lag panels. Lag rising while this panel stays flat has two causes. If [Receive Buffer Full (Standby)](#panel-receive-buffer-full-standby-stat) is non-zero, the standby is the limit: check [Receiver Backlog Depth](#panel-receiver-backlog-depth-stat), standby history pod CPU and database latency. If Receive Buffer Full is zero, the active is not sending any faster. With `history.EnableReplicationTaskTieredProcessing` set to `true`, sending is capped at `history.ReplicationStreamSenderHighPriorityQPS` (default 100 tasks/s) per stream. With it `false` (the default) there is no send cap.
+
+Added in v1.8.0, replacing **Send Backlog (Active)**. That panel read `replication_task_send_backlog`, which only the older pull-based replication path emits, so it was always empty on streaming replication (the default).
+
+> Note: `cluster` is a scrape-level label, not server-emitted.
+
+See [playbook section 1.2](../../../playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy) for interpretation and go/no-go guidance.
+
+### Panel: Receive Buffer Full (Standby) (stat)
+
+**Metric:** `sum(rate(replication_stream_channel_full{cluster="$standby_cluster"}[$__rate_interval]))`  
 **Cluster:** standby  
-**Thresholds:** orange ≥ 1 000 tasks, red ≥ 5 000 tasks  
-p`$p` of outstanding replication task lag on the standby — the number of tasks generated on the active that have not yet been applied on the standby. This value is compared against the `AllowedLaggingTasks` workflow input at WaitReplication exit time.
-
-See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed) for interpretation and go/no-go guidance.
-
-### Panel: Send Backlog (Active) (stat)
-
-**Metric:** `histogram_quantile(0.99, sum(rate(replication_task_send_backlog_bucket{cluster="$active_cluster"}[$__rate_interval])) by (le))`  
-**Cluster:** active  
-**Thresholds:** green = 0–9, orange ≥ 10, red ≥ 100  
-p99 of tasks queued inside the active cluster's replication sender waiting to be dispatched over the stream. Reflects sender-side capacity; relevant when lag is flat at a non-zero value.
-
-> Note: `cluster` is a scrape-level label, not server-emitted.
-
-See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed) for interpretation and go/no-go guidance.
-
-### Panel: Send Channel Full (Active) (stat)
-
-**Metric:** `sum(rate(replication_stream_channel_full{cluster="$active_cluster"}[$__rate_interval]))`  
-**Cluster:** active  
 **Thresholds:** green = 0, red ≥ 1  
-Rate of events where the sender's internal Go dispatch channel is full — the earliest sender-side capacity signal, preceding a rising send backlog.
+Times per second the standby's buffer of received replication messages (512 per stream) was full when a new message arrived. The standby is not taking messages off the stream as fast as the active sends them, so applying on the standby is the bottleneck. Short bursts during catch-up after an outage are expected. Sustained under steady load, check standby history pod CPU, database latency and [Receiver Backlog Depth](#panel-receiver-backlog-depth-stat).
+
+The metric is emitted only by the receiving side of a stream, never by the sender. Before v1.8.0 this panel was titled **Send Channel Full (Active)** and read the active cluster, where it only reflects the reverse direction.
 
 > Note: `cluster` is a scrape-level label, not server-emitted.
 
-See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed) for interpretation and go/no-go guidance.
+See [playbook section 1.2](../../../playbooks/namespace-failover-graceful-handover.md#12-is-the-replication-stream-between-clusters-healthy) for interpretation and go/no-go guidance.
 
 ### Panel: Replication Lag Trend (time series)
 
-**Metrics:** p50 and p99 of `replication_tasks_lag_bucket{cluster="$standby_cluster"}`  
-**Cluster:** standby  
-15-minute trajectory of replication lag on the standby cluster. Two series: p50 and p99.
+**Metrics:** p50 and p99 of `increase(replication_tasks_lag_bucket{cluster="$active_cluster"}[10m])`  
+**Cluster:** active  
+Trajectory of the same task-ID distance as [Replication Lag](#panel-replication-lag-gauge), p50 and p99 over 10-minute windows. Use the direction of the lines, not their height. A gap means the standby has not acknowledged for about 10 minutes (see the gauge). Before v1.8.0 this panel read the standby cluster.
 
 See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed) for interpretation and go/no-go guidance.
 
@@ -268,7 +286,7 @@ See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handov
 **Metrics:** p50 and p99 of `replication_latency_bucket{source_cluster="$active_cluster"}`  
 **Cluster:** standby  
 **Thresholds:** green < 10s, orange ≥ 10s, red ≥ 20s  
-End-to-end replication latency — wall-clock time from task creation on the active to task application on the standby (server source: `service/history/replication/executable_task.go`). The p99 is the time-based "how many seconds is the standby behind" signal, complementing the task-count `replication_tasks_lag` panels above. Use it to distinguish benign replication-stream reconnect churn from churn that is actually keeping the standby behind. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window and the handover is guaranteed to roll back.
+End-to-end replication latency — wall-clock time from task creation on the active to task application on the standby (server source: `service/history/replication/executable_task.go`). The p99 is the time-based "how many seconds is the standby behind" signal, complementing the task-ID distance `replication_tasks_lag` panels above. Use it to distinguish benign replication-stream reconnect churn from churn that is actually keeping the standby behind. The handover's drain step waits at most `HandoverTimeoutSeconds`, capped at 30. A p99 close to 30 seconds means a task sent just before HANDOVER can take as long as the whole drain step, and the handover rolls back if the drain does not finish in time.
 
 > Fixed in v1.7.0: from v1.5.0 to v1.6.0 this panel was nested inside the Row 1 header while the row was expanded, so Grafana never displayed it.
 
@@ -282,22 +300,22 @@ See [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handov
 
 ### Panel: Catchup Progress % (gauge)
 
-**Metric:** `sum(catchup_ready_shard_count{target_cluster="$standby_cluster", namespace="$namespace"}) / $total_shards * 100`  
+**Metric:** `sum(catchup_ready_shard_count{target_cluster="$standby_cluster"}) / $total_shards * 100`  
 **Thresholds:** red < 50%, orange 50–90%, green ≥ 90%  
-Fraction of shards that have reported lag within `AllowedLaggingSeconds`. Rises from 0 to 100% during WaitReplication (Steps 1–3).
+Percentage of shards that WaitReplication counts as caught up, by the rule in [playbook section 1.3](../../../playbooks/namespace-failover-graceful-handover.md#13-is-replication-lag-low-enough-to-proceed). Rises from 0 to 100% during WaitReplication (Steps 1–3). Each shard's replication stream carries every replicated namespace, so the value covers all of them. Empty when no handover workflow is running.
 
-> Note: `catchup_ready_shard_count` emits a `target_cluster` label (not `cluster`) and supports `namespace="$namespace"` filtering.
+> Note: `catchup_ready_shard_count` emits a `target_cluster` label (not `cluster`). It has a `namespace` label only from v1.32.0, naming the handover workflow that recorded the value; the panel does not filter on it.
 
 See [playbook section 2a](../../../playbooks/namespace-failover-graceful-handover.md#2a-handover-workflow-started--monitor-standby-catchup-steps-13) for interpretation and go/no-go guidance.
 
 ### Panel: Handover Progress — Catchup + Drain Combined (time series)
 
 **Metrics:**
-- `sum(catchup_ready_shard_count{target_cluster="$standby_cluster", namespace="$namespace"})` — rises during Steps 1–3
+- `sum(catchup_ready_shard_count{target_cluster="$standby_cluster"})` — rises during Steps 1–3
 - `sum(handover_ready_shard_count{target_cluster="$standby_cluster", namespace="$namespace"})` — rises during Steps 4–5
 - `$total_shards` reference line (dashed gray)
 
-Both metrics emit a `target_cluster` label (not `cluster`). `catchup_ready_shard_count` also supports `namespace="$namespace"` filtering. Combined view of both catchup and drain progress across the entire handover.
+Both metrics emit a `target_cluster` label (not `cluster`). `handover_ready_shard_count` is filtered by `namespace="$namespace"`; `catchup_ready_shard_count` is not, because it has a `namespace` label only from v1.32.0. Combined view of both catchup and drain progress across the entire handover.
 
 See [playbook section 2a](../../../playbooks/namespace-failover-graceful-handover.md#2a-handover-workflow-started--monitor-standby-catchup-steps-13) for interpretation and go/no-go guidance.
 
@@ -405,9 +423,9 @@ See [playbook section 4](../../../playbooks/namespace-failover-graceful-handover
 
 ### Panel: Replication Lag — Reverse Stream (time series)
 
-**Metric:** `histogram_quantile` of `replication_tasks_lag_bucket{cluster="$active_cluster"}` (old active, now standby)  
-**Cluster:** old active (now standby)  
-Replication lag on the reverse stream — tasks generated on the new active that have not yet been applied on the old active (now standby). Should be near 0 immediately after flip given WaitReplication's pre-flight catchup.
+**Metric:** p50 and p99 of `increase(replication_tasks_lag_bucket{cluster="$standby_cluster"}[10m])` (the new active)  
+**Cluster:** new active (the cluster selected as `$standby_cluster`)  
+The reverse stream after the flip: the same task-ID distance as [Replication Lag](#panel-replication-lag-gauge), read on the new active, which now holds the replication tasks for the old active. Direction only, not a count of tasks. Read it only after the flip; before it, this shows the standby's own value, which says nothing about the forward stream. Goes empty after about 10 minutes without acknowledgements from the old active. Before v1.8.0 this panel read the old active, which holds no tasks for the reverse stream.
 
 > Note: the old active (now standby) will show a scheduled queue lag of approximately `history.standbyClusterDelay` (default 5 minutes) — the intentional clock offset on the standby timer executor.
 

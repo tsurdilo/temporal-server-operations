@@ -233,8 +233,8 @@ Operators who want focused coverage without implementing the full alert inventor
 
 | # | Alert Name | Severity | Panel | Condition |
 |---|---|---|---|---|
-| 31 | Busy Workflow Throttling Elevated | ⚠️ Warning | Transfer Active Task Errors Workflow Busy | Sustained busy workflow error rate |
-| 32 | Busy Workflow Throttling Critical | 🔴 Critical | Transfer Active Task Errors Workflow Busy | High sustained busy workflow error rate |
+| 31 | Busy Workflow Throttling Elevated | ⚠️ Warning | Transfer Tasks Throttled by a Busy Workflow | Sustained busy workflow error rate |
+| 32 | Busy Workflow Throttling Critical | 🔴 Critical | Transfer Tasks Throttled by a Busy Workflow | High sustained busy workflow error rate |
 | 33 | Transfer Tasks Being Discarded | 🔴 Critical | Transfer Active Task Errors Discarded | Any tasks being discarded — cluster gave up retrying, tasks are lost |
 
 ---
@@ -292,7 +292,7 @@ Operators who want focused coverage without implementing the full alert inventor
 
 ---
 
-### Section 12 — Workflow Execution History Info
+### Section 12 — Workflow History, State and Payload Sizes
 
 | # | Alert Name | Severity | Panel | Condition |
 |---|---|---|---|---|
@@ -327,8 +327,8 @@ Operators who want focused coverage without implementing the full alert inventor
 | 51 | Task Backlog Critical | 🔴 Critical | Approximate Task Backlog | Task backlog exceeds 2,000 tasks |
 | 52 | Tasks Persisted Rate High | ⚠️ Warning | Tasks Persisted to DB | CreateTasks rate exceeds 1,000 req/s — sustained increase indicates workers not keeping up |
 | 53 | Activity ScheduleToStart Timeout | ⚠️ Warning | Activity ScheduleToStart Timeout | Any sustained activity schedule-to-start timeouts — workers not polling fast enough |
-| 54 | Activity StartToClose Timeout | ⚠️ Warning | Activity StartToClose Timeout | Any sustained activity start-to-close timeouts |
-| 55 | Activity Heartbeat Timeout | ⚠️ Warning | Activity Heartbeat Timeout | Any sustained heartbeat timeouts — workers crashing during long activities |
+| 54 | Activity StartToClose Timeout | ⚠️ Warning | Activity StartToClose Timeout (Final Attempt) | Any sustained activity start-to-close timeouts |
+| 55 | Activity Heartbeat Timeouts | ⚠️ Warning | Activity Heartbeat Timeout (Every Attempt) | Heartbeat timeouts on every attempt, retried or not, above zero for 10 minutes in a namespace, with no gap of 5 minutes or more (server v1.29.0+) — heartbeats keep arriving late. Rebuilt 2026-11-23 on `activity_task_timeout`; the Final Attempt metric stays at zero while timeouts are retried |
 | 56 | Workflow Task Timeout (Sticky) | ⚠️ Warning | Workflow Task StartToClose Timeouts | Any sustained workflow task timeouts on sticky task queues |
 | 76 | Workflow Task ScheduleToStart Timeout | ⚠️ Warning | Schedule to Start Latencies | Any sustained `schedule_to_start_timeout` on workflow tasks — tasks expired in matching before a worker polled. Lagging confirmation that WFTs are stuck; by the time this fires, tasks have already been waiting longer than the S2S timeout. Cross-check alert 75 (ReadHistoryBranch latency) and alert 77 (sticky eviction) to determine whether the root cause is DB pressure or worker throughput. |
 | 77 | Sticky Task Queue Not Being Used | ⚠️ Warning | Workflow Task Sticky Completion Rate | `complete_workflow_task_sticky_disabled_count` rising relative to `complete_workflow_task_sticky_enabled_count` — workers are not setting or maintaining sticky task queues. These metrics are emitted on WFT completion based on whether the SDK included `StickyAttributes` in the response; they are not a direct server-side eviction counter (the actual sticky→non-sticky fallback when matching returns `StickyWorkerUnavailable` has no dedicated metric). When sticky is not in use, every WFT dispatch triggers a full `ReadHistoryBranch` read instead of a partial one — a significant DB impact for long-running workflows. Leading indicator for alert 75. |

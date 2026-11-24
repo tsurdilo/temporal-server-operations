@@ -28,13 +28,18 @@ Quick reference — all recommendations below are explained in detail in the sec
 - Think carefully about `dcRedirectionPolicy` — it is a static YAML setting that requires a restart and controls how each cluster handles traffic when it is not the active. Get it right before the first handover. See [Setting dcRedirectionPolicy](#setting-dcredirectionpolicy).
 - Verify `numHistoryShards` is a clean multiple between clusters (e.g. 512 and 1024 is valid; 512 and 768 is not). A non-multiple ratio causes the replication stream to fail at connection time with no recovery path — this must be correct when replication is first configured.
 - Never run two handover workflows for the same namespace at the same time.
-- Set `history.EnableReplicationTaskTieredProcessing: true` on **both clusters**. Dynamic config, no restart needed. Strongly recommended for handover — without it, a low-priority replication backlog can stall the drain and trigger rollback. Set it the **same on both** (both `true`, both on v1.25.0+); a mismatch makes the replication stream loop-restart.
+- Set `history.EnableReplicationTaskTieredProcessing` to the **same value on both clusters**. Dynamic config, no restart needed; both clusters must be on v1.25.0 or later. A mismatch makes the replication stream restart over and over. Setting it to `true` does three things:
+  - **Send speed:** `true` caps how fast each stream sends, at `history.ReplicationStreamSenderHighPriorityQPS`, default 100 tasks per second per stream.
+  - **Pause:** `true` lets the standby pause the active when the standby falls behind.
+  - **Force-replication backlog:** `true` stops a force-replication backlog of closed workflows from holding up the handover. This only works when `history.enableTransitionHistory` is `false`, which is the default up to v1.29.x. From v1.30.0 that setting is `true` by default, and a force-replication backlog holds up the handover whether tiered processing is on or off. Let force-replication finish before you start the handover.
+
+  See [Dynamic config](#dynamic-config).
 - Set `system.enableNamespaceHandoverWait: true` on **both clusters**. Dynamic config, no restart needed. Eliminates the `Unavailable` error during the HANDOVER drain window — clients see latency instead.
 - Confirm `system.enableNamespaceNotActiveAutoForwarding` is not set to `false` on either cluster, for this namespace or for all namespaces. The setting is namespace-scoped and defaults to `true`. If it is `false` for a namespace, nothing is forwarded for that namespace regardless of `dcRedirectionPolicy`. A value of `true` does not turn forwarding on by itself, because forwarding also needs `dcRedirectionPolicy` to be set. See [Setting dcRedirectionPolicy](#setting-dcredirectionpolicy) and [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings).
 - Do not lower `history.standbyTaskMissingEventsDiscardDelay` below its default (15m) on the standby — lower values increase the risk of workflows getting stuck post-flip.
 - Before every handover, including one that hands a namespace back to the cluster it came from, check [Replication DLQ Writes](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-dlq-writes-stat). If it is non-zero, list the standby's replication DLQ and merge it first. An update left in that DLQ means the standby's copy of a workflow is out of date, and after the flip that copy is the one that runs. See [section 1.2](#12-is-the-replication-stream-between-clusters-healthy).
 - If a namespace was a local namespace before it was made global, and still has workflows that were started before then, do not raise `frontend.keepAliveMaxConnectionAge` (default 5 minutes) on either cluster, and do not lower `history.ReplicationExecutableTaskErrorRetryMaxAttempts` (default 80) or `history.ReplicationExecutableTaskErrorRetryExpiration` (default 10 minutes). A longer reconnect interval or a lower retry limit makes it more likely that replication updates for those workflows end up in the old active cluster's replication DLQ after a flip. See [Replication errors on the old active cluster after the flip](#replication-errors-on-the-old-active-cluster-after-the-flip).
-- Use `AllowedLaggingSeconds: 10`, `AllowedLaggingTasks: 500`, `HandoverTimeoutSeconds: 30` as starting values. Tune `AllowedLaggingTasks` up on high-throughput clusters if WaitReplication stalls.
+- Use `AllowedLaggingSeconds: 10`, `AllowedLaggingTasks: 500`, `HandoverTimeoutSeconds: 30` as starting values. If WaitReplication stalls, check Replication Latency p99 first. A larger `AllowedLaggingTasks` does not help while the standby has not yet reached the point recorded when the handover workflow started. See [section 1.3](#13-is-replication-lag-low-enough-to-proceed).
 - Use a consistent workflow ID convention — `handover-<namespace>` — so running handovers are easy to spot before starting a new one.
 - Tune history task processing on **both clusters**, sized for the load each would carry if its namespaces became active. A cluster holding only passive copies looks cheap to run, so its limits are often left low or unset — and then throttle the workload the moment it becomes active. See [History Task Processing — Tuning and Troubleshooting](./history-task-processing-tuning.md#63-if-you-run-more-than-one-cluster).
 - Use `system.forceNamespaceSelectedAPIAutoForwarding` (namespace-scoped dynamic config, no restart) to control which cluster's workers actively participate in workflow execution before and after a handover — see [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings).
@@ -206,11 +211,16 @@ These must be set on a running cluster before the first handover — no restart 
 | Config | Cluster | Required value | How to check |
 |---|---|---|---|
 | `system.enableNamespaceNotActiveAutoForwarding` | Both | `true` (default) | Namespace-scoped. Confirm it is not set to `false` for the namespace being handed over, or for all namespaces. If it is `false`, nothing is forwarded for that namespace, whatever `dcRedirectionPolicy` says. See [API forwarding to the active cluster: cluster policy and per-namespace settings](#api-forwarding-to-the-active-cluster-cluster-policy-and-per-namespace-settings). |
-| `history.EnableReplicationTaskTieredProcessing` | Both | **`true`** | If `false`, a LOW force-replication backlog can block WaitHandover and trigger the 30s rollback; also prevents namespace-filtered progress tracking |
+| `history.EnableReplicationTaskTieredProcessing` | Both | Same value on both clusters | When `true`, caps how fast each stream sends and lets the standby pause the active. See the notes below this table. |
 | `history.standbyTaskMissingEventsDiscardDelay` | Standby | Default (15m) or higher | Lower values increase discard risk during elevated lag |
 | `history.enableDeleteWorkflowExecutionReplication` | Both | **`true`** (v1.31.x only; default `false`) | Turns on delete replication so deletions on the active reach the standby. On v1.32.0+ it is always on — nothing to set. On v1.30.x and earlier the feature does not exist. See [Workflow Deletion](#workflow-deletion). |
 
-**`history.EnableReplicationTaskTieredProcessing` is safe to enable on a running cluster** — the sender detects the change and triggers a controlled stream reconnect (~1s re-send window). Set it on **both clusters** before the handover: after the flip the standby becomes the new active and immediately starts sending its own replication stream — it needs tiered processing already on. Do not toggle it back off once enabled. Both clusters must have it set the same and be on v1.25.0+ — a mismatch (or a pre-1.25 peer that can't support it) makes the stream loop-restart.
+**`history.EnableReplicationTaskTieredProcessing` is safe to change on a running cluster.** Change the setting on **both clusters** before the handover, so the two match.
+
+- **Restart on a change:** the cluster sending the replication stream checks the setting each time the other cluster reports its progress, and restarts the stream when the value has changed.
+- **After the flip:** the new active sends its own replication stream to the old active, and that stream needs the same setting on both clusters too.
+- **Versions:** both clusters must be on v1.25.0 or later. A mismatch, or a cluster older than v1.25.0, makes the stream restart over and over.
+- **Force-replication backlog:** `true` keeps a force-replication backlog of closed workflows from holding up the handover only when `history.enableTransitionHistory` is `false`, the default up to v1.29.x. From v1.30.0, a force-replication backlog holds up the handover whether tiered processing is on or off.
 
 ### Alerts
 
@@ -540,7 +550,7 @@ If the results are empty you are clear to proceed. If you see a result for your 
 | Parameter | Bounds (enforced) | Guidance |
 |---|---|---|
 | `AllowedLaggingSeconds` | [5, 120] | How far behind standby can be before entering HANDOVER. 5–10s for low-lag clusters. Values outside range are clamped by the server; 120 is a valid achievable maximum. |
-| `AllowedLaggingTasks` | No bounds | Alternative lag gate in task count. Gate condition is OR — a shard passes when task lag ≤ this value OR time lag ≤ `AllowedLaggingSeconds`. Setting to `0` is the strictest threshold (any lagging tasks must pass via the time gate); to make this non-binding, set to a very large number. |
+| `AllowedLaggingTasks` | No bounds | Gap in task IDs per shard, not a task count. `0` is the strictest value; a very large number makes it non-binding. [Section 1.3](#13-is-replication-lag-low-enough-to-proceed) explains how it combines with `AllowedLaggingSeconds`. |
 | `HandoverTimeoutSeconds` | Max 30s | How long WaitHandover waits before rolling back. **Recommended: 30s** — gives shards the full drain window. Only go lower if you specifically want a faster rollback at the cost of a narrower window. |
 
 The 30-second cap on `HandoverTimeoutSeconds` is a hardcoded constant (`maximumHandoverTimeoutSeconds = 30` in `handover_workflow.go`) — not a dynamic config, not overridable.
@@ -579,7 +589,7 @@ temporal workflow start \
 | `Namespace` | string | Required | The global namespace to fail over |
 | `RemoteCluster` | string | Required | The name of the standby cluster to become the new active — must match the cluster name in your Temporal server config |
 | `AllowedLaggingSeconds` | int | [5, 120] (enforced) | Maximum replication time lag allowed on the standby before WaitReplication declares it close enough to proceed. Values outside this range are clamped by the server. 120 is a valid achievable value. |
-| `AllowedLaggingTasks` | int64 | No bounds | Maximum replication task count lag allowed on the standby. The gate condition is OR: a shard passes when `laggingTasks ≤ AllowedLaggingTasks OR timeLag ≤ AllowedLaggingSeconds`. Setting to `0` means shards with any lagging tasks must pass via the time gate — it does not disable the task gate, it sets the strictest possible threshold. To make the task count non-binding, set to a very large number. |
+| `AllowedLaggingTasks` | int64 | No bounds | Maximum gap in task IDs per shard, not a task count. `0` is the strictest value, not off; a very large number makes it non-binding. [Section 1.3](#13-is-replication-lag-low-enough-to-proceed) explains how it combines with `AllowedLaggingSeconds`. |
 | `HandoverTimeoutSeconds` | int | Max 30s (enforced) | How long WaitHandover (Step 5) waits for the drain to complete before rolling back automatically. Values above 30 are clamped to 30 — this cap is hardcoded in the server |
 
 > **Always set `HandoverTimeoutSeconds` explicitly — never omit it or set it to `0`.** A zero value causes the drain to time out immediately and roll back. **Recommended value: 30s** — the maximum the server allows, giving shards the full drain window.
@@ -692,13 +702,13 @@ Open [Row 1 — Pre-Flight](../observability/dashboards/server/namespace-failove
 | [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) | Any non-zero rate → **blocker** | The standby has a built-in liveness monitor — if the stream stops making progress it reconnects automatically within ~3 minutes. Wait before acting. If it does not clear, see section [5](#5-something-went-wrong--rollback-and-recovery). |
 | [DLQ Enqueue Failed](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-dlq-enqueue-failed-stat) | Any non-zero rate → **blocker** | Fires on the standby. The DLQ is the last resort for replication tasks the standby cannot apply — if even that is failing, those tasks are permanently lost. Running a handover in this state makes no sense. Investigate and fix before proceeding. |
 | [Replication DLQ Writes](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-dlq-writes-stat) | Any non-zero count → **blocker until the DLQ has been listed and merged** | Fires on the standby, for all namespaces on it. A write means the standby holds an out-of-date copy of a workflow, which runs after the flip. See the note below the table. |
-| [Receiver Backlog](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) | ≥ 500 → **blocker**, 400–499 → **do not start** | Replication tasks are backing up on the standby faster than it can apply them. Starting the handover now risks the backlog hitting its limit mid-flight, which causes the sender to pause and WaitReplication to stall indefinitely. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks). |
+| [Receiver Backlog](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) | ≥ 500 → **blocker**, 400–499 → **do not start** | Replication tasks are backing up on the standby faster than it can apply them. Starting the handover now risks the backlog reaching its limit while WaitReplication runs. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks). |
 | [Stream Errors (gRPC)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-errors--grpc-stat) | Elevated **and** paired with stalled progress → **investigate** | A steady non-zero rate here is **normal** — it is the connection recycling reconnecting the stream every few minutes (see the note below). On its own it is not a blocker. It only matters if it comes with **Stream Stuck** non-zero or **Replication Lag / Latency** rising — that combination means the stream is reconnecting *and* failing to catch up. Judge readiness by Stream Stuck and lag, not by this count. |
 | [Stream Service Errors](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-service-errors-stat) | Sustained unexplained rate → **investigate before proceeding** | Fires on the standby. A brief spike when the standby restarts is normal and clears on its own. A sustained rate with no obvious cause means the standby is struggling to process the replication stream — do not start until you understand why. |
-| [Replication Lag](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) | Trending up → **do not start** | How far behind the standby is from the active. Aim for near-zero and stable before starting — a rising lag means the standby is falling further behind and the handover drain window will not be enough time to close the gap. See section [1.3](#13-is-replication-lag-low-enough-to-proceed). |
+| [Replication Lag](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) | Trending up → **do not start** | Fires on the active. The gap in task IDs, not a count of tasks, between the newest task ID of any kind on the shard and the last replication task the standby confirmed. Rising means the standby is falling behind. Section [1.3](#13-is-replication-lag-low-enough-to-proceed) gives the time behind. |
 | [Backfill Activity](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-backfill-activity-stat) | — | The standby is receiving replication tasks but is missing some of the history behind them — it has to fetch that history from the active before it can apply each affected task. This slows down catchup. See section [1.4](#14-is-the-standby-making-extra-round-trips-to-fetch-missing-history). |
-| [Send Channel Full](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-send-channel-full-active-stat) | Any non-zero rate → **investigate** | Fires on the active. The active's internal buffer for queuing outgoing replication tasks is full — it cannot dispatch tasks to the standby fast enough. This is the earliest warning sign: left unaddressed, tasks start piling up (visible as a rising Send Backlog) and replication lag grows. See section [1.3](#13-is-replication-lag-low-enough-to-proceed) for how to raise the sender rate. |
-| [Send Backlog](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-send-backlog-active-stat) | — | Fires on the active. Replication tasks are piling up on the active waiting to be sent to the standby — raising `history.ReplicationStreamSenderHighPriorityQPS` will help drain it. If this panel is zero but lag is still not closing, the active is already sending as fast as it can — the standby is the problem, applying tasks too slowly. Check standby history pod CPU and the Receiver Backlog panel. See section [1.3](#13-is-replication-lag-low-enough-to-proceed). |
+| [Receive Buffer Full](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receive-buffer-full-standby-stat) | Sustained during steady load → **do not start** | Fires on the standby. The standby's buffer of received replication tasks is full, so the standby applies them more slowly than the active sends. Short bursts while the standby catches up are normal. See the note below the table. |
+| [Replication Tasks Sent](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-tasks-sent-per-second-active-stat) | — | Fires on the active. How many replication tasks the active sends per second. Lag rising while Replication Tasks Sent is flat has two causes; see the note below the table. |
 | [Standby Task Discards](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-standby-task-discards-stat) | Any non-zero rate → **blocker** | Fires on the standby. Workflow executions on the standby had their tasks discarded because the history events they depended on never arrived in time. After the flip those workflows will be stuck on the new active with no pending task — direct business impact. Identify and understand the scope before proceeding. See section [1.6](#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip). |
 
 > If any blocker above is unresolved, our recommendation is not to proceed with the handover. Resolve the issue first and re-run this check before continuing.
@@ -728,33 +738,43 @@ Errors + healthy Stream Stuck and lag = benign, proceed. Errors + Stream Stuck n
 >
 > Bottom line: don't change this just to silence the errors. Decide based on whether replication is actually falling behind — check **Stream Stuck** and the lag panels.
 
+**Receive Buffer Full that stays on under steady load means the standby is not catching up.** Wait for it to drop to zero before starting the handover. Check the standby's history pod CPU, its database latency, and **Receiver Backlog**, and see section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks).
+
+> **Test cluster result:** after a 4-minute standby outage with load still running, Receive Buffer Full stayed at about 130 per second and Replication Latency p99 stayed at 16.7 minutes. A handover started then stayed in WaitReplication for over 15 minutes, with the namespace still in normal state, and was stopped. With the load paused until Receive Buffer Full was zero, the same handover completed.
+> - **Setup:** two clusters on v1.31.0, 4 history shards each, PostgreSQL, `AllowedLaggingSeconds` 10.
+
+**Lag rising while Replication Tasks Sent stays flat has two causes.** If Receive Buffer Full is non-zero, the standby is the limit, and raising how fast the active sends does not help. If Receive Buffer Full is zero, the active is not sending any faster. With `history.EnableReplicationTaskTieredProcessing` set to `true`, the cap is `history.ReplicationStreamSenderHighPriorityQPS`, default 100 tasks per second per stream. With it `false` the active has no cap on how fast it sends.
+
+> **Test cluster result:** catching up after a standby outage, the active sent 400 tasks per second with tiered processing on (4 streams × 100) and 550–680 per second with it off.
+> - **Setup:** same two clusters.
+
 #### 1.3. Is replication lag low enough to proceed?
 
-> Assumes the replication stream between the two clusters is healthy — complete section [1.2](#12-is-the-replication-stream-between-clusters-healthy) first.
+> Assumes the replication stream between the two clusters is healthy, so complete section [1.2](#12-is-the-replication-stream-between-clusters-healthy) first.
 
-Replication lag is how far behind the standby is from the active — measured in number of replication tasks still waiting to be applied. It matters here because the handover drain window is only 30 seconds. If the standby is significantly behind when the flip starts, the stream cannot deliver all remaining tasks in time and the handover rolls back automatically. The lower the lag before you start, the higher the chance the handover completes cleanly.
+**Replication lag matters because the handover's drain step has at most 30 seconds.** The handover workflow puts the namespace into HANDOVER state. It then waits up to `HandoverTimeoutSeconds`, which is capped at 30, for the standby to confirm every replication task up to that point. If the standby has not confirmed them in time, the handover rolls back and the namespace stays active on the current cluster.
 
-Start with the [Replication Lag Trend panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-trend-time-series) (Row 1, standby cluster) — it shows the direction of lag over the last 15 minutes. Then check the [Replication Lag gauge](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) for the current task count.
+The dashboard shows lag in two ways:
 
-| What the trend shows | What it means | What to do |
+- **Time behind:** [Replication Latency p99](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-latency-p99-time-series) (Row 1, standby cluster) shows how long a replication task takes from being created on the active to being applied on the standby. Decide by this panel, because the drain step is limited by time. Alert `FAILOVER-PRE-07` fires when p99 reaches 20 seconds.
+- **Direction:** [Replication Lag Trend](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-trend-time-series) and the [Replication Lag gauge](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag-gauge) show a gap in task IDs, not a count of tasks. All of a shard's tasks take their IDs from one sequence, so the gap grows with every task the shard writes, not only with replication tasks. Use these panels to see whether lag is rising, falling or flat. Values above 100,000 show as exactly 100K.
+
+| What the lag panels show | What it means | What to do |
 |---|---|---|
-| Declining toward zero | The standby is catching up | Wait for it to flatten near zero before starting |
-| Rising | Lag is growing — the standby is falling further behind | Do not start. This can have several causes: a burst of high load on the active, standby history pods under pressure, or stream errors slowing delivery. Check the [Receiver Backlog Depth panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) and the stream health panels from section 1.2 to narrow it down. Wait until the trend reverses before proceeding. |
-| Flat at a non-zero value | Standby is keeping pace with the active's current load — there is always a small in-flight queue under normal throughput | If the value is small (a few hundred tasks or fewer), this is normal — proceed. If it is large (thousands of tasks), the drain window may not be enough to clear it. In that case, raise `history.ReplicationStreamSenderHighPriorityQPS` (default 100 tasks/s) on the **active cluster** to push tasks faster, or wait for a lower-traffic window. |
+| Declining toward zero | The standby is catching up | Wait for the decline to flatten and for Replication Latency p99 to settle before starting. |
+| Rising | The standby is falling further behind | Do not start. Check the [Receiver Backlog Depth panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) and the stream health panels from section [1.2](#12-is-the-replication-stream-between-clusters-healthy). Wait until the trend reverses. |
+| Flat at a non-zero value | The standby is keeping pace with the active's current load | Decide by Replication Latency p99. A p99 close to 30 seconds means a task sent just before HANDOVER can take as long as the whole drain step. |
 
-**When you are ready to start the handover workflow**
+**How WaitReplication uses `AllowedLaggingTasks` and `AllowedLaggingSeconds`.** When the handover workflow starts, it records each shard's newest replication task ID. WaitReplication first waits until the standby has confirmed every shard up to that recorded task. After that, a shard counts as caught up when either of these is true:
 
-When lag looks good and you are ready to proceed, use what you observed here to set the `AllowedLaggingTasks` input for the handover workflow. This value tells WaitReplication how close the standby needs to be before the workflow moves on to the drain window — it does not fix the lag, it just sets the exit threshold. Use the lag gauge to pick a value that reflects what you actually saw, not an arbitrary number.
+- **Tasks:** the gap between the shard's newest replication task ID and the last one the standby confirmed is at most `AllowedLaggingTasks`. The gap is in task IDs, per shard, not a count of tasks.
+- **Seconds:** the time between the shard's newest replication task and the last one the standby confirmed is at most `AllowedLaggingSeconds`. Values below 5 are raised to 5, and values above 120 are lowered to 120.
 
-| What the lag gauge shows | Recommended `AllowedLaggingTasks` |
-|---|---|
-| Consistently below 200 tasks and stable | 500 — standby will hit this quickly |
-| Occasional spikes to 1 000+ tasks | Match or slightly exceed the spike value, or wait for the cluster to settle first |
-| Thousands of tasks, not converging | Do not start — setting a high value just to proceed will likely cause the handover to roll back. WaitReplication will exit the moment the threshold is met, but the 30-second drain window must then clear all remaining tasks. If thousands are still in flight when HANDOVER starts, the drain times out and no flip occurs. |
+**Do not copy the gauge value into `AllowedLaggingTasks`.** The gauge measures from the newest task ID of any kind on the shard. WaitReplication measures from the newest replication task ID, so the gauge reads the same or higher. Keep the starting values, `AllowedLaggingSeconds: 10` and `AllowedLaggingTasks: 500`. A larger `AllowedLaggingTasks` only lets WaitReplication finish sooner; the drain step still has to clear what is left within `HandoverTimeoutSeconds`.
 
-> If lag is rising or flat at a large value, do not proceed. Wait for the trend to reverse and lag to stabilize near zero before continuing to section 1.4.
+> If lag is rising, or Replication Latency p99 is close to 30 seconds, do not proceed. Wait for the trend to reverse and latency to settle.
 
-**Replication latency — the time-based signal.** The panels above measure task count — how many tasks are pending. Also check the [Replication Latency p99 panel](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-latency-p99-time-series) (Row 1, standby cluster). This measures how long each task takes end-to-end from generation on the active to application on the standby. If p99 is approaching 30 seconds, any task in flight when HANDOVER starts cannot drain within the 30-second window — the handover is guaranteed to roll back regardless of task count. Alert `FAILOVER-PRE-07` fires when p99 exceeds 20s.
+Section [1.4](#14-is-the-standby-making-extra-round-trips-to-fetch-missing-history) checks whether the standby is slowed down by fetching missing history from the active.
 
 #### 1.4. Is the standby making extra round-trips to fetch missing history?
 
@@ -775,18 +795,23 @@ When the standby applies a replication task, it sometimes finds that the history
 
 Replication tasks travel from the active to the standby over a stream. When they arrive on the standby they land in a receive buffer before being applied. The Receiver Backlog Depth panel shows how many tasks are sitting in that buffer waiting to be processed.
 
-When the buffer fills up past its limit (500 tasks by default), the standby tells the active to stop sending. The stream stays open but the active pauses dispatching new tasks. If you start the handover workflow at this point, the WaitReplication step — the internal step that waits for the standby to catch up before triggering the flip (Steps 1–3) — will stall. The standby stops making progress and WaitReplication keeps waiting until the backlog drains. In the worst case, WaitReplication times out after 1 hour with no flip occurring.
+**What happens when the receive buffer reaches its limit depends on tiered processing.** The limit is `history.ReplicationReceiverMaxOutstandingTaskCount`, default 500 tasks per shard.
+
+- **`history.EnableReplicationTaskTieredProcessing` set to `true`:** the standby tells the active to pause sending. The stream stays open, and the active sends again once the backlog drops below the limit.
+- **`history.EnableReplicationTaskTieredProcessing` set to `false`:** the standby sends no pause, and the active does not pause at 500. What limits the backlog in that case has not been measured.
+
+**A handover started while the standby is behind waits in WaitReplication.** WaitReplication is Step 3 of the handover workflow. It waits for the standby to catch up before the namespace goes into HANDOVER state. The namespace stays in its normal state, so traffic is not affected, but no flip happens. Each WaitReplication attempt runs for up to 1 hour, and the handover workflow then retries it with no limit on attempts.
 
 | Backlog depth (p99) | What it means | What to do |
 |---|---|---|
 | < 100 | Healthy | Safe to proceed |
-| 100–399 | Buffer is elevated — not a problem yet, but WaitReplication will push more tasks in and could tip it over the limit mid-flight | Resolve the backlog before starting. Check standby history pod CPU and database latency — a slow standby is the most common cause. |
-| 400–499 | Close to the limit | Do not start — the buffer will almost certainly hit its limit once WaitReplication begins pushing tasks. |
-| ≥ 500 | Limit reached — the active has already paused sending | Hard blocker. The handover workflow will not progress past Step 3 in this state. Resolve the backlog first. |
+| 100–399 | Elevated | Resolve the backlog before starting. Check standby history pod CPU, database latency, and Receive Buffer Full in section [1.2](#12-is-the-replication-stream-between-clusters-healthy). |
+| 400–499 | Close to the 500-task limit | Do not start. The workload keeps adding tasks while WaitReplication runs. |
+| ≥ 500 | At the 500-task limit. With tiered processing `true`, the active has paused sending. | Hard blocker. Resolve the receive backlog first. |
 
-> If backlog depth is 400 or above, do not proceed. Resolve the backlog first, then continue to section 1.6. If it is between 100–399, resolve it before starting the handover workflow — the buffer will likely tip over once WaitReplication begins pushing tasks.
+> If backlog depth is 100 or above, resolve the backlog before starting the handover workflow.
 
-> If backlog depth is below 100, continue to section 1.6.
+Once backlog depth is below 100, section [1.6](#16-are-there-workflow-executions-on-the-standby-that-will-be-stuck-after-the-flip) checks for workflow executions on the standby that will be stuck after the flip.
 
 #### 1.6. Are there workflow executions on the standby that will be stuck after the flip?
 
@@ -829,11 +854,14 @@ The handover workflow is now running. During this phase — Steps 1 through 3 �
 
 **Watch [Row 2a — WaitReplication](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#row-2a--waitreplication-steps-13--no-client-impact) in the dashboard.**
 
-The key panel is the [Catchup Progress % gauge](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-catchup-progress--gauge) — it shows what percentage of shards have caught up within your `AllowedLaggingSeconds` threshold. You want this to climb steadily toward 100%. The [Handover Progress — Catchup + Drain Combined](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-progress--catchup--drain-combined-time-series) panel shows both catchup and drain progress together — during this phase only catchup rises; drain stays at 0 until the flip begins.
+The key panel is the [Catchup Progress % gauge](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-catchup-progress--gauge). The gauge shows the percentage of shards that WaitReplication counts as caught up, by the rule in section [1.3](#13-is-replication-lag-low-enough-to-proceed). You want this to climb steadily toward 100%. The [Handover Progress — Catchup + Drain Combined](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-handover-progress--catchup--drain-combined-time-series) panel shows both catchup and drain progress together. During this phase only catchup rises; drain stays at 0 until the flip begins.
 
-> The catchup gauge does not filter by namespace. If you have multiple global namespaces replicating, it reflects all of them combined — not just the one being handed over. A server-side fix to add namespace filtering is pending.
+> **Catchup progress covers every replicated namespace, not only the one being handed over.** WaitReplication checks each shard's replication stream, and that stream carries every replicated namespace on the shard.
 
-**What normal looks like:** catchup progress climbs steadily. The speed is limited by `history.ReplicationStreamSenderHighPriorityQPS` (default 100 tasks/s per stream) — if you have a lot of lag this will take time. If you raised this value before starting, you should see faster progress.
+**What normal looks like:** catchup progress climbs steadily. How fast depends on tiered processing:
+
+- **`history.EnableReplicationTaskTieredProcessing` set to `true`:** the active sends at most `history.ReplicationStreamSenderHighPriorityQPS` tasks per second per stream, default 100. Raising that limit before you start speeds up catch-up only while Receive Buffer Full is zero; see the note on lag rising while Replication Tasks Sent stays flat in section [1.2](#12-is-the-replication-stream-between-clusters-healthy).
+- **`history.EnableReplicationTaskTieredProcessing` set to `false`:** the active has no send cap, and catch-up speed depends on how fast the standby applies the tasks.
 
 **What to watch for:**
 
@@ -886,8 +914,8 @@ Drain Progress stops climbing and drops back to 0. The namespace returns to `REP
 Rollback happens when the drain window expires before all shards confirm catchup. Common reasons:
 
 - Too much lag remained when HANDOVER started — more tasks in flight than the 30-second window could drain. Go back to section 1.3 and wait for lag to be lower before re-running.
-- The receiver backlog on the standby hit its limit mid-drain and the sender paused. Check the Receiver Backlog Depth panel — if it was elevated going in, that is likely the cause. See section 1.5.
-- `history.EnableReplicationTaskTieredProcessing` is not `true` — a LOW priority backlog predating the snapshot prevents drain from completing. Verify this is set on both clusters before re-running.
+- The receiver backlog on the standby reached its limit during the drain. With `history.EnableReplicationTaskTieredProcessing` set to `true`, the active then pauses sending. Check the Receiver Backlog Depth panel; if it was elevated going in, that is the likely cause. See section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks).
+- A force-replication backlog was still being replicated when HANDOVER started. Backfill for running executions is part of the drain in every release. Backfill for closed executions is kept out of the drain only when `history.EnableReplicationTaskTieredProcessing` is `true` and `history.enableTransitionHistory` is `false`, the default up to v1.29.x. Let force-replication finish before re-running, including its activities. Terminating the workflow does not stop activities that are already running.
 - The migration worker pod was restarted during the drain window — the `WaitHandover` activity heartbeat timed out. Re-run once the pod is stable.
 
 After addressing the root cause, go back to section 1 and repeat all pre-flight checks before re-running the handover workflow. Skipping straight to re-running risks ending up in the same situation.
@@ -962,7 +990,7 @@ The namespace is now active on the new cluster and the handover workflow has com
 | [Version Mismatch Decay](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-version-mismatch-decay-time-series) | Old active | The old active is working through its backlog of pre-flip tasks — each one is version-checked, found to belong to the new active, and safely dropped. This should trend toward 0 as the backlog drains. If it stays non-zero for more than a few minutes, a queue processor on the old active may be stuck — check history pod logs. |
 | [Forwarding Error Rate by Type](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-forwarding-error-rate-by-type-time-series) | Old active | Should be 0. `Unavailable` = new active unreachable. `ResourceExhausted` = new active throttling, raise `frontend.globalNamespaceRPS` if set, else `frontend.namespaceRPS`. `FailedPrecondition` = workers completing tasks on old active without forwarding — see dynamic config section below. |
 | [WFT Schedule-to-Start](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-wft-schedule-to-start-new-active-time-series) | New active | Still elevated after 2 minutes = workers have not reconnected to the new active yet. Check that workers are polling the new active. |
-| [Replication Lag — Reverse Stream](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag--reverse-stream-time-series) | New active | Rising lag = old active (now standby) cannot keep up with replication from the new active. |
+| [Replication Lag — Reverse Stream](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-replication-lag--reverse-stream-time-series) | New active | Gap in task IDs, for direction only. Rising means the old active, now the standby, cannot keep up with the new active. Right after the flip, p99 can sit at the 100K cap; read p50. |
 | [Reverse Replication Active (New Active → Old Active)](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-reverse-replication-active-time-series) | Old active (now standby) | Rises shortly after the flip while the namespace has traffic on the new active. Flat while there is traffic means the reverse stream has not been established. Check [Stream Stuck](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-stream-stuck-stat) on the old active. |
 
 **Re-check task processing on the new active.** That namespace's task load has just changed from
@@ -1136,8 +1164,8 @@ In most cases: **the namespace is safe**. The handover workflow is designed so t
 | Cause | Where to check |
 |---|---|
 | Too much replication lag when HANDOVER started | Go back to section [1.3](#13-is-replication-lag-low-enough-to-proceed) — wait for lag to be near-zero before re-running |
-| Receiver backlog hit its limit mid-drain | Check [Receiver Backlog Depth](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat) — see section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks) |
-| `history.EnableReplicationTaskTieredProcessing` is not `true` | Verify on both clusters — a LOW priority backlog predating the snapshot prevents drain from completing |
+| Receiver backlog hit its limit during the drain | Check [Receiver Backlog Depth](../observability/dashboards/server/namespace-failover-graceful-handover-readme.md#panel-receiver-backlog-depth-stat); see section [1.5](#15-is-the-standby-keeping-up-with-incoming-replication-tasks) |
+| A force-replication backlog was still being replicated when HANDOVER started | Let force-replication finish, including activities that are already running, before re-running. See the rollback reasons in section [2b](#2b-namespace-is-in-handover--monitor-the-drain-window-steps-45) |
 | Migration worker pod restarted during the drain window | Re-run once the pod is stable |
 
 **What to do:** go back to section 1 and repeat all pre-flight checks before re-running the handover workflow.
@@ -1239,8 +1267,9 @@ listing it there finds nothing. A missing running execution makes no progress. I
 either cluster, and signals to it fail with `workflow not found`.
 
 **How to recover:** wait until the handover workflow has finished. While the namespace is in
-HANDOVER, a backlog from `force-replication-v2` can block the drain and roll the handover back when
-`history.EnableReplicationTaskTieredProcessing` is not `true`. Once the handover workflow has finished,
+HANDOVER, a backlog from `force-replication-v2` can block the drain and roll the handover back,
+whatever `history.EnableReplicationTaskTieredProcessing` is set to, because backfill for running
+executions is part of the drain in every release. Once the handover workflow has finished,
 start `force-replication-v2` on the **old active cluster**, which is now the standby. Start it as soon as
 you can, because running executions make no progress until they are copied.
 

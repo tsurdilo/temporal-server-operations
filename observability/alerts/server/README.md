@@ -182,7 +182,9 @@ that is specific to the cluster.
 
 | # | Alert | Component | Panel | `for` |
 |---|---|---|---|---|
+| 55 | [Activity Heartbeat Timeouts](./runbooks/55-activity-heartbeat-timeouts.md) | history | [Activity Heartbeat Timeout (Every Attempt)](../../dashboards/server/temporal-server-readme.md) | 10m |
 | 92 | [Namespace Deletion Failed](./runbooks/92-namespace-deletion-failed.md) | worker | [Namespace Deletions Failed](../../dashboards/server/temporal-server-readme.md) | 5m |
+| 93 | [Replication Stream Status Messages Stopped](./runbooks/93-replication-stream-status-messages-stopped.md) | history | [Replication Streams Received from Each Remote Cluster](../../dashboards/server/temporal-server-readme.md) | 10m |
 
 ---
 

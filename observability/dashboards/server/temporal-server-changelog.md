@@ -1,5 +1,75 @@
 # Changelog — Temporal Server Dashboard
 
+## v2.38.2 — 2026-11-24
+
+### Fixed
+
+- **Heartbeat Calls Refused by Cause (3105)**: the Go SDK retry window is capped at 10 seconds.
+
+## v2.38.1 — 2026-11-24
+
+### Fixed
+
+- **Heartbeat Calls Refused by Cause (3105)**: description lists all four lines, says `frontend`
+  lines repeat `history` refusals, and gives the Go SDK retry window by release.
+
+## v2.38.0 — 2026-11-19
+
+### Added
+
+- **Replication Tasks Sent per Second by Task Type (3201)**, **Cluster Replication**.
+- **Replication Streams Received from Each Remote Cluster (3202)**, **Cluster Replication**;
+  alert 93 points here.
+- **Replication Task Cleanup Runs and Failures (3203)**, **Cluster Replication**.
+
+### Documentation
+
+- **Replication Task Throughput (172)**: the applied series is empty on streaming replication.
+- **Send and Recv Backlog (174)**: the send backlog series is empty on streaming replication.
+- **Tasks Fetched per Batch and Attempts per Task (175)**: tasks fetched is empty on streaming
+  replication.
+- **Sender Rate Limit Latency (2002)**: measures a limiter that lets every task through, for
+  low-priority sends only.
+
+## v2.37.0 — 2026-11-12
+
+### Changed
+
+- Renamed row **Workflow Execution History Info** to **Workflow History, State and Payload Sizes** (it holds history, mutable state, search attribute, memo
+  and heartbeat details sizes).
+
+## v2.36.0 — 2026-11-12
+
+### Added
+
+- **Activity Heartbeat Timeout (Every Attempt) (3101)**, **SDK Workers Info**: every timed-out
+  attempt, retried or not (server v1.29.0+).
+- **Activity StartToClose Timeout (Every Attempt) (3102)**, **SDK Workers Info**: the same for
+  start-to-close (server v1.29.0+).
+- **Activity ScheduleToClose Timeout (3103)**, **SDK Workers Info**.
+- **Activity Heartbeat Calls (3104)**, **Throttling and Limits**.
+- **Heartbeat Calls Refused by Cause (3105)**, **Throttling and Limits**.
+- **Heartbeat Call Latency (Frontend and History) (3106)**, **Service Latencies**.
+- **Heartbeat Details Size (3107)**, **Workflow Execution History Info** (server v1.30.0+).
+- **Timer Task Delay After Due Time by Type (3108)**, **History Timer Task Info**.
+- **Timer Tasks Throttled by a Busy Workflow (3109)**, **Busy Workflow Throttling**.
+
+### Changed
+
+- Renamed **Activity Heartbeat Timeout (133)** to
+  **Activity Heartbeat Timeout (Final Attempt)**; description says it counts only timeouts that
+  ended the activity.
+- Renamed **Activity StartToClose Timeout (131)** to
+  **Activity StartToClose Timeout (Final Attempt)**; same description fix.
+- Renamed **Transfer Active Task Errors Workflow Busy (143)** to
+  **Transfer Tasks Throttled by a Busy Workflow**.
+- **Activity ScheduleToStart Timeout (132)**: description says it is never retried.
+- **Throttled Tasks by Task Type and Namespace (2418)**: description says it includes busy-workflow
+  refusals, not only persistence limits.
+- Layout: new panels placed side by side with their related panels in **SDK Workers Info**,
+  **Throttling and Limits**, **Busy Workflow Throttling**, **History Timer Task Info** and
+  **Workflow Execution History Info**; panels moved only within their rows.
+
 ## v2.35.0 — 2026-11-06
 
 ### Added

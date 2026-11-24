@@ -601,14 +601,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1000
-              },
-              {
-                "color": "red",
-                "value": 5000
               }
             ]
           },
@@ -618,13 +610,13 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 8,
+        "w": 6,
         "x": 0,
         "y": 5
       },
       "id": 110,
-      "title": "Replication Lag ($p task count)",
-      "description": "p$p of replication_tasks_lag on standby. Orange \u2265 1 000 tasks, red \u2265 5 000 tasks. See playbook section 1.3.",
+      "title": "Replication Lag \u2014 Task-ID Distance ($p)",
+      "description": "Distance, in task IDs, between the newest task on each shard of the active cluster and the last replication task the standby acknowledged (p$p across shards, over the last 10 minutes). Not a count of replication tasks: each shard numbers every history task it creates from one sequence, so the value also grows with the active's other task writes. Emitted by the active only when replication task cleanup advances, about once a minute per shard; it stops while the standby is not acknowledging. Because the panel looks back 10 minutes, it keeps showing the last values during a short outage and empties only after about 10 minutes without acknowledgements. On a test cluster, a 4-minute standby outage sent the value to the 100K cap once the standby was back. Use it for direction: rising, falling or flat. For how far behind the standby is in seconds, use Replication Latency \u2014 Time Behind (Standby). Values above 100,000 show as exactly 100K, the top of the metric's buckets; on a test cluster p99 sat at the cap for about 10 minutes after the clusters started, after a standby outage, and on the reverse stream right after a handover, while p50 stayed low. See playbook section 1.3.",
       "type": "gauge",
       "options": {
         "reduceOptions": {
@@ -632,12 +624,12 @@
             "lastNotNull"
           ]
         },
-        "showThresholdLabels": true,
-        "showThresholdMarkers": true
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false
       },
       "targets": [
         {
-          "expr": "histogram_quantile($p, sum(rate(replication_tasks_lag_bucket{cluster=\"$standby_cluster\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile($p, sum by (le) (increase(replication_tasks_lag_bucket{cluster=\"$active_cluster\"}[10m])))",
           "legendFormat": "lag p{{p}}",
           "refId": "A"
         }
@@ -660,14 +652,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 10
-              },
-              {
-                "color": "red",
-                "value": 100
               }
             ]
           }
@@ -676,13 +660,13 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
-        "x": 8,
+        "w": 6,
+        "x": 6,
         "y": 5
       },
-      "id": 112,
-      "title": "Send Backlog (Active)",
-      "description": "p99 of replication_task_send_backlog on active. Orange \u2265 10, red \u2265 100. See playbook section 1.3.",
+      "id": 117,
+      "title": "Replication Tasks Sent per Second (Active)",
+      "description": "Replication tasks per second the active cluster is sending, all task types, without the once-a-second stream status messages. Works on streaming replication (the default). Flat while Replication Lag \u2014 Task-ID Distance rises has two causes. If Receive Buffer Full (Standby) is non-zero, the standby is the limit. If it is zero, the active is not sending faster: with history.EnableReplicationTaskTieredProcessing true, sending is capped at history.ReplicationStreamSenderHighPriorityQPS (default 100) per stream; with it false there is no send cap. Zero is normal when no replicated namespace has traffic. Replaces Send Backlog (Active), which is always empty on streaming replication. See playbook section 1.2.",
       "type": "stat",
       "options": {
         "reduceOptions": {
@@ -696,8 +680,8 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum(rate(replication_task_send_backlog_bucket{cluster=\"$active_cluster\"}[$__rate_interval])) by (le))",
-          "legendFormat": "send backlog p99",
+          "expr": "sum(rate(replication_tasks_send{cluster=\"$active_cluster\", operation!=\"SyncWatermark\"}[$__rate_interval]))",
+          "legendFormat": "sent/s",
           "refId": "A"
         }
       ]
@@ -731,13 +715,13 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 8,
+        "w": 6,
+        "x": 6,
         "y": 8
       },
       "id": 113,
-      "title": "Send Channel Full (Active)",
-      "description": "rate(replication_stream_channel_full) on active. See playbook section 1.3.",
+      "title": "Receive Buffer Full (Standby)",
+      "description": "Times per second the standby's buffer of received replication messages (512 per stream) was full when a new message arrived. The standby is not taking messages off the stream as fast as the active sends them, so applying on the standby is the bottleneck. Short bursts during catch-up are expected; sustained under steady load, check standby history pod CPU, database latency and Receiver Backlog Depth. Emitted only by the receiving side of a stream, never by the sender. See playbook section 1.2.",
       "type": "stat",
       "options": {
         "reduceOptions": {
@@ -751,8 +735,8 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(replication_stream_channel_full{cluster=\"$active_cluster\"}[$__rate_interval]))",
-          "legendFormat": "channel full/s",
+          "expr": "sum(rate(replication_stream_channel_full{cluster=\"$standby_cluster\"}[$__rate_interval]))",
+          "legendFormat": "buffer full/s",
           "refId": "A"
         }
       ]
@@ -782,7 +766,7 @@
       },
       "id": 111,
       "title": "Replication Lag Trend (Pre-Flight)",
-      "description": "p50 and p99 of replication_tasks_lag on standby. See playbook section 1.3.",
+      "description": "p50 and p99 over 10-minute windows of the same value as Replication Lag \u2014 Task-ID Distance: a distance in task IDs on the active cluster, not a count of replication tasks. Emitted only when replication task cleanup advances; a gap means the standby has not acknowledged for about 10 minutes. Use the direction of the lines, not their height. Values above 100,000 show as exactly 100K, the top of the metric's buckets; on a test cluster p99 sat at the cap for about 10 minutes after the clusters started, after a standby outage, and on the reverse stream right after a handover, while p50 stayed low. See playbook section 1.3.",
       "type": "timeseries",
       "options": {
         "legend": {
@@ -798,12 +782,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(replication_tasks_lag_bucket{cluster=\"$standby_cluster\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum by (le) (increase(replication_tasks_lag_bucket{cluster=\"$active_cluster\"}[10m])))",
           "legendFormat": "lag p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(replication_tasks_lag_bucket{cluster=\"$standby_cluster\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(replication_tasks_lag_bucket{cluster=\"$active_cluster\"}[10m])))",
           "legendFormat": "lag p99",
           "refId": "B"
         }
@@ -863,7 +847,7 @@
       },
       "id": 201,
       "title": "Catchup Progress (%)",
-      "description": "catchup_ready_shard_count{target_cluster=\"$standby_cluster\"} / $total_shards \u00d7 100. Rises during WaitReplication (Steps 1\u20133).\n\n\u26a0\ufe0f catchup_ready_shard_count has no namespace label until server PR merges \u2014 this panel aggregates all namespaces. See playbook section 2a.",
+      "description": "Percentage of shards that WaitReplication counts as caught up (Steps 1\u20133). Each shard's replication stream carries every replicated namespace, so the value covers all of them, not only the one being handed over. The panel does not filter by namespace: catchup_ready_shard_count has a namespace label only from v1.32.0, where it names the handover workflow that recorded the value. Empty when no handover workflow is running. See playbook section 2a.",
       "type": "gauge",
       "options": {
         "reduceOptions": {
@@ -1579,7 +1563,7 @@
       },
       "id": 504,
       "title": "Replication Lag \u2014 New Active \u2192 Old Active (Reverse Stream)",
-      "description": "replication_tasks_lag on old active (now standby) \u2014 reverse stream lag from new active. See playbook section 4.",
+      "description": "Reverse stream, after the flip: the same task-ID distance as Replication Lag \u2014 Task-ID Distance, read on the new active cluster (the cluster selected as Standby Cluster) for the replication tasks it holds for the old active. Direction only, not a count of tasks. Read it only after the flip: before it, this shows the standby's own value, which says nothing about the forward stream. Empties after about 10 minutes without acknowledgements from the old active. Values above 100,000 show as exactly 100K, the top of the metric's buckets; on a test cluster p99 sat at the cap for about 10 minutes after the clusters started, after a standby outage, and on the reverse stream right after a handover, while p50 stayed low. See playbook section 4.",
       "type": "timeseries",
       "options": {
         "legend": {
@@ -1594,12 +1578,12 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(replication_tasks_lag_bucket{cluster=\"$active_cluster\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum by (le) (increase(replication_tasks_lag_bucket{cluster=\"$standby_cluster\"}[10m])))",
           "legendFormat": "reverse lag p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(replication_tasks_lag_bucket{cluster=\"$active_cluster\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(replication_tasks_lag_bucket{cluster=\"$standby_cluster\"}[10m])))",
           "legendFormat": "reverse lag p99",
           "refId": "B"
         }
@@ -1905,7 +1889,7 @@
   "timepicker": {},
   "timezone": "browser",
   "description": "Operator dashboard for executing and monitoring a planned graceful namespace failover using the namespace-handover-v2 workflow. Playbook: playbooks/namespace-failover-graceful-handover.md. Alerts: observability/alerts/server/temporal-failover-alerts.yaml.",
-  "title": "Temporal Namespace Failover \u2014 Graceful Handover v1.7.0",
+  "title": "Temporal Namespace Failover \u2014 Graceful Handover v1.8.1",
   "uid": "temporal-ns-failover-handover",
   "version": 4,
   "weekStart": ""

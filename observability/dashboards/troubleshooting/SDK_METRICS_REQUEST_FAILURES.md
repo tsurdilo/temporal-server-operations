@@ -464,7 +464,7 @@ These three operations block until a Workflow Task completes, so their `Deadline
 | Server Overview — SDK Workers | **Schedule to Start Latencies** (`task_schedule_to_start_latency_bucket` by `task_type` and `operation`) | This is your primary signal. High schedule-to-start latency for `workflow` tasks means workers are not picking up WFTs fast enough. Orange threshold at 500ms, red at 2s. |
 | Server Overview — SDK Workers | **Tasks Persisted to DB** (`persistence_requests` for `CreateTasks`) | A sustained increase here means the matching service cannot dispatch tasks to a waiting poller and is writing them to the database instead — a sign of worker under-provisioning or a growing backlog. |
 | Server Overview — SDK Workers | **Sync Match Rate** (`syncmatch_latency_bucket` on matching) | Low or degrading sync match rate means tasks are not being picked up by waiting pollers within the sync match window (~500ms), indicating insufficient pollers or worker capacity. |
-| Server Overview — Task Timeouts and Backlog | **Approximate Task Backlog** (`approximate_backlog_count` by `task_type`) | A growing backlog confirms workers are falling behind. If this is rising alongside `DeadlineExceeded` on query/update operations, workers need to be scaled up. |
+| SDK Workers Info | **Approximate Task Backlog** (`approximate_backlog_count` by `task_type`) | A growing backlog confirms workers are falling behind. If this is rising alongside `DeadlineExceeded` on query/update operations, workers need to be scaled up. |
 
 ---
 
@@ -474,9 +474,9 @@ These `NotFound` responses mean the activity's task token was stale — the acti
 
 | Dashboard Section | Panel | What to look for |
 |-------------------|-------|-----------------|
-| Server Overview — Task Timeouts and Backlog | **Activity StartToClose Timeout** (`start_to_close_timeout` for `TimerActiveTaskActivityTimeout`) | A spike here directly confirms activities are timing out before completion. Correlate timing with your SDK `NotFound` spike. |
-| Server Overview — Task Timeouts and Backlog | **Activity Heartbeat Timeout** (`heartbeat_timeout` for `TimerActiveTaskActivityTimeout`) | For `RecordActivityTaskHeartbeat` `NotFound` specifically — this confirms heartbeat timeouts are firing. Check your `HeartbeatTimeout` configuration and heartbeat frequency. |
-| Server Overview — Task Timeouts and Backlog | **Approximate Task Backlog** | A growing backlog means activities are waiting too long to be picked up in the first place, contributing to `ScheduleToStart` timeouts upstream of the `StartToClose`. |
+| SDK Workers Info | **Activity StartToClose Timeout (Every Attempt)** (`activity_task_timeout`, `timeout_type="StartToClose"`, server v1.29.0+) | A spike here directly confirms activity attempts are timing out before completion. Correlate timing with your SDK `NotFound` spike. The **(Final Attempt)** panel next to it counts only timeouts that ended the activity, so it stays flat while timed-out attempts are being retried. |
+| SDK Workers Info | **Activity Heartbeat Timeout (Every Attempt)** (`activity_task_timeout`, `timeout_type="Heartbeat"`, server v1.29.0+) | For `RecordActivityTaskHeartbeat` `NotFound` specifically — this confirms heartbeat timeouts are firing. Check your `HeartbeatTimeout` configuration and heartbeat frequency. The **(Final Attempt)** panel next to it stays flat while timed-out attempts are being retried. |
+| SDK Workers Info | **Approximate Task Backlog** | A growing backlog means activities are waiting too long to be picked up in the first place, contributing to `ScheduleToStart` timeouts upstream of the `StartToClose`. |
 
 ---
 
@@ -486,7 +486,7 @@ Means the WFT timed out and was rescheduled before the worker could respond.
 
 | Dashboard Section | Panel | What to look for |
 |-------------------|-------|-----------------|
-| Server Overview — Task Timeouts and Backlog | **Workflow Task StartToClose Timeouts** (`start_to_close_timeout` for `TimerActiveTaskWorkflowTaskTimeout`) | A spike here confirms WFTs are timing out. This usually means WFT processing on the worker is slower than the `WorkflowTaskTimeout`. |
+| SDK Workers Info | **Workflow Task StartToClose Timeouts per Namespace (sticky tq)** (`start_to_close_timeout` for `TimerActiveTaskWorkflowTaskTimeout`) | A spike here confirms WFTs are timing out. This usually means WFT processing on the worker is slower than the `WorkflowTaskTimeout`. |
 | Server Overview — SDK Workers | **Schedule to Start Latencies** | If WFTs are timing out, schedule-to-start latency will also be elevated — check whether the issue is the worker not picking up tasks fast enough, or processing them too slowly once picked up. |
 
 ---
