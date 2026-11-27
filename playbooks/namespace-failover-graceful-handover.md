@@ -498,7 +498,27 @@ The same applies when you promote a namespace to global after it already has sea
 
 Temporal can archive closed workflow execution history and visibility records to external storage (S3 or compatible). **If you are not using archival in this namespace, skip this section.**
 
-Both clusters archive independently. When a workflow closes, each cluster generates and processes its own archival task — there is no active/passive gate on the archival path. If both clusters point to the same storage bucket, both attempt to upload the same workflow history. The second cluster checks whether the blob already exists and skips the upload if it does — so you get one copy, not two. However, both clusters make API calls to storage for every workflow close, including the existence check. Under sustained high load this can double the storage API request volume to S3.
+**The archival location belongs to the namespace, not to a cluster.** A global namespace has one history archival URI and one visibility archival URI, and both clusters use the same ones:
+
+- The namespace's archival URIs are set once, when the namespace is created (`RegisterNamespace`). If archival was not set then, they are set by the first namespace update (`UpdateNamespace`) that enables archival. If that call does not include a URI, the server takes the default from the server config of the cluster the call was sent to (`namespaceDefaults.archival.history.URI` and `namespaceDefaults.archival.visibility.URI`).
+- Which cluster's default is used depends only on where that call was sent. That cluster can be the active or the standby cluster for the namespace, and a later handover does not change the URIs:
+  - A namespace created as global can only be created on the master cluster (`clusterMetadata.masterClusterName` in the server config), so its default comes from the master cluster, whether the namespace is active or standby there.
+  - A namespace created as local and later made global keeps the archival URIs it got on the cluster where it was created.
+  - When archival is first turned on by a namespace update, the default comes from the cluster that received the update, active or standby.
+- After that, neither the history archival URI nor the visibility archival URI of the namespace can be changed, on any cluster.
+- The namespace's other clusters get the same archival URIs through namespace replication. They never use their own defaults for this namespace.
+
+For example, you create namespace `orders` by calling cluster A, without an archival URI. Cluster A's default, say `s3://archive-a`, is used. Cluster B also gets `s3://archive-a`, even though its own default is `s3://archive-b`. After a handover makes cluster B active, both clusters still use `s3://archive-a`.
+
+Each cluster's own server config decides whether that cluster archives at all. A cluster archives only when archival is on both in its server config (`archival.history.state` and `archival.visibility.state`) and on the namespace. If archival is off in a cluster's server config, that cluster archives nothing, even when archival is on for the namespace.
+
+To stop a cluster from archiving without restarting its servers, set the dynamic config settings `system.historyArchivalState` and `system.visibilityArchivalState` to `disabled`. These two settings only work in that direction. If archival is off in the server config, setting them to `enabled` does nothing.
+
+With S3, both clusters write to the same bucket, because the bucket name is part of the archival URI.
+
+Each cluster needs its own S3 connection settings in its server config (`archival.history.provider.s3store` and `archival.visibility.provider.s3store`). If a cluster's server config has archival storage settings, but not for S3, the cluster starts normally, but its archiving fails, just as if S3 were down ([Archival backend failing, visibility working](./visibility-archival-tasks-dlq.md#4-archival-backend-failing-visibility-working)).
+
+Both clusters archive independently. When a workflow closes, each cluster generates and processes its own archival task — there is no active/passive gate on the archival path. Because both clusters use the same archival URI, both attempt to upload the same workflow history to the same bucket. The second cluster checks whether the blob already exists and skips the upload if it does — so you get one copy, not two. However, both clusters make API calls to storage for every workflow close, including the existence check. Under sustained high load this can double the storage API request volume to S3.
 
 **Shared bucket (both clusters point to the same storage):**
 
@@ -515,9 +535,8 @@ If S3 starts returning errors, archival tasks fail and retry with backoff. Retry
 If you are seeing rising values in the metrics above, options to reduce S3 pressure:
 - Lower `history.archivalBackendMaxRPS` on the standby (dynamic config, default 10,000) — limits how fast the standby sends requests to S3
 - Increase `history.archivalProcessorArchiveDelay` on the standby (dynamic config, default 5 minutes) — spreads standby archival tasks over a longer window, reducing burst volume; after a handover, lower it on the new active and raise it on the new standby (dynamic config, no restart needed)
-- Switch to separate buckets — eliminates the double-write entirely; this is a larger configuration change that requires reconfiguring storage on both clusters — consider if the tuning options above are not sufficient
 
-> **Do not disable archival to address S3 pressure.** Archival configuration is part of namespace metadata and replicates between clusters — disabling it on one side propagates the change to the other and removes archival on both clusters.
+> **Do not disable archival to address S3 pressure.** Archival configuration is part of namespace metadata and replicates between clusters — disabling it on one side propagates the change to the other and removes archival on both clusters. Turning archival on works the same way, so turning it on from either cluster turns it on for both.
 
 #### During handover
 
@@ -528,8 +547,6 @@ The namespace handover does not affect archival of closed workflow executions �
 If you tuned `history.archivalBackendMaxRPS` or `history.archivalProcessorArchiveDelay` on the standby before the handover, swap them after the flip — raise `history.archivalBackendMaxRPS` on the new active and lower it on the new standby; apply the same swap to `history.archivalProcessorArchiveDelay` if you changed it. Both are dynamic config, no restart needed.
 
 Watch `history_archiver_blob_exists` and `history_archiver_archive_transient_error` on both clusters to confirm S3 pressure has normalized.
-
-If you are on separate buckets, the new active writes to its own bucket from this point — verify your retrieval tooling accounts for the split.
 
 ---
 
